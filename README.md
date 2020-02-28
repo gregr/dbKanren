@@ -9,9 +9,6 @@ large-scale relations.
 ### Data processing
 
 * types
-  * typical s-expression
-    * boolean, null, number, symbol, string, pair
-  * vectors as tuples (may be heterogeneous) or arrays (must be homogeneous)
   * fixed-size nat (number-of-bytes, content)
     * used to represent IDs, offsets, lengths
   * string/vector prefixes, suffixes, and slices
@@ -30,10 +27,7 @@ large-scale relations.
     * leads to compact and uniform record representations
 
 * ingestion
-  * parsing
-    * csv, nq (n-quads), json, s-expressions
-    * simpler notation for implementing state machines
-  * one-shot streams with eager buffering
+  * parsing: nq (n-quads)
   * gathering statistics
     * reservoir sampling
     * optional column type inference
@@ -45,28 +39,11 @@ large-scale relations.
     * may be interleaved to minimize physical passes
 
 * binary/bytevector serialization format for compact storage and fast loading
-  * type descriptions: T
-    * #f for polymorphic LENGTH, SIZE, or element T
-    * boolean, null, number
-    * #(nat SIZE)
-    * #(string LENGTH)
-    * #(symbol LENGTH)
-    * (T . T)
-    * #(tuple T ...) or #(array LENGTH T)
-  * encode and decode: polymorphic over all types
-    * scalar data
-      * encode,decode-string: polymorphic over length
-        * encode,decode-string/length
-      * encode,decode-nat: polymorphic over size
-        * encode,decode-nat/size
-      * encode,decode for boolean, null, symbol (similar to string), any number
-    * aggregate data
-      * element type descriptions: heterogeneous or homogeneous/uniform
-      * encode,decode-pair
-      * encode,decode-vector
-        * encode,decode-vector/length
+  * more efficient numbers: polymorphic, neg, int, float
   * track and store serialization offsets of elements that vary in size/length
     * these can be used for random access to these elements
+
+* sort?, bisect-range, gallop-range
 
 
 ### Database representation
