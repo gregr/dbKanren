@@ -1,5 +1,5 @@
 #lang racket/base
-(provide s-next s-prefix s-take s-drop s-append
+(provide s-next s-prefix s-prefix! s-take s-drop s-append
          s-filter s-map s-each s-fold s-scan s-group s-memo)
 (require racket/function)
 
@@ -10,6 +10,13 @@
     (let ((s (s-next s)))
       (if (null? s) (cons rxs s)
         (s-prefix (and n (- n 1)) (cons (car s) rxs) (cdr s))))))
+
+(define (s-prefix! v n s)
+  (let loop ((i 0) (s s))
+    (if (= i n) (cons i s)
+      (let ((s (s-next s)))
+        (cond ((null? s) (cons i s))
+              (else (vector-set! v i (car s)) (loop (+ i 1) (cdr s))))))))
 
 (define (s-take n s)
   (if (and n (= n 0)) '()
