@@ -19,18 +19,8 @@
     ((find-next start end <?) (bisect-next start end (i< <?)))))
 
 (define (table/bytes/offsets table:offsets type bs)
-  (define (ref i) (decode/bytes bs (table:offsets 'ref i) type))
-  (define (i< <?) (lambda (i) (<? (ref i))))
-  (method-lambda
-    ((length)         (table:offsets 'length))
-    ((ref i)          (ref i))
-    ((ref* start end) (let ((in (open-input-bytes bs)))
-                        (file-position in (table:offsets 'ref start))
-                        (let loop ((n (- end start)))
-                          (if (<= n 0) '()
-                            (thunk (cons (decode bs type) (loop (- n 1))))))))
-    ((find      start end <?) (bisect      start end (i< <?)))
-    ((find-next start end <?) (bisect-next start end (i< <?)))))
+  (define in (open-input-bytes bs))
+  (table/port/offsets table:offsets type in))
 
 (define (table/port type len in)
   (define width (sizeof type (void)))
@@ -48,19 +38,8 @@
     ((find-next start end <?) (bisect-next start end (i< <?)))))
 
 (define (table/bytes type bs)
-  (define width (sizeof type (void)))
-  (define (ref i) (decode/bytes bs (* i width) type))
-  (define (i< <?) (lambda (i) (<? (ref i))))
-  (method-lambda
-    ((length)         (quotient (bytes-length bs) width))
-    ((ref i)          (ref i))
-    ((ref* start end) (let ((in (open-input-bytes bs)))
-                        (file-position in (* start width))
-                        (let loop ((n (- end start)))
-                          (if (<= n 0) '()
-                            (thunk (cons (decode bs type) (loop (- n 1))))))))
-    ((find      start end <?) (bisect      start end (i< <?)))
-    ((find-next start end <?) (bisect-next start end (i< <?)))))
+  (define in (open-input-bytes bs))
+  (table/port type (quotient (bytes-length bs) (sizeof type (void))) in))
 
 (define (table/vector v)
   (define (i< <?) (lambda (i) (<? (vector-ref v i))))

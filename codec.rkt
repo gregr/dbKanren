@@ -1,5 +1,5 @@
 #lang racket/base
-(provide encode decode decode/bytes sizeof)
+(provide encode decode sizeof)
 (require racket/list racket/match)
 
 (define (<< i s) (arithmetic-shift i s))
@@ -178,7 +178,3 @@
                                   (decode-list in (decode-nat in #f) t)))
 (define (decode-array in l t)   (if l (decode-tuple in (make-list l t))
                                   (decode-array in (decode-nat in #f) t)))
-
-(define (decode/bytes bs i type) (let ((in (open-input-bytes bs)))
-                                   (file-position in i)
-                                   (decode in type)))
