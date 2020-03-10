@@ -1,9 +1,25 @@
 #lang racket/base
 (provide bisect bisect-next
          table/vector table/bytes table/port
-         table/bytes/offsets table/port/offsets tabulate)
+         table/bytes/offsets table/port/offsets tabulate
+         call/files let/files)
 (require "codec.rkt" "method.rkt" "stream.rkt"
          racket/function racket/match racket/vector)
+
+(define (call/files fins fouts p)
+  (let loop ((fins fins) (ins '()))
+    (if (null? fins)
+      (let loop ((fouts fouts) (outs '()))
+        (if (null? fouts)
+          (apply p (append (reverse ins) (reverse outs)))
+          (call-with-output-file
+            (car fouts) (lambda (out) (loop (cdr fouts) (cons out outs))))))
+      (call-with-input-file
+        (car fins) (lambda (in) (loop (cdr fins) (cons in ins)))))))
+
+(define-syntax-rule (let/files ((in fin) ...) ((out fout) ...) body ...)
+  (call/files (list fin ...) (list fout ...)
+              (lambda (in ... out ...) body ...)))
 
 ;; TODO: see if common parts can be consolidated without a performance penalty
 (define (table/port/offsets table:offsets type in)
@@ -82,14 +98,9 @@
                    (when out-offset (encode out-offset otype
                                             (file-position out)))
                    (encode out type x)))
-          (else (call-with-input-file
-                  fname-multi
-                  (lambda (in)
-                    (call-with-input-file
-                      fname-multi-offset
-                      (lambda (in-offset)
-                        (multi-merge out out-offset type otype v< chunk-count
-                                     in in-offset)))))
+          (else (let/files ((in fname-multi) (in-offset fname-multi-offset)) ()
+                  (multi-merge out out-offset type otype v< chunk-count
+                               in in-offset))
                 (delete-file fname-multi)
                 (delete-file fname-multi-offset)))
     item-count)
@@ -108,22 +119,17 @@
   (vector-sort! v v< 0 n)
   (define s2 (s-next s1))
   (if (null? s2) (vector n 0 v)
-    (call-with-output-file
-      chunk-file-name
-      (lambda (out-chunk)
-        (call-with-output-file
-          offset-file-name
-          (lambda (out-offset)
-            (let loop ((n n) (s s2) (item-count n) (chunk-count 1))
-              (for ((_ (in-range n)) (x (in-vector v)))
-                   (encode out-chunk type x))
-              (encode out-offset 'nat (file-position out-chunk))
-              (define s1 (s-next s))
-              (cond ((null? s1) (vector item-count chunk-count #f))
-                    (else (match-define (cons n s2) (s-prefix! v zmax s1))
-                          (vector-sort! v v< 0 n)
-                          (loop n s2 (+ item-count n)
-                                (+ chunk-count 1)))))))))))
+    (let/files () ((out-chunk chunk-file-name) (out-offset offset-file-name))
+      (let loop ((n n) (s s2) (item-count n) (chunk-count 1))
+        (for ((_ (in-range n)) (x (in-vector v)))
+             (encode out-chunk type x))
+        (encode out-offset 'nat (file-position out-chunk))
+        (define s1 (s-next s))
+        (cond ((null? s1) (vector item-count chunk-count #f))
+              (else (match-define (cons n s2) (s-prefix! v zmax s1))
+                    (vector-sort! v v< 0 n)
+                    (loop n s2 (+ item-count n)
+                          (+ chunk-count 1))))))))
 
 ;; TODO: separate chunk streaming from merging
 (define (multi-merge out out-offset type otype v< chunk-count in in-offset)
