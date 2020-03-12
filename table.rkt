@@ -94,10 +94,14 @@
     (define omax (if v? (sizeof `#(array ,item-count ,type) v?)
                    (file-size fname-multi)))
     (define otype (and out-offset `#(nat ,(- (sizeof 'nat omax) 1))))
-    (cond (v? (for ((_ (in-range item-count)) (x (in-vector v?)))
-                   (when out-offset (encode out-offset otype
-                                            (file-position out)))
-                   (encode out type x)))
+    (cond (v? (let loop ((prev #f) (i 0))
+                (unless (= i item-count)
+                  (define x (vector-ref v? i))
+                  (unless (and (< 0 i) (equal? x prev))  ;; remove duplicates
+                    (when out-offset (encode out-offset otype
+                                             (file-position out)))
+                    (encode out type x))
+                  (loop x (+ i 1)))))
           (else (let/files ((in fname-multi) (in-offset fname-multi-offset)) ()
                   (multi-merge out out-offset type otype v< chunk-count
                                in in-offset))
@@ -145,16 +149,16 @@
                                  (vector-set! heap hi (s-chunk start end))
                                  (loop (+ hi 1) end)))
   (heap! s< heap chunk-count)
-  (let loop ((hend chunk-count))
+  (let loop ((prev? #f) (prev #f) (hend chunk-count))
     (unless (= hend 0)
-      (let* ((top (heap-top heap))
-             (x (car top)) (top (s-next (cdr top))))
-        (when out-offset (encode out-offset otype (file-position out)))
-        (encode out type x)
+      (let* ((top (heap-top heap)) (x (car top)) (top (s-next (cdr top))))
+        (unless (and prev? (equal? x prev))  ;; remove duplicates
+          (when out-offset (encode out-offset otype (file-position out)))
+          (encode out type x))
         (cond ((null? top) (heap-remove!  s< heap hend)
-                           (loop (- hend 1)))
+                           (loop #t x (- hend 1)))
               (else        (heap-replace! s< heap hend top)
-                           (loop    hend)))))))
+                           (loop #t x    hend)))))))
 
 (define (heap-top h) (vector-ref h 0))
 (define (heap! ? h end)
