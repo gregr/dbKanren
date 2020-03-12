@@ -9,8 +9,6 @@ large-scale relations.
 ### Data processing
 
 * types
-  * fixed-size nat (number-of-bytes, content)
-    * used to represent IDs, offsets, lengths
   * string/vector prefixes, suffixes, and slices
     * represented as pairs or vectors of nats
       * ID, start, end are all fixed-size nats
@@ -29,6 +27,7 @@ large-scale relations.
 * ingestion
   * parsing: nq (n-quads)
   * gathering statistics
+    * total cardinality
     * reservoir sampling
     * optional column type inference
     * per-type statistics for polymorphic columns
@@ -40,10 +39,6 @@ large-scale relations.
 
 * binary/bytevector serialization format for compact storage and fast loading
   * more efficient numbers: polymorphic, neg, int, float
-  * track and store serialization offsets of elements that vary in size/length
-    * these can be used for random access to these elements
-
-* sort?, bisect-range, gallop-range
 
 
 ### Database representation
@@ -56,11 +51,12 @@ large-scale relations.
       * configurable alphabet approximation (for smaller index)
   * (un)loadable at runtime
     * causes dynamic extension/retraction of affected intensional relations
+  * incremental definition, modification, and persistence
 
 * intensional relations (user-level)
   * search strategy: backward or forward chaining
     * could be inferred
-    * try automatic goal reordering based on cardinality statistics
+    * try automatic goal reordering based on cardinality/statistics
   * forward-chaining supports stratified negation and aggregation
   * materialization (caching/tabling)
     * if materialized, may be populated on-demand or up-front
@@ -77,29 +73,72 @@ large-scale relations.
     * described using pattern matching?
       * tuple/array (un)flattening and reordering
       * ID substitution
+  * metadata
+    * field/column names and types
+      * optional remapping of lexicographical order
+    * backing tables: record, any indices, vw-columns, and/or text-suffixes
+    * uniqueness or other constraints
+    * statistics (derived from table statistics)
 
 * low-level tables with optional keys/indices (not user-level)
-  * backed by files/ports, bytes, hash tables, or decoded vectors
-    * disk/memory residence and memory structure reconfigurable at runtime
-  * key-less tables
-    * made up of one copy of the data which is not reordered in any way
-    * supports random access by offset
-      * by position when elements are of fixed size
-      * or when offset is otherwise known (supported by random access table)
-    * examples include tables used as indices, which must not be reordered:
-      * random access tables: arrays of size-varying element offsets
-        * these happen to be sorted, but the elements are not user data
-      * suffix arrays: given order of the array describes sorted text
-  * keyed tables
-    * made up of one or more lexicographically sorted copies of the data
-    * columns ordered so that all keys can be expressed as prefixes
-      * when keys would conflict in required column order, we make a copy
-        of the data, but using a different column order to handle those keys
-        * if full copying is too expensive, we can build an index relation
-          * maps indexed columns to record offsets in original relation
-      * bulk lookup and joining via binary search
-        * records must be flattened, ID-substituted, and may be columnarized
-    * keys are mapped to their supporting copy of the data
-    * a key can, but doesn't need to, imply uniqueness
+  * disk/memory residence and memory structure reconfigurable at runtime
+  * bulk lookup and joining via binary search (with optional galloping)
+  * types of tables:
+    * source records: lexicographically sorted fixed-width tuples
+      * reference variable-width columns by position
+    * variable-width columns: sorted variable-width elements (like text)
+      * source record columns map to variable-width elements by position
+    * variable-width column offsets: map logical position (ID) to file position
+    * indices: map an indexed source column to source records by position
+    * suffix arrays: given order of the array describes sorted text
+  * high-level semantic types
+    * variable-width: logical position (ID) determined by offset table
+      * #f:          #f
+      * text:        string
+    * fixed-width: logical position (ID) = file-position / width
+      * offset:      file-pos
+      * text suffix: (ID . start-pos)
+      * record:      #(tuple fw-value ...)
+      * index:       (fw-value . ID)
+  * metadata
+    * integrity/consistency checking
+      * file-size, file-or-directory-modify-seconds
+      * source files (csvs or otherwise) with their size/modification-time
+        * element type/transformations, maybe statistics about their content
+    * files/types and table dependencies
+      * variable-width columns
+        * vw-values file
+          * #f or string
+        * offsets file
+          * #(nat ,size)
+      * text suffix:
+        * suffix file
+          * (#(nat ,text-ID-size) . #(nat ,pos-size))
+        * text column table
+      * record:
+        * fw-values file
+          * #(tuple ,fw-type ...)
+        * vw-value (#f or text) column tables
+          * these column tables may be foreign/shared
+      * index:
+        * fw-values file
+          * fw-type: probably known-width nat (ID), int, or float
+        * record table
+    * statistics
 
-* incremental definition, modification, and persistence of namespaces
+
+### Relational language for rules and queries
+
+* lazy population of text/non-atomic fields
+  * equality within the same shared-id column can be done by id
+    * also possible with foreign keys
+    * analogous to pointer address equality
+  * equality within the same nonshared-id column must be done by value
+    * equal if ids are the same, but may still be equal with different ids
+  * equality between incomparable columns must be done by value
+    * address spaces are different
+
+* support first-order (and maybe limited higher-order) functions
+  * arithmetic, aggregation
+    * track monotonicity for efficient incremental update
+  * partial/anywhere text searches are functional, not relational
