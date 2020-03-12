@@ -73,7 +73,7 @@
     (`#(nat    ,size)      (encode-nat    out size  v))
     (`#(string ,len)       (encode-string out len   v))
     (`#(symbol ,len)       (encode-string out len   (symbol->string v)))
-    (`#(bytes  ,len)       (encode-bytes out len   v))
+    (`#(bytes  ,len)       (encode-bytes  out len   v))
     (`#(array ,len ,t)     (encode-array  out len t v))
     (`#(list  ,len ,t)     (encode-list   out len t v))
     (`#(tuple ,@ts)        (encode-tuple  out ts    v))
