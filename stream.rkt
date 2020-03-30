@@ -37,9 +37,11 @@
                  ((? (car s)) (cons (car s) (s-filter ? (cdr s))))
                  (else        (loop (s-next (cdr s))))))))
 
-(define (s-map f s)
-  (thunk (let ((s (s-next s)))
-           (if (null? s) '() (cons (f (car s)) (s-map f (cdr s)))))))
+(define (s-map f s . ss)
+  (thunk (let ((s (s-next s)) (ss (map s-next ss)))
+           (if (null? s) '()
+             (cons (apply f (car s) (map car ss))
+                   (apply s-map f (cdr s) (map cdr ss)))))))
 
 (define (s-each s p) (let ((s (s-next s)))
                        (unless (null? s) (p (car s)) (s-each (cdr s) p))))
