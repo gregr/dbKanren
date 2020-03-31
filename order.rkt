@@ -1,7 +1,6 @@
 #lang racket/base
-(provide any<? null<? boolean<? number<? pair<? list<? array<? tuple<?
-         ;; TODO: suffix<?
-         type-><?)
+(provide type-><? any<? null<? boolean<? number<? pair<? list<? array<? tuple<?
+         string/pos<? suffix<? suffix<string?)
 (require racket/match racket/math)
 
 (define (any<? a b)
@@ -41,19 +40,29 @@
                (va (vector-ref a i)) (vb (vector-ref b i)))
            (or (<? va vb) (and (not (<? vb va)) (loop (+ i 1))))))))
 
-;; TODO: string suffixes (need access to source strings)
-;(define ((suffix<? source-text) a b)
-  ;)
+(define (string/pos<? sa ai sb bi)
+  (define alen (string-length sa))
+  (define blen (string-length sb))
+  (let loop ((ai ai) (bi bi))
+    (cond ((= alen ai)                     (not (= blen bi)))
+          ((= blen bi)                                    #f)
+          ((char<? (string-ref sa ai) (string-ref sb bi)) #t)
+          ((char>? (string-ref sa ai) (string-ref sb bi)) #f)
+          (else (loop (+ ai 1) (+ bi 1))))))
+(define ((suffix<? source) a b)
+  (string/pos<? (vector-ref source (car a)) (cdr a)
+                (vector-ref source (car b)) (cdr b)))
+(define (((suffix<string? source) sb) a)
+  (string/pos<? (vector-ref source (car a)) (cdr a) sb 0))
 
-(define <s
-  (vector null?    null<?
-          boolean? boolean<?
-          number?  number<?
-          symbol?  symbol<?
-          string?  string<?
-          bytes?   bytes<?
-          pair?    (pair<? any<? any<?)
-          vector?  (array<? any<?)))
+(define <s (vector null?    null<?
+                   boolean? boolean<?
+                   number?  number<?
+                   symbol?  symbol<?
+                   string?  string<?
+                   bytes?   bytes<?
+                   pair?    (pair<? any<? any<?)
+                   vector?  (array<? any<?)))
 
 (define (type-><? type)
   (match type
@@ -62,6 +71,7 @@
     ((or 'string `#(string ,_)) string<?)
     ((or 'symbol `#(symbol ,_)) symbol<?)
     ((or 'bytes  `#(bytes  ,_)) bytes<?)
+    (`#(suffix ,source)         (suffix<? source))
     (`#(tuple ,@ts)             (tuple<? (map type-><? ts)))
     (`(,ta . ,td)               (pair<? (type-><? ta) (type-><? td)))
     ('array                     (array<? any<?))
