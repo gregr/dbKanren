@@ -1,6 +1,5 @@
 #lang racket/base
-(provide any<? null<? boolean<? inexact<? number<?
-         pair<? list<? array<? tuple<?
+(provide any<? null<? boolean<? number<? pair<? list<? array<? tuple<?
          ;; TODO: suffix<?
          type-><?)
 (require racket/match racket/math)
@@ -14,11 +13,10 @@
 
 (define (null<? a b)    #f)
 (define (boolean<? a b) (and b (not a)))
-(define (inexact<? a b) (or (< a b) (nan? b)))
 (define (number<? a b)
-  (if (inexact? a)
-    (and (inexact? b) (inexact<? a b))
-    (or  (inexact? b) (<         a b))))
+  (or (< a b) (and (not (< b a)) (not (equal? b a))
+                   (if (= a b) (and (exact? a) (inexact? b))
+                     (and (nan? b) (not (nan? a)))))))
 (define ((pair<? a<? d<?) a b)
   (let ((aa (car a)) (ba (car b)))
     (or (a<? aa ba) (and (not (a<? ba aa)) (d<? (cdr a) (cdr b))))))
@@ -47,18 +45,15 @@
 ;(define ((suffix<? source-text) a b)
   ;)
 
-(define ((number?/? ?) x) (and (number? x) (? x)))
-
 (define <s
-  (vector null?                null<?
-          boolean?             boolean<?
-          (number?/?   exact?) <
-          (number?/? inexact?) inexact<?
-          symbol?              symbol<?
-          string?              string<?
-          bytes?               bytes<?
-          pair?                (pair<? any<? any<?)
-          vector?              (array<? any<?)))
+  (vector null?    null<?
+          boolean? boolean<?
+          number?  number<?
+          symbol?  symbol<?
+          string?  string<?
+          bytes?   bytes<?
+          pair?    (pair<? any<? any<?)
+          vector?  (array<? any<?)))
 
 (define (type-><? type)
   (match type
