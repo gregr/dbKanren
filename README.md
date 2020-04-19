@@ -191,6 +191,8 @@ large-scale relations.
   * `(use (relation-or-var-name ...) goal-that-may-involve-computation ...)`
     * force vars to be grounded so that embedded Racket computation succeeds
     * force dependency on given relations to ensure stratification
+  * local relation definitions to share work (cached results) during aggregation
+    * `(let-relations (((name param ...) goal ...) ...) goal ...)`
   * usual mk operators for forming goals:
     * `fresh`, `conde`, and constraints such as `==`, `=/=`, `symbolo`, etc.
     * `(r arg+ ...)` where `r` is a relation and `arg+ ...` are terms
@@ -201,8 +203,17 @@ large-scale relations.
       * indicate evaluation preferences or hints, such as indexing
       * dynamically disable/enable
       * view source, statistics, configuration, preferences, other metadata
+  * data retention modes
+    * caching/persistence may be forced or performed lazily
+    * from most to least retention:
+      * persistent
+      * cached results
+      * cached constraint states
+      * cached analysis/plan
+      * recomputed from scratch
 
 * misc conveniences
+  * `apply` to supply a single argument/variable to an n-ary relation
   * underscore "don't care" logic variables
   * query results as lazy stream to enable non-materializing aggregation
   * tuple-column/record-field keywords
@@ -212,20 +223,34 @@ large-scale relations.
 
 * evaluation
   * relational computation is performed in the context of a logic environment
-    * logic environments are introduced by query, relation, and fresh bodies
+    * logic environments are introduced by query and relation
+    * logic environments are extended by fresh
   * query and other term computation is performed in the context of Racket
     * Racket environments are embedded in logic environments by `use`
     * can only occur during forward/bottom-up computation (ground variables)
-  * begin query top-down for non-bulk pruning while non-branching/terminating
-    * mode inference with simple termination checking?
-      * up front or just in time?
-  * continue query bottom-up for bulk-efficient joins if safe/terminating
-  * finish any remaining unsafe or branching portion of a query top-down
-    * may return constrained, unground results
-    * like typical miniKanren search
-  * maintain constraint satisfiability during query
-    * cheap first-pass via domain consistency, then arc consistency
-    * then global satisfiability via search, interleaving with cheap methods
+  * query evaluation
+    * precompute relevant persistent/cached safe relations via forward-chaining
+    * safe/finite results loop (mostly backward-chaining)
+      * prune search space top-down to shrink scale of bulk operations
+        * expand recursive relation calls while safe
+          * safety: at least one never-increasing parameter is decreasing
+            * this safety measure still allows polynomial-time computations
+            * may prefer restricting to linear-time computations
+            * or a resource budget to limit absolute cost for any complexity
+          * track call history to measure this
+          * recursive calls of exactly the same size are considered failures
+        * keep results of branching relation calls independent until join phase
+      * maintain constraint satisfiability
+        * cheap first-pass via domain consistency, then arc consistency
+        * then global satisfiability via search
+          * choose candidate for the most-constrained variable
+            * maybe the variable participating in largest number of constraints
+          * interleave search candidate choice with cheap first-pass methods
+      * perform the (possibly multi-way) join with lowest estimated cost
+      * repeat until either all results computed or only unsafe calls remain
+    * perform unsafe interleaving until finished or safe calls reappear
+      * like typical miniKanren search
+      * if safe calls reappear, re-enter safe/finite results loop
 
 * lazy population of text/non-atomic fields
   * equality within the same shared-id column can be done by id
@@ -235,3 +260,21 @@ large-scale relations.
     * equal if ids are the same, but may still be equal with different ids
   * equality between incomparable columns must be done by value
     * address spaces are different
+  * how is this integrated with mk search and query evaluation?
+    * can do this in general for functional dependencies
+      * `(conj (relate-function x a) (relate-function x b))` implies `(== a b)`
+  * would like similar "efficient join" behavior for text suffix indexes
+    * given multiple text constraints, find an efficient way to filter
+      * will involve intersecting a matching suffix list for each constraint
+      * one suffix list may be tiny, another may be huge
+        * rather than finding their intersection, it's likely more efficient
+          to just throw the huge one away and run the filter directly on the
+          strings for each member of the tiny suffix set
+    * how is this integrated with mk search and query evaluation?
+      * text search can be expressed with `string-appendo` constraints
+        * `(conj (string-appendo t1 needle t2) (string-appendo t2 t3 hay))`
+      * suffix index can be searched via
+        * `(string-appendo needle t1 hay-s)`
+      * multiple needles
+        * `(conj (string-appendo n1 t1 hay-s) (string-appendo n2 t2 hay-s))`
+      * maybe best done explicitly as aggregation via `use`
