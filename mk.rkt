@@ -17,10 +17,10 @@
                                         #:constructor-name make-query)
 (struct use            (proc args desc) #:prefab #:name make-use
                                         #:constructor-name make-use)
+(struct relate         (proc args desc) #:prefab)
 (struct disj           (g1 g2)          #:prefab)
 (struct conj           (g1 g2)          #:prefab)
 (struct constrain      (op terms)       #:prefab)
-(struct relate         (thunk desc)     #:prefab)
 
 (define-syntax define-constraint
   (syntax-rules ()
@@ -59,10 +59,10 @@
 (define-syntax define-relation
   (syntax-rules ()
     ((_ (name param ...) g ...)
-     (begin
-       (define (name param ...)
-         (relate (lambda () (fresh () g ...)) `(,name name ,param ...)))
-       (relations-register! name '(name param ...))))))
+     (begin (define (name param ...)
+              (relate (lambda (param ...) (fresh () g ...)) (list param ...)
+                      `(,name . name)))
+            (relations-register! name '(name param ...))))))
 (define succeed (== #t #t))
 (define fail    (== #f #t))
 (define-syntax conj*
