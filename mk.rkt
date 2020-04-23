@@ -8,10 +8,12 @@
   (struct-out relate)
 
   relations relations-ref define-relation let-relations
-  conj* disj* fresh conde use query
+  conj* disj* fresh conde use query ;run^ run run*
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
   )
+
+;(require "stream.rkt")
 
 (struct query          (g var desc)     #:prefab #:name make-query
                                         #:constructor-name make-query)
@@ -95,3 +97,10 @@
        (make-query (fresh (x ...) (== (list x ...) initial-var) g0 gs ...)
                    initial-var
                    `((x ...) g0 gs ...))))))
+;; TODO: query->stream
+;(define-syntax run^
+  ;(syntax-rules () ((_   body ...) (query->stream (query  body ...)))))
+;(define-syntax run
+  ;(syntax-rules () ((_ n body ...) (s-take n      (run^   body ...)))))
+;(define-syntax run*
+  ;(syntax-rules () ((_   body ...)                (run #f body ...))))
