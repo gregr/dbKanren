@@ -11,10 +11,12 @@
   conj* disj* fresh conde use query ;run^ run run*
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
+
+  pretty-query
   )
 
 (require ;"stream.rkt"
-  racket/vector)
+  racket/match racket/vector)
 
 (struct query          (g var desc)     #:prefab #:name make-query
                                         #:constructor-name make-query)
@@ -164,3 +166,35 @@
           (else         #f))))
 (define (relate-expand r) (apply (relate-proc r) (walk* (relate-args r))))
 ;; TODO: constraint satisfaction
+
+(define (pretty-query q)
+  (define st (state-empty))
+  (define var-count 0)
+  (define (pretty-var x)
+    (define v `#s(var ,(var-name x) ,var-count))
+    (set! var-count (+ var-count 1))
+    (var-assign! st x v)
+    v)
+  (define (pretty-term t)
+    (let ((t (walk t)))
+      (cond ((pair? t)   (cons (pretty-term (car t)) (pretty-term (cdr t))))
+            ((vector? t) (vector-map pretty-term t))
+            ((var? t)    (pretty-var t))
+            ((use? t)    `(let ,(map list
+                                     (car (use-desc t))
+                                     (map pretty-term (use-args t)))
+                            . ,(cdr (use-desc t))))
+            (else        t))))
+  (define (pretty-goal g)
+    (match g
+      (`#s(disj ,g1 ,g2)         `(disj ,(pretty-goal g1) ,(pretty-goal g2)))
+      (`#s(conj ,g1 ,g2)         `(conj ,(pretty-goal g1) ,(pretty-goal g2)))
+      (`#s(constrain ,op ,terms) `(,op . ,(map pretty-term terms)))
+      (`#s(relate ,_ ,args (,_ . ,name))
+        `(relate ,name . ,(map pretty-term args)))))
+  (define result
+    (match q
+      (`#s(query ,g ,x (,params . ,_))
+        `(query ,params ,(pretty-term x) ,(pretty-goal g)))))
+  (state-undo! st)
+  result)
