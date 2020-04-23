@@ -13,7 +13,8 @@
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
   )
 
-;(require "stream.rkt")
+(require ;"stream.rkt"
+  racket/vector)
 
 (struct query          (g var desc)     #:prefab #:name make-query
                                         #:constructor-name make-query)
@@ -104,3 +105,62 @@
   ;(syntax-rules () ((_ n body ...) (s-take n      (run^   body ...)))))
 ;(define-syntax run*
   ;(syntax-rules () ((_   body ...)                (run #f body ...))))
+
+(struct state (assignments constraints) #:mutable)
+(define (state-empty) (state '() '()))
+(define (state-assign! st x t)
+  (set-state-assignments! st (cons (cons x (var-value x))
+                                   (state-assignments st)))
+  (set-var-value! x t))
+(define (state-undo! st)
+  (set-state-assignments!
+    st (map (lambda (kv) (let* ((x (car kv)) (t (var-value x)))
+                           (set-var-value! x (cdr kv))
+                           (cons x t)))
+            (state-assignments st))))
+(define (state-redo! st) (state-undo! st))  ;; coincidentally, for now
+
+(struct var (name (value #:mutable)) #:prefab)
+(define (var/fresh name) (var name (void)))
+(define (var-assign! st x t) (and (not (occurs? x t)) (state-assign! st x t)))
+(define (var-walk vr)
+  (let ((val (var-value vr)))
+    (cond ((var?  val) (let ((val^ (var-walk val)))
+                         (unless (eq? val val^) (set-var-value! vr val^))
+                         val^))
+          ((void? val) vr)
+          (else        val))))
+(define (walk tm) (if (var? tm) (var-walk tm) tm))
+(define (walk* t)
+  (let ((t (walk t)))
+    (cond ((pair? t)   (cons (walk* (car t)) (walk* (cdr t))))
+          ((vector? t) (vector-map walk* t))
+          ((use? t)    (apply (use-proc t) (walk* (use-args t))))
+          (else        t))))
+(define (occurs? x t)
+  (cond ((pair? t)   (or (occurs? x (walk (car t)))
+                         (occurs? x (walk (cdr t)))))
+        ((vector? t) (let loop ((i (- (vector-length t) 1)))
+                       (and (<= 0 i) (or (occurs? x (walk (vector-ref t i)))
+                                         (loop (- i 1))))))
+        (else        (eq? x t))))
+(define (unify* st t1 t2) (unify st (walk* t1) (walk* t2)))
+(define (unify st t1 t2)
+  (let ((t1 (walk t1)) (t2 (walk t2)))
+    (cond ((eqv? t1 t2) #t)
+          ((var? t1)    (var-assign! st t1 t2))
+          ((var? t2)    (var-assign! st t2 t1))
+          ((pair? t1)   (and (pair? t2)
+                             (unify st (car t1) (car t2))
+                             (unify st (cdr t1) (cdr t2))))
+          ((vector? t1) (and (vector? t2)
+                             (= (vector-length t1) (vector-length t2))
+                             (let loop ((i (- (vector-length t1) 1)))
+                               (or (< i 0) (and (unify st
+                                                       (vector-ref t1 i)
+                                                       (vector-ref t2 i))
+                                                (loop (- i 1)))))))
+          ((string? t1) (and (string? t2) (string=? t1 t2)))
+          (else         #f))))
+(define (relate-expand r) (apply (relate-proc r) (walk* (relate-args r))))
+;; TODO: constraint satisfaction
