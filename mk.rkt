@@ -7,7 +7,7 @@
   (struct-out constrain)
   (struct-out relate)
 
-  relations relations-ref define-relation
+  relations relations-ref define-relation let-relations
   conj* disj* fresh conde use query
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
@@ -48,6 +48,14 @@
              (make-hash `((signature . ,(list->vector signature))
                           (analysis  . #f)))))
 
+(define-syntax let-relations
+  (syntax-rules ()
+    ((_ (((name param ...) g ...) ...) body ...)
+     (let-values (((name ...) (let ()
+                                (define-relation (name param ...) g ...) ...
+                                ;; TODO: specify an appropriate caching mode
+                                (values name ...))))
+       body ...))))
 (define-syntax define-relation
   (syntax-rules ()
     ((_ (name param ...) g ...)
