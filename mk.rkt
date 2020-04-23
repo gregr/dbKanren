@@ -122,8 +122,23 @@
             (state-assignments st))))
 (define (state-redo! st) (state-undo! st))  ;; coincidentally, for now
 
+;; TODO: variable lattice attributes supporting general constraints
+#|
+* type domains: #t top, #f bottom, lattice vector for domain sums
+  * (), #t, #f domains need no representation beyond being top or bottom
+  * pair domains are all represented as concrete values
+    * though pairs may contain variables
+  * symbol, string, bytes, and vector domains are represented as discrete sets
+    * discrete sets are sorted lists of concrete values
+      * though vectors may contain variables
+  * number domains are represented as interval sets (ordered ranges)
+|#
+;(struct vspec (domain constraints) #:prefab)
+;(define vtop (vspec #t '()))
+;; TODO: register constrained/specified variables in a priority queue?
+
 (struct var (name (value #:mutable)) #:prefab)
-(define (var/fresh name) (var name (void)))
+(define (var/fresh name) (var name (void)))  ;; TODO: use TOP instead of void
 (define (var-assign! st x t) (and (not (occurs? x t)) (state-assign! st x t)))
 (define (var-walk vr)
   (let ((val (var-value vr)))
