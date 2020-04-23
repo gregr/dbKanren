@@ -188,7 +188,8 @@ large-scale relations.
 * relations
   * `(define-relation (name param ...) goal ...) => (define name (relation (param ...) goal ...))`
   * `(relation (param-name ...) goal ...)`
-  * `(use (relation-or-var-name ...) goal-that-may-involve-computation ...)`
+  * `(use (relation-or-var-name ...) term-computation ...)`
+    * computed term that indicates its relation and logic variable dependencies
     * force vars to be grounded so that embedded Racket computation succeeds
     * force dependency on given relations to ensure stratification
   * local relation definitions to share work (cached results) during aggregation

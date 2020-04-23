@@ -85,10 +85,9 @@
      (disj* (conj* g gs ...) (conj* h hs ...) ...))))
 (define-syntax use
   (syntax-rules ()
-    ((_ (x ...) g0 gs ...)
-     (make-use (lambda (x ...) (fresh () g0 gs ...))
-               (list x ...)
-               `((x ...) g0 gs ...)))))
+    ((_ (x ...) body ...) (make-use (lambda (x ...) body ...)
+                                    (list x ...)
+                                    `((x ...) body ...)))))
 (define-syntax query
   (syntax-rules ()
     ((_ (x ...) g0 gs ...)
