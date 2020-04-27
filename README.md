@@ -70,24 +70,19 @@ large-scale relations.
 
 ### Database representation
 
-* namespaces of user-level (extensional and intensional) relations
-  * namespaces/relations are (un)loadable at runtime
-    * causes dynamic extension/retraction of dependent intensional relations
-  * incremental definition, modification, and persistence
-  * metadata and storage
-    * subnamespaces (as subdirectories)
-    * relation definitions and metadata
-    * table files
-    * external links (names and paths to namespace/relation dependencies)
-    * namespace directory structure:
-      * metadata.scm
-      * sub
-        * any subnamespace directories
-      * data
-        * persistent
-        * ephemeral
-        * temporal
-        * io
+* metadata and data storage
+  * hierarchical directory structure (generalizing catalog/schema/table org)
+    * leaves are tables backing persistent extensional relations
+    * not mapped directly to host filesystem due naming limitations
+    * directories/relations are (un)loadable at runtime
+      * causes dynamic extension/retraction of dependent intensional relations
+      * later, support arbitrary insertion, deletion, and update
+        * describe via temporal rules
+  * relation schemas/definitions and their metadata, integrity checking info
+  * database directory structure:
+    * metadata.scm
+    * `data/*.bin` table data files
+  * support export and import (and mounting) of database fragments
 
 * intensional relations (user-level)
   * search strategy: backward or forward chaining
@@ -113,7 +108,7 @@ large-scale relations.
     * field/column names and types
       * optional remapping of lexicographical order
     * backing tables: record, any indices, vw-columns, and/or text-suffixes
-    * uniqueness or other constraints
+    * uniqueness, functional dependencies, or other constraints
     * statistics (derived from table statistics)
 
 * low-level tables with optional keys/indices (not user-level)
@@ -187,6 +182,7 @@ large-scale relations.
 
 * relations
   * `(define-relation (name param ...) goal ...) => (define name (relation (param ...) goal ...))`
+  * `(define-relation/data (name param ...) data-description)`
   * `(relation (param-name ...) goal ...)`
   * `(use (relation-or-var-name ...) term-computation ...)`
     * computed term that indicates its relation and logic variable dependencies
@@ -252,6 +248,50 @@ large-scale relations.
     * perform unsafe interleaving until finished or safe calls reappear
       * like typical miniKanren search
       * if safe calls reappear, re-enter safe/finite results loop
+  * safety (and computation) categories for relations
+    * simple
+      * persistent (extensional or precomputed intensional)
+        * compute via retrieval
+      * nonrecursive
+        * compute via naive expansion
+      * "safe" in the datalog sense
+        * compute fixed point via semi-naive eval after top-down rewriting
+          * also be able to compute fixed point via DFS w/ repetition check
+        * all relations used in the body are safe
+        * all head parameter vars mentioned in positive position in body
+          * i.e., all head parameters will be bound to ground values
+        * no constructors containing vars in "dangerous" positions
+          * head parameters of recursive relation
+          * arguments to recursive relations in body
+        * aggregation is stratified
+      * "unsafe": top-down interleaving search
+        * no safety guarantees at all
+          * refutational incompleteness
+          * unlimited answers
+          * answers with unbound variables, possibly with constraints
+    * more complex alternatives
+      * "safe" for forward chaining only
+        * compute fixed point via semi-naive eval
+        * generalizes "safe" datalog slightly
+          * constructors w/ vars allowed as args to recursive relations in body
+      * "safe" for backward chaining only
+        * compute via DFS
+        * may or may not guarantee all variables are bound (groundness)
+        * termination guaranteed by structural recursion argument metric
+
+* mode analysis
+  * modes as binding patterns with result cardinalities
+    * parameter binding classes from least to most constraining
+      * f: free
+      * x: constrained
+      * c: constructed
+      * b: bound
+    * appendo: (b f f) -> (0 1) (b f b)
+      * bound first param leads to 0 or 1 result with bound third param
+  * mode-specific safety
+    * appendo termination requires (c f f) or (f f c) at every recursive call
+  * mode-specific cost
+    * different parameter bindings determine effectiveness of indices
 
 * lazy population of text/non-atomic fields
   * equality within the same shared-id column can be done by id
