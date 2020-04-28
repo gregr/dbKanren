@@ -3,7 +3,7 @@
          s-filter s-map s-each s-fold s-scan s-group s-memo)
 (require racket/function)
 
-(define (s-next s) (if (procedure? s) (s) s))
+(define (s-next s) (if (procedure? s) (s-next (s)) s))
 
 (define (s-prefix n rxs s)
   (if (and n (= n 0)) (cons rxs s)
