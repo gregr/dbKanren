@@ -8,15 +8,14 @@
   (struct-out relate)
 
   relations relations-ref define-relation let-relations
-  conj* disj* fresh conde use query ;run^ run run*
+  conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
 
   pretty-query pretty-goal pretty-term
   )
 
-(require "method.rkt" ;"stream.rkt"
-  racket/match racket/vector)
+(require "method.rkt" "stream.rkt" racket/match racket/vector)
 
 (struct query     (g var desc)     #:prefab #:name make-query
                                    #:constructor-name make-query)
@@ -65,9 +64,11 @@
   (syntax-rules ()
     ((_ (name param ...) g ...)
      (begin (define (name param ...)
+;; TODO: thunk may need to invoke new logic after precomputation or analysis
               (relate (lambda (param ...) (fresh () g ...)) (list param ...)
                       `(,name . name)))
             (relations-register! name '(name param ...))))))
+;; TODO: define-relation/data
 (define succeed (== #t #t))
 (define fail    (== #f #t))
 (define-syntax conj*
@@ -100,16 +101,33 @@
        (make-query (fresh (x ...) (== (list x ...) initial-var) g0 gs ...)
                    initial-var
                    `((x ...) g0 gs ...))))))
-;; TODO: query->stream
-;(define-syntax run^
-  ;(syntax-rules () ((_   body ...) (query->stream (query  body ...)))))
-;(define-syntax run
-  ;(syntax-rules () ((_ n body ...) (s-take n      (run^   body ...)))))
-;(define-syntax run*
-  ;(syntax-rules () ((_   body ...)                (run #f body ...))))
+(define-syntax run^
+  (syntax-rules () ((_   body ...) (query->stream (query  body ...)))))
+(define-syntax run
+  (syntax-rules () ((_ n body ...) (s-take n      (run^   body ...)))))
+(define-syntax run*
+  (syntax-rules () ((_   body ...)                (run #f body ...))))
+
+;; TODO: move beyond DFS once other strategies are ready
+(define (query->stream q)
+  (match-define `#s(query ,g ,x ,desc) q)
+  (let loop ((st (state-empty)) (g g) (gs '()))
+    (define (fail)   (state-undo! st) '())
+    (define (return) (cond ((null? gs) (define result (pretty-term x))
+                                       (state-undo! st)
+                                       (list result))
+                           (else       (loop st (car gs) (cdr gs)))))
+    (match g
+      (`#s(conj      ,g1 ,g2) (loop st g1 (cons g2 gs)))
+      (`#s(disj      ,g1 ,g2) (define st0 (state-new st))
+                              (s-append (loop st0 g1 gs) (loop st g2 gs)))
+      (`#s(relate    ,proc ,args ,desc) (loop st (relate-expand g) gs))
+      (`#s(constrain == (,t1 ,t2)) ((if (unify* st t1 t2) return fail))))))
 
 (struct state (assignments constraints) #:mutable)
-(define (state-empty) (state '() '()))
+(define (state-empty)  (state '() '()))
+;; TODO: what should be preserved?  Should this link to the parent state?
+(define (state-new st) (state-empty))
 (define (state-assign! st x t)
   (set-state-assignments! st (cons (cons x (var-value x))
                                    (state-assignments st)))
