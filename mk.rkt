@@ -15,7 +15,7 @@
   pretty-query pretty-goal pretty-term
   )
 
-(require "method.rkt" "stream.rkt" racket/match racket/vector)
+(require "method.rkt" "stream.rkt" racket/function racket/match racket/vector)
 
 (struct query     (g var desc)     #:prefab #:name make-query
                                    #:constructor-name make-query)
@@ -111,18 +111,19 @@
 ;; TODO: move beyond DFS once other strategies are ready
 (define (query->stream q)
   (match-define `#s(query ,g ,x ,desc) q)
-  (let loop ((st (state-empty)) (g g) (gs '()))
-    (define (fail)   (state-undo! st) '())
-    (define (return) (cond ((null? gs) (define result (pretty-term x))
-                                       (state-undo! st)
-                                       (list result))
-                           (else       (loop st (car gs) (cdr gs)))))
-    (match g
-      (`#s(conj      ,g1 ,g2) (loop st g1 (cons g2 gs)))
-      (`#s(disj      ,g1 ,g2) (define st0 (state-new st))
-                              (s-append (loop st0 g1 gs) (loop st g2 gs)))
-      (`#s(relate    ,proc ,args ,desc) (loop st (relate-expand g) gs))
-      (`#s(constrain == (,t1 ,t2)) ((if (unify* st t1 t2) return fail))))))
+  (thunk
+    (let loop ((st (state-empty)) (g g) (gs '()))
+      (define (fail)   (state-undo! st) '())
+      (define (return) (cond ((null? gs) (define result (pretty-term x))
+                                         (state-undo! st)
+                                         (list result))
+                             (else       (loop st (car gs) (cdr gs)))))
+      (match g
+        (`#s(conj      ,g1 ,g2) (loop st g1 (cons g2 gs)))
+        (`#s(disj      ,g1 ,g2) (s-append (loop (state-new st) g1 gs)
+                                          (thunk (loop st g2 gs))))
+        (`#s(relate    ,proc ,args ,desc) (loop st (relate-expand g) gs))
+        (`#s(constrain == (,t1 ,t2)) ((if (unify* st t1 t2) return fail)))))))
 
 (struct state (assignments constraints) #:mutable)
 (define (state-empty)  (state '() '()))
