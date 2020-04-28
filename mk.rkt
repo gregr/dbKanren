@@ -12,20 +12,20 @@
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
 
-  pretty-query
+  pretty-query pretty-goal pretty-term
   )
 
-(require ;"stream.rkt"
+(require "method.rkt" ;"stream.rkt"
   racket/match racket/vector)
 
-(struct query          (g var desc)     #:prefab #:name make-query
-                                        #:constructor-name make-query)
-(struct use            (proc args desc) #:prefab #:name make-use
-                                        #:constructor-name make-use)
-(struct relate         (proc args desc) #:prefab)
-(struct disj           (g1 g2)          #:prefab)
-(struct conj           (g1 g2)          #:prefab)
-(struct constrain      (op terms)       #:prefab)
+(struct query     (g var desc)     #:prefab #:name make-query
+                                   #:constructor-name make-query)
+(struct use       (proc args desc) #:prefab #:name make-use
+                                   #:constructor-name make-use)
+(struct relate    (proc args desc) #:prefab)
+(struct disj      (g1 g2)          #:prefab)
+(struct conj      (g1 g2)          #:prefab)
+(struct constrain (op terms)       #:prefab)
 
 (define-syntax define-constraint
   (syntax-rules ()
@@ -182,7 +182,7 @@
 (define (relate-expand r) (apply (relate-proc r) (walk* (relate-args r))))
 ;; TODO: constraint satisfaction
 
-(define (pretty-query q)
+(define (pretty-printer)
   (define st (state-empty))
   (define var-count 0)
   (define (pretty-var x)
@@ -207,9 +207,16 @@
       (`#s(constrain ,op ,terms) `(,op . ,(map pretty-term terms)))
       (`#s(relate ,_ ,args (,_ . ,name))
         `(relate ,name . ,(map pretty-term args)))))
-  (define result
+  (define (pretty-query q)
     (match q
       (`#s(query ,g ,x (,params . ,_))
         `(query ,params ,(pretty-term x) ,(pretty-goal g)))))
-  (state-undo! st)
-  result)
+  (define (return x) (state-undo! st) x)
+  (method-lambda
+    ((query q) (return (pretty-query q)))
+    ((term t)  (return (pretty-term t)))
+    ((goal g)  (return (pretty-goal g)))))
+
+(define (pretty-query q) ((pretty-printer) 'query q))
+(define (pretty-goal  g) ((pretty-printer) 'goal  g))
+(define (pretty-term  t) ((pretty-printer) 'term  t))
