@@ -33,9 +33,6 @@
   (method-lambda
     ((length)         (table:offsets 'length))
     ((ref i)          (ref i))
-    ((ref* start end) (let loop ((i start))
-                        (if (<= end i) '()
-                          (thunk (cons (ref i) (loop (+ i 1)))))))
     ((find      start end <?) (bisect      start end (i< <?)))
     ((find-next start end <?) (bisect-next start end (i< <?)))))
 
@@ -51,10 +48,6 @@
   (method-lambda
     ((length)         len)
     ((ref i)          (ref i))
-    ((ref* start end) (define j (* end width))
-                      (let loop ((i (* start width)))
-                        (if (<= j i) '()
-                          (thunk (cons (ref/pos i) (loop (+ i width)))))))
     ((find      start end <?) (bisect      start end (i< <?)))
     ((find-next start end <?) (bisect-next start end (i< <?)))))
 
@@ -67,9 +60,6 @@
   (method-lambda
     ((length)         (vector-length v))
     ((ref i)          (vector-ref v i))
-    ((ref* start end) (let loop ((i start))
-                        (if (<= end i) '()
-                          (thunk (cons (vector-ref v i) (loop (+ i 1)))))))
     ((find      start end <?) (bisect      start end (i< <?)))
     ((find-next start end <?) (bisect-next start end (i< <?)))))
 
