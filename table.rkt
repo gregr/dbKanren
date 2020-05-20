@@ -2,9 +2,14 @@
 (provide bisect bisect-next
          table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets tabulate
-         call/files let/files)
+         call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "stream.rkt"
          racket/function racket/match racket/vector)
+
+(define (s-encode out type s) (s-each s (lambda (v) (encode out type v))))
+(define (s-decode in type)
+  (thunk (let loop () (if (eof-object? (peek-byte in)) '()
+                        (cons (decode in type) (thunk (loop)))))))
 
 (define (call/files fins fouts p)
   (let loop ((fins fins) (ins '()))
