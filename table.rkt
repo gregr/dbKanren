@@ -2,6 +2,7 @@
 (provide bisect bisect-next
          table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets tabulate
+         table-intersect-start
          call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
          racket/function racket/match racket/vector)
@@ -96,6 +97,26 @@
                           (else         (loop i    offset)))))))))
 ;; TODO: bisect-previous
 
+;; TODO: table-intersect-end
+(define (table-intersect-start ts prefix-size)
+  (define (next t) (and (< 0 (t 'length))
+                        (vector-copy (t 'ref 0) 0 prefix-size)))
+  (define initial-max (and (not (null? ts)) (next (car ts))))
+  (and initial-max
+       (let loop ((max initial-max) (ts ts) (finished '()))
+         (if (null? ts)
+           (let loop ((max max) (pending (reverse finished)) (finished '()))
+             (if (null? pending) (loop max (reverse finished) '())
+               (let ((t-next (caar pending)) (t (cdar pending)))
+                 (if (equal? t-next max)
+                   (map cdr (foldl cons pending finished))
+                   (let* ((t (t 'drop< max)) (new (next t)))
+                     (and new (loop new (cdr pending)
+                                    (cons (cons new t) finished))))))))
+           (let* ((t ((car ts) 'drop< max)) (new (next t)))
+             (and new (loop new (cdr ts) (cons (cons new t) finished))))))))
+
+;; TODO: maybe have an iteratee tabulator (push rather than pull)?
 (define (tabulate file-name offset-file-name? zmax type v< s)
   (define fname-multi        (string-append file-name ".multi"))
   (define fname-multi-offset (string-append file-name ".multi.offset"))
