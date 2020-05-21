@@ -2,7 +2,7 @@
 (provide bisect bisect-next
          table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets tabulate
-         table-intersect-start
+         table-project table-intersect-start
          call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
          racket/function racket/match racket/vector)
@@ -32,31 +32,34 @@
   ;; TODO: column-type-specific comparison operators instead of any
   (define (make-prefix<  prefix)
     (tuple<? (vector-map (lambda (_) compare-any) prefix)))
-  ;(define (make-prefix<= prefix)
-    ;(tuple<=? (vector-map (lambda (_) compare-any) prefix)))
+  (define (make-prefix<= prefix)
+    (tuple<=? (vector-map (lambda (_) compare-any) prefix)))
   (method-lambda
     ((length) (- end start))
     ((ref i)  (ref (+ start i)))
     ((find< prefix)  (define prefix< (make-prefix< prefix))
                      (define (i< i) (prefix< (ref i) prefix))
                      (bisect start end i<))
-    ;; TODO: find<= find> find>=
-    ;((find<= prefix) (define prefix<= (make-prefix<= prefix))
-                     ;(define (i<= i) (prefix<= (ref i) prefix))
-                     ;(bisect start end i<=))
+    ((find<= prefix) (define prefix<= (make-prefix<= prefix))
+                     (define (i<= i) (prefix<= (ref i) prefix))
+                     (bisect start end i<=))
     ((drop< prefix)  (define prefix< (make-prefix< prefix))
                      (define (i< i) (prefix< (ref i) prefix))
                      (table ref (bisect-next start end i<) end))
-    ;((drop<= prefix) (define prefix<= (make-prefix<= prefix))
-                     ;(define (i<= i) (prefix<= (ref i) prefix))
-                     ;(table ref (bisect-next start end i<=) end))
-    ;((take<= prefix) (define prefix<= (make-prefix<= prefix))
-                     ;(define (i<= i) (prefix<= (ref i) prefix))
-                     ;(table ref start (bisect-next start end i<=)))
+    ((drop<= prefix) (define prefix<= (make-prefix<= prefix))
+                     (define (i<= i) (prefix<= (ref i) prefix))
+                     (table ref (bisect-next start end i<=) end))
+    ((take<= prefix) (define prefix<= (make-prefix<= prefix))
+                     (define (i<= i) (prefix<= (ref i) prefix))
+                     (table ref start (bisect-next start end i<=)))
     ;; TODO: > >= variants: take>= drop> drop>=
     ;((drop> prefix)  (define prefix< (make-prefix< prefix))
                      ;(define (i> i) (prefix< prefix (ref i)))
                      ;(table ref start (bisect-previous start end i>)))
+    ;; TODO: produce a new table that omits some columns on the left
+    ;((mask prefix)
+     ;;; assume and assert that drop< and take<= have already been performed
+     ;)
     ((take count) (table ref start           (+ count start)))
     ((drop count) (table ref (+ count start) end))))
 
@@ -98,6 +101,8 @@
                           ((i< next)    (loop next offset))
                           (else         (loop i    offset)))))))))
 ;; TODO: bisect-previous
+
+(define (table-project t prefix) ((t 'drop (t 'find< prefix)) 'take<= prefix))
 
 ;; TODO: table-intersect-end
 (define (table-intersect-start ts prefix-size)
