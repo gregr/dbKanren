@@ -1,7 +1,10 @@
 #lang racket/base
-(provide type-><? any<? null<? boolean<? number<? pair<? list<? array<? tuple<?
+(provide type-><? any<? null<? boolean<? number<? pair<? list<? array<?
+         tuple<? tuple<=?
          string/pos<? suffix<? suffix<string?)
 (require racket/match racket/math)
+
+;; TODO: any<=?, type-><=?
 
 (define (any<? a b)
   (let loop ((i 0))
@@ -39,6 +42,13 @@
          (let ((<? (vector-ref <?s i))
                (va (vector-ref a i)) (vb (vector-ref b i)))
            (or (<? va vb) (and (not (<? vb va)) (loop (+ i 1))))))))
+(define ((tuple<=? <=?s) a b)
+  (define len (vector-length <=?s))
+  (let loop ((i 0))
+    (and (< i len)
+         (let ((<=? (vector-ref <=?s i))
+               (va (vector-ref a i)) (vb (vector-ref b i)))
+           (and (<=? va vb) (or (not (<=? vb va)) (loop (+ i 1))))))))
 
 (define (string/pos<? sa ai sb bi)
   (define alen (string-length sa))
