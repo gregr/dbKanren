@@ -3,7 +3,7 @@
          table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets tabulate
          call/files let/files s-encode s-decode)
-(require "codec.rkt" "method.rkt" "stream.rkt"
+(require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
          racket/function racket/match racket/vector)
 
 (define (s-encode out type s) (s-each s (lambda (v) (encode out type v))))
@@ -26,42 +26,57 @@
   (call/files (list fin ...) (list fout ...)
               (lambda (in ... out ...) body ...)))
 
-;; TODO: see if common parts can be consolidated without a performance penalty
+;; TODO: parameterize over column types
+(define (table ref start end)
+  ;; TODO: column-type-specific comparison operators instead of any
+  (define (make-prefix<  prefix) (tuple<?  (vector-map (lambda (_) any<?)  prefix)))
+  ;(define (make-prefix<= prefix) (tuple<=? (vector-map (lambda (_) any<=?) prefix)))
+  (method-lambda
+    ((length) (- end start))
+    ((ref i)  (ref (+ start i)))
+    ((find< prefix)  (define prefix< (make-prefix< prefix))
+                     (define (i< i) (prefix< (ref i) prefix))
+                     (bisect start end i<))
+    ;; TODO: find<= find> find>=
+    ;((find<= prefix) (define prefix<= (make-prefix<= prefix))
+                     ;(define (i<= i) (prefix<= (ref i) prefix))
+                     ;(bisect start end i<=))
+    ((drop< prefix)  (define prefix< (make-prefix< prefix))
+                     (define (i< i) (prefix< (ref i) prefix))
+                     (table ref (bisect-next start end i<) end))
+    ;((drop<= prefix) (define prefix<= (make-prefix<= prefix))
+                     ;(define (i<= i) (prefix<= (ref i) prefix))
+                     ;(table ref (bisect-next start end i<=) end))
+    ;((take<= prefix) (define prefix<= (make-prefix<= prefix))
+                     ;(define (i<= i) (prefix<= (ref i) prefix))
+                     ;(table ref start (bisect-next start end i<=)))
+    ;; TODO: > >= variants: take>= drop> drop>=
+    ;((drop> prefix)  (define prefix< (make-prefix< prefix))
+                     ;(define (i> i) (prefix< prefix (ref i)))
+                     ;(table ref start (bisect-previous start end i>)))
+    ((take count) (table ref start           (+ count start)))
+    ((drop count) (table ref (+ count start) end))))
+
 (define (table/port/offsets table:offsets type in)
   (define (ref i) (file-position in (table:offsets 'ref i)) (decode in type))
-  (define (i< <?) (lambda (i) (<? (ref i))))
-  (method-lambda
-    ((length)         (table:offsets 'length))
-    ((ref i)          (ref i))
-    ((find      start end <?) (bisect      start end (i< <?)))
-    ((find-next start end <?) (bisect-next start end (i< <?)))))
+  (table ref 0 (table:offsets 'length)))
 
 (define (table/bytes/offsets table:offsets type bs)
   (define in (open-input-bytes bs))
   (table/port/offsets table:offsets type in))
 
+;; TODO: table/file that does len calculation via file-size?
 (define (table/port type len in)
   (define width (sizeof type (void)))
-  (define (ref/pos i) (file-position in i) (decode in type))
-  (define (ref     i) (ref/pos (* i width)))
-  (define (i< <?) (lambda (i) (<? (ref i))))
-  (method-lambda
-    ((length)         len)
-    ((ref i)          (ref i))
-    ((find      start end <?) (bisect      start end (i< <?)))
-    ((find-next start end <?) (bisect-next start end (i< <?)))))
+  (define (ref i) (file-position in (* i width)) (decode in type))
+  (table ref 0 len))
 
 (define (table/bytes type bs)
   (define in (open-input-bytes bs))
   (table/port type (quotient (bytes-length bs) (sizeof type (void))) in))
 
 (define (table/vector v)
-  (define (i< <?) (lambda (i) (<? (vector-ref v i))))
-  (method-lambda
-    ((length)         (vector-length v))
-    ((ref i)          (vector-ref v i))
-    ((find      start end <?) (bisect      start end (i< <?)))
-    ((find-next start end <?) (bisect-next start end (i< <?)))))
+  (table (lambda (i) (vector-ref v i)) 0 (vector-length v)))
 
 (define (bisect start end i<)
   (let loop ((start start) (end end))
@@ -79,6 +94,7 @@
                     (cond ((= offset 0) (+ i 1))
                           ((i< next)    (loop next offset))
                           (else         (loop i    offset)))))))))
+;; TODO: bisect-previous
 
 (define (tabulate file-name offset-file-name? zmax type v< s)
   (define fname-multi        (string-append file-name ".multi"))
