@@ -30,8 +30,10 @@
 ;; TODO: parameterize over column types
 (define (table ref start end)
   ;; TODO: column-type-specific comparison operators instead of any
-  (define (make-prefix<  prefix) (tuple<?  (vector-map (lambda (_) any<?)  prefix)))
-  ;(define (make-prefix<= prefix) (tuple<=? (vector-map (lambda (_) any<=?) prefix)))
+  (define (make-prefix<  prefix)
+    (tuple<? (vector-map (lambda (_) compare-any) prefix)))
+  ;(define (make-prefix<= prefix)
+    ;(tuple<=? (vector-map (lambda (_) compare-any) prefix)))
   (method-lambda
     ((length) (- end start))
     ((ref i)  (ref (+ start i)))
