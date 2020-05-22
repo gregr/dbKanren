@@ -17,6 +17,8 @@ large-scale relations.
     * slice:  `#(ID start end)`
   * binary/bytevector serialization format for compact storage and fast loading
     * more efficient numbers: polymorphic, neg, int, float
+  * string (and suffix) full-text search via bytes rather than chars?
+    * and radix sorting
 
 * table transformations
   * file formats
@@ -108,7 +110,14 @@ large-scale relations.
     * field/column names and types
       * optional remapping of lexicographical order
     * backing tables: record, any indices, vw-columns, and/or text-suffixes
-    * uniqueness, functional dependencies, or other constraints
+    * constraints:
+      * degree (subsumes uniqueness, functional dependency, cardinality)
+        * in relation R, given (A B C), how many (D E F)s are there?
+          * lower and upper bounds, i.e., 0 to 2, exactly 1, at least 5, etc.
+        * maybe support more precise constraints given specific field values
+      * monotonicity: (C D) is nondecreasing when sorting by (A B C D)
+        * implies sorted rows for (C D A B) appear in same order as (A B C D)
+          * one index can support either ordering
     * statistics (derived from table statistics)
 
 * low-level tables with optional keys/indices (not user-level)
