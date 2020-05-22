@@ -2,10 +2,10 @@
 (provide bisect bisect-next
          table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets tabulate
-         table-project table-intersect-start
+         table-project table-intersect-start table-cross table-join
          call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
-         racket/function racket/match racket/vector)
+         racket/function racket/list racket/match racket/vector)
 
 (define (s-encode out type s) (s-each s (lambda (v) (encode out type v))))
 (define (s-decode in type)
@@ -122,6 +122,36 @@
                                     (cons (cons new t) finished))))))))
            (let* ((t ((car ts) 'drop< max)) (new (next t)))
              (and new (loop new (cdr ts) (cons (cons new t) finished))))))))
+
+;; TODO: this may only be useful as an example.
+(define (table-cross ts prefix)
+  (define psize (vector-length prefix))
+  (define plist (vector->list prefix))
+  (map (lambda (r) (list->vector (append plist r)))
+       (let loop ((ts ts))
+         (if (null? ts) '(())
+           (let ((t (car ts)) (suffixes (loop (cdr ts))))
+             (append*
+               (map (lambda (i)
+                      (map (lambda (suffix)
+                             (append (vector->list
+                                       (vector-copy (t 'ref i) psize))
+                                     suffix))
+                           suffixes))
+                    (range (t 'length)))))))))
+
+;; TODO: this may only be useful as an example.
+(define (table-join ts prefix-size)
+  (define (current prefix+ts)
+    (define prefix (car prefix+ts))
+    (table-cross (map (lambda (t) (t 'take<= prefix)) (cdr prefix+ts)) prefix))
+  (define (next prefix+ts)
+    (define prefix (car prefix+ts))
+    (map (lambda (t) (t 'drop<= prefix)) (cdr prefix+ts)))
+  (let loop ((ts ts))
+    (let ((prefix+ts (table-intersect-start ts prefix-size)))
+      (if (not prefix+ts) '()
+        (append (current prefix+ts) (loop (next prefix+ts)))))))
 
 ;; TODO: maybe have an iteratee tabulator (push rather than pull)?
 (define (tabulate file-name offset-file-name? zmax type v< s)
