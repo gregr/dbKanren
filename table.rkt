@@ -116,7 +116,7 @@
              (if (null? pending) (loop max (reverse finished) '())
                (let ((t-next (caar pending)) (t (cdar pending)))
                  (if (equal? t-next max)
-                   (map cdr (foldl cons pending finished))
+                   (cons max (map cdr (foldl cons pending finished)))
                    (let* ((t (t 'drop< max)) (new (next t)))
                      (and new (loop new (cdr pending)
                                     (cons (cons new t) finished))))))))
