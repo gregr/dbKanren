@@ -1,6 +1,6 @@
 #lang racket/base
 (provide)
-(require "method.rkt" racket/list)
+(require "method.rkt" racket/list racket/set)
 
 ;; * extensional relation:
 ;;   * schema:
