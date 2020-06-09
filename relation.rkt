@@ -121,3 +121,41 @@
     ;((degrees)         degrees)
     ;; TODO:
     ))
+
+;; example: safe-drug -(predicate)-> gene
+#|
+(run* (D->G)
+  (fresh (D G D-is-safe P)
+    ;; D -(predicate)-> G
+    (concept D 'category 'drug)   ;; probably not low cardinality          (6? optional if has-tradename already guarantees this, but is it helpful?) known D Ologn if indexed; known Ologn
+    (edge D->G 'subject   D)      ;;                                       (5) 'subject range known Ologn; known D O(n) via scan
+    (edge D->G 'object    G)      ;; probably lowest cardinality for D->G  (3) 'object range known Ologn; known D->G Ologn
+    (edge D->G 'predicate P)      ;; probably next lowest, but unsorted    (4) known |D->G| O(|P|+logn) (would be known D->G O(nlogn)); known D->G O(nlognlog(|P|)) via scan
+    (membero P predicates)        ;; P might also have low cardinality     (2) known P O(|P|)
+    (== G 1234)                   ;; G should have lowest cardinality      (1) known G O1
+    ;(concept G 'category 'gene)
+    ;; D -(has-trade-name)-> _
+    (edge D-is-safe 'subject   D) ;;                                       (7) 'subject range known Ologn; known D-is-safe Ologn
+    (edge D-is-safe 'predicate 'has-tradename))) ;;                        (8) known Ologn
+|#
+;; about (4, should this build an intermediate result for all Ps, iterate per P, or just enumerate and filter P?):
+;; * iterate        (global join on P): O(1)   space; O(|P|*(lg(edge G) + (edge P)))    time; join order is G(==), P(membero), D->G(edge, edge)
+;; * intermediate    (local join on P): O(|P|) space; O(|(edge P)|lg(|P|) + lg(edge G)) time; compute D->G chunk offsets, virtual heap-sort, then join order is G(==), D->G(edge, intermediate)
+;; * filter (delay consideration of P): O(1)   space; O((edge G)*lg(|P|)) time; join order is G(==), D->G(edge), P
+;; (edge P) is likely larger than (edge G)
+;; even if |P| is small, |(edge P)| is likely to be large
+;; if |P| is small, iterate or intermediate
+;; if |P| is large, iterate or filter; the larger the |P|, the better filtering becomes (negatives become less likely)
+;; intermediate is rarely going to be good due to large |(edge P)|
+;; iterate is rarely going to be very bad, but will repeat work for |P| > 1
+
+;; TODO:
+;; In this example query family, the query graph is tree-shaped, and the
+;; smallest cardinalities will always start at leaves of the tree, so pausing
+;; when cardinality spikes, and resuming at another leaf makes sense.  But what
+;; happens if the smallest cardinality is at an internal node of the tree,
+;; cardinality spikes, and the smallest cardinality is now along a different
+;; branch/subtree?  In other words, resolving the internal node can be seen as
+;; removing it, which disconnects the query graph.  The disconnected subgraphs
+;; are independent, and so could be solved independently to avoid re-solving
+;; each one multiple times.
