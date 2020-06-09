@@ -90,3 +90,34 @@
 (define (degree-upper-bound d) (vector-ref d 1))
 (define (degree-domain      d) (vector-ref d 2))
 (define (degree-range       d) (vector-ref d 3))
+
+;; TODO: should we specify sources directly, or pass a pre-built body that may
+;;       have been constructed in an arbitrary way?
+(define (relation-instance attribute-names attribute-types degrees sources)
+  (unless (= (vector-length attribute-names) (vector-length attribute-types))
+    (error "mismatching attribute names and types:"
+           attribute-names attribute-types))
+  (define as (vector->list attribute-names))
+  (unless (= (length (remove-duplicates as)) (length as))
+    (error "duplicate attributes:" as))
+  (when (null? sources) (error "empty relation sources for:" attribute-names))
+  (unless (andmap (let ((sas (vector->list (source-attributes (car sources)))))
+                    (lambda (a) (member a sas))) as)
+    (error "main source attributes do not cover relation attributes:"
+           (source-attributes (car sources))
+           attribute-names))
+  (define ras (list->set as))
+  ;; TODO:
+  ;; guarantee attribute-types match? how?
+
+  ;; TODO: should we interpret degree constraints to find useful special cases?
+  ;; * functional dependency
+  ;; * bijection (one-to-one mapping via opposing functional dependencies)
+  ;; * uniqueness (functional dependency to full set of of attributes)
+
+  (method-lambda
+    ((attribute-names) attribute-names)
+    ((attribute-types) attribute-types)
+    ;((degrees)         degrees)
+    ;; TODO:
+    ))
