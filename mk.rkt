@@ -7,7 +7,8 @@
   (struct-out constrain)
   (struct-out relate)
 
-  relations relations-ref define-relation let-relations
+  relations relations-ref relations-register!
+  define-relation let-relations
   conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
@@ -70,7 +71,6 @@
               (relate (lambda (param ...) (fresh () g ...)) (list param ...)
                       `(,name . name)))
             (relations-register! name '(name param ...))))))
-;; TODO: define-relation/data
 (define succeed (== #t #t))
 (define fail    (== #f #t))
 (define-syntax conj*
