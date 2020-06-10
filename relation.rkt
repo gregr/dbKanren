@@ -1,6 +1,7 @@
 #lang racket/base
-(provide relation/stream)
-(require "method.rkt" "mk.rkt" racket/list racket/set)
+(provide relation/stream define-relation/stream)
+(require "method.rkt" "mk.rkt" "stream.rkt"
+         racket/function racket/list racket/set)
 
 ;; * extensional relation:
 ;;   * schema:
@@ -128,6 +129,23 @@
     ((attribute-names) attribute-names)
     ((attribute-types) attribute-types)
     ((apply args)      (constrain `(retrieve ,s) args))))
+
+(define-syntax define-relation/stream
+  (syntax-rules ()
+    ;; TODO: specify types
+    ((_ (name attr ...) se)
+     (begin (define r/s
+              (relation/stream
+                '(attr ...) '(attr ...)
+                (let loop ((i 0) (s se))
+                  (thunk (let ((s (s-next s)))
+                           (if (null? s) '()
+                             (cons (cons i (vector->list (car s)))
+                                   (loop (+ i 1) (cdr s)))))))))
+            (define (name attr ...)
+              (relate (lambda (attr ...) (r/s 'apply (list attr ...)))
+                      (list attr ...) `(,name . name)))
+            (relations-register! name '(name attr ...))))))
 
 ;; example: safe-drug -(predicate)-> gene
 #|
