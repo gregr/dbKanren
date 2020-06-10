@@ -140,7 +140,7 @@
                 (let loop ((i 0) (s se))
                   (thunk (let ((s (s-next s)))
                            (if (null? s) '()
-                             (cons (cons i (vector->list (car s)))
+                             (cons (cons i (car s))
                                    (loop (+ i 1) (cdr s)))))))))
             (define (name attr ...)
               (relate (lambda (attr ...) (r/s 'apply (list attr ...)))

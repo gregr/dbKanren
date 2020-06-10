@@ -13,8 +13,7 @@
 (define (tsv->stream in)
   (let loop () (thunk (define l (read-line in 'any))
                       (if (eof-object? l) '()
-                        (cons (list->vector (string-split l "\t" #:trim? #f))
-                              (loop))))))
+                        (cons (string-split l "\t" #:trim? #f) (loop))))))
 
 ;; Informal grammar for delimiter-separated values (escapes via double quote)
 ;RECORD-SEPARATOR ::= \r\n | \n | \r
@@ -59,4 +58,4 @@
                   ((eof-object? ch)                   '())
                   (else                               (record))))))
   (let loop () (thunk (if (eof-object? (peek-char in)) '()
-                        (cons (list->vector (record)) (loop))))))
+                        (cons (record) (loop))))))

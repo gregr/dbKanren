@@ -35,9 +35,9 @@
 
 (define-relation/stream
   (tripleo i x y z)
-  (thunk '(#(a b c)
-           #(d e f)
-           #(g h i))))
+  (thunk '((a b c)
+           (d e f)
+           (g h i))))
 
 (test 'tripleo-all
   (run* (i x y z) (tripleo i x y z))
