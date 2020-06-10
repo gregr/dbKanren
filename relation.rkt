@@ -1,6 +1,6 @@
 #lang racket/base
-(provide relation/stream define-relation/stream)
-(require "method.rkt" "mk.rkt" "stream.rkt"
+(provide relation/stream define-relation/stream define-relation/tables)
+(require "method.rkt" "mk.rkt" "stream.rkt" "table.rkt"
          racket/function racket/list racket/set)
 
 ;; * extensional relation:
@@ -142,6 +142,50 @@
                            (if (null? s) '()
                              (cons (cons i (car s))
                                    (loop (+ i 1) (cdr s)))))))))
+            (define-relation/proc
+              (name attr ...)
+              (lambda (attr ...) (r/s 'apply (list attr ...))))))))
+
+;; TODO: attribute-types should be verified with tables
+(define (relation/tables attribute-names attribute-types attributed-tables)
+  (when (null? attributed-tables)
+    (error "relation/tables must include at least one table:"
+           attribute-names attribute-types))
+  (define attrs/main-table    (car attributed-tables))
+  (define attrss/index-tables (cdr attributed-tables))
+  (let ((main-attrs (car attrs/main-table)))
+    (for-each
+      (lambda (name)
+        (unless (member name main-attrs)
+          (error "missing attribute in primary table:" name attrs/main-table)))
+      attribute-names)
+    (for-each
+      (lambda (name)
+        (unless (member name attribute-names)
+          (error "unknown attribute in primary table:" name attribute-names)))
+      main-attrs))
+  (method-lambda
+    ((attribute-names) attribute-names)
+    ((attribute-types) attribute-types)
+    ((apply args)
+     ;; TODO: make use of index tables; later, use the constraint system
+     ;; for now, index whatever possible from main table, then stream the rest
+     (define env (map cons attribute-names args))
+     (let loop ((attrs (car attrs/main-table)) (t (cdr attrs/main-table)))
+       (define (finish) (constrain `(retrieve ,(t 'stream))
+                                   (map (lambda (attr) (cdr (assoc attr env)))
+                                        attrs)))
+       (cond ((null? attrs) (finish))
+             (else (define v (cdr (assoc (car attrs) env)))
+                   (if (var? v) (finish)
+                     (loop (cdr attrs) (table-project t (vector v))))))))))
+
+;; TODO: need a higher level interface than this
+(define-syntax define-relation/tables
+  (syntax-rules ()
+    ;; TODO: specify types
+    ((_ (name attr ...) ts/ps)
+     (begin (define r/s (relation/tables '(attr ...) '(attr ...) ts/ps))
             (define-relation/proc
               (name attr ...)
               (lambda (attr ...) (r/s 'apply (list attr ...))))))))
