@@ -1,6 +1,6 @@
 #lang racket/base
-(provide)
-(require "method.rkt" racket/list racket/set)
+(provide relation/stream)
+(require "method.rkt" "mk.rkt" racket/list racket/set)
 
 ;; * extensional relation:
 ;;   * schema:
@@ -121,6 +121,13 @@
     ;((degrees)         degrees)
     ;; TODO:
     ))
+
+(define (relation/stream attribute-names attribute-types s)
+  ;; TODO: optional type validation of stream data?
+  (method-lambda
+    ((attribute-names) attribute-names)
+    ((attribute-types) attribute-types)
+    ((apply args)      (constrain `(retrieve ,s) args))))
 
 ;; example: safe-drug -(predicate)-> gene
 #|
