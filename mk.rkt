@@ -50,9 +50,10 @@
 (define relation-registry    (make-weak-hasheq '()))
 (define (relations)          (hash->list relation-registry))
 (define (relations-ref proc) (hash-ref relation-registry proc))
-(define (relations-register! proc signature)
+(define (relations-register! proc proc-cell signature)
   (hash-set! relation-registry proc
-             (make-hash `((signature . ,(list->vector signature))
+             (make-hash `((cell      . ,proc-cell)
+                          (signature . ,(list->vector signature))
                           (analysis  . #f)))))
 
 (define-syntax let-relations
@@ -66,10 +67,12 @@
 (define-syntax define-relation/proc
   (syntax-rules ()
     ((_ (name param ...) proc)
-     (begin (define (name param ...)
-;; TODO: thunk may need to invoke new logic after precomputation or analysis
-              (relate proc (list param ...) `(,name . name)))
-            (relations-register! name '(name param ...))))))
+     (begin (define pc (let ((p proc)) (method-lambda
+                                         ((ref)      p)
+                                         ((set! new) (set! p new)))))
+            (define (name param ...)
+              (relate (pc 'ref) (list param ...) `(,name . name)))
+            (relations-register! name pc '(name param ...))))))
 (define-syntax define-relation
   (syntax-rules ()
     ((_ (name param ...) g ...)
