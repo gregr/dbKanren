@@ -36,7 +36,16 @@
     (tuple<=? (vector-map (lambda (_) compare-any) prefix)))
   (method-lambda
     ((length) (- end start))
+    ;; TODO: column-specific ref, i.e., ((ref i j) etc.)
     ((ref i)  (ref (+ start i)))
+    ((mask j)
+     ;; TODO: these copies will inefficiently cascade
+     ;; this will be fixed by column-specific ref
+     (table (lambda (i) (vector-copy (ref i) j)) start end))
+    ((stream) (let loop ((i 0))
+                (thunk (if (= i (- end start)) '()
+                         (cons (vector->list (ref (+ start i)))
+                               (loop (+ i 1)))))))
     ((find< prefix)  (define prefix< (make-prefix< prefix))
                      (define (i< i) (prefix< (ref i) prefix))
                      (bisect start end i<))
@@ -56,10 +65,6 @@
     ;((drop> prefix)  (define prefix< (make-prefix< prefix))
                      ;(define (i> i) (prefix< prefix (ref i)))
                      ;(table ref start (bisect-previous start end i>)))
-    ;; TODO: produce a new table that omits some columns on the left
-    ;((mask prefix)
-     ;;; assume and assert that drop< and take<= have already been performed
-     ;)
     ((take count) (table ref start           (+ count start)))
     ((drop count) (table ref (+ count start) end))))
 
@@ -103,7 +108,8 @@
                           (else                         (loop i    o)))))))))
 ;; TODO: bisect-previous
 
-(define (table-project t prefix) ((t 'drop (t 'find< prefix)) 'take<= prefix))
+(define (table-project t prefix)
+  (((t 'drop< prefix) 'take<= prefix) 'mask (vector-length prefix)))
 
 ;; TODO: table-intersect-end
 (define (table-intersect-start ts prefix-size)
