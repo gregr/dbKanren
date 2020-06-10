@@ -142,10 +142,9 @@
                            (if (null? s) '()
                              (cons (cons i (car s))
                                    (loop (+ i 1) (cdr s)))))))))
-            (define (name attr ...)
-              (relate (lambda (attr ...) (r/s 'apply (list attr ...)))
-                      (list attr ...) `(,name . name)))
-            (relations-register! name '(name attr ...))))))
+            (define-relation/proc
+              (name attr ...)
+              (lambda (attr ...) (r/s 'apply (list attr ...))))))))
 
 ;; example: safe-drug -(predicate)-> gene
 #|

@@ -7,8 +7,8 @@
   (struct-out constrain)
   (struct-out relate)
 
-  relations relations-ref relations-register!
-  define-relation let-relations
+  relations relations-ref
+  define-relation/proc define-relation let-relations
   conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
@@ -63,14 +63,18 @@
                                 ;; TODO: specify an appropriate caching mode
                                 (values name ...))))
        body ...))))
+(define-syntax define-relation/proc
+  (syntax-rules ()
+    ((_ (name param ...) proc)
+     (begin (define (name param ...)
+;; TODO: thunk may need to invoke new logic after precomputation or analysis
+              (relate proc (list param ...) `(,name . name)))
+            (relations-register! name '(name param ...))))))
 (define-syntax define-relation
   (syntax-rules ()
     ((_ (name param ...) g ...)
-     (begin (define (name param ...)
-;; TODO: thunk may need to invoke new logic after precomputation or analysis
-              (relate (lambda (param ...) (fresh () g ...)) (list param ...)
-                      `(,name . name)))
-            (relations-register! name '(name param ...))))))
+     (define-relation/proc (name param ...)
+                           (lambda (param ...) (fresh () g ...))))))
 (define succeed (== #t #t))
 (define fail    (== #f #t))
 (define-syntax conj*
