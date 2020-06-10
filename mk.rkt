@@ -11,6 +11,7 @@
   conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
+  retrieve
 
   pretty-query pretty-goal pretty-term
   )
@@ -43,6 +44,7 @@
 (define-constraint (string-appendo t1 t2 t3))
 (define-constraint (string-symbolo t1 t2))
 (define-constraint (string-numbero t1 t2))
+(define (retrieve s args) (constrain `(retrieve ,s) args))
 
 (define relation-registry    (make-weak-hasheq '()))
 (define (relations)          (hash->list relation-registry))
@@ -119,10 +121,16 @@
                                          (list result))
                              (else       (loop st (car gs) (cdr gs)))))
       (match g
-        (`#s(conj      ,g1 ,g2) (loop st g1 (cons g2 gs)))
-        (`#s(disj      ,g1 ,g2) (s-append (loop (state-new st) g1 gs)
-                                          (thunk (loop st g2 gs))))
-        (`#s(relate    ,proc ,args ,desc) (loop st (relate-expand g) gs))
+        (`#s(conj ,g1 ,g2) (loop st g1 (cons g2 gs)))
+        (`#s(disj ,g1 ,g2) (s-append (loop (state-new st) g1 gs)
+                                     (thunk (loop st g2 gs))))
+        (`#s(relate   ,proc  ,args ,desc) (loop st (relate-expand g) gs))
+        (`#s(constrain (retrieve ,s) ,args)
+          (let ((s (s-next s)))
+            (if (null? s) fail
+              (loop st (disj (== (car s) args)
+                             (constrain `(retrieve ,(cdr s)) args))
+                    gs))))
         (`#s(constrain == (,t1 ,t2)) ((if (unify* st t1 t2) return fail)))))))
 
 (struct state (assignments constraints) #:mutable)
@@ -198,6 +206,7 @@
                                                 (loop (- i 1)))))))
           ((string? t1) (and (string? t2) (string=? t1 t2)))
           (else         #f))))
+;; TODO: walk* decision should be made by relate-proc instead
 (define (relate-expand r) (apply (relate-proc r) (walk* (relate-args r))))
 ;; TODO: constraint satisfaction
 
