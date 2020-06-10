@@ -138,7 +138,7 @@
               (relation/stream
                 '(attr ...) '(attr ...)
                 (let loop ((i 0) (s se))
-                  (thunk (let ((s (s-next s)))
+                  (thunk (let ((s (s-force s)))
                            (if (null? s) '()
                              (cons (cons i (car s))
                                    (loop (+ i 1) (cdr s)))))))))

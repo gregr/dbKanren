@@ -134,7 +134,7 @@
                                      (thunk (loop st g2 gs))))
         (`#s(relate   ,proc  ,args ,desc) (loop st (relate-expand g) gs))
         (`#s(constrain (retrieve ,s) ,args)
-          (let ((s (s-next s)))
+          (let ((s (s-force s)))
             (if (null? s) fail
               (loop st (disj (== (car s) args)
                              (constrain `(retrieve ,(cdr s)) args))
