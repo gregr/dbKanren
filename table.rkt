@@ -91,15 +91,16 @@
         (if (i< i) (loop (+ 1 i) end) (loop start i))))))
 
 (define (bisect-next start end i<)
-  (let loop ((i (- start 1)) (offset 1))
+  (define i (- start 1))
+  (let loop ((offset 1))
     (define next (+ i offset))
     (cond ((and (< next end) (i< next))
-           (loop i (arithmetic-shift offset 1)))
+           (loop (arithmetic-shift offset 1)))
           (else (let loop ((i i) (o offset))
-                  (let* ((offset (arithmetic-shift o -1)) (next (+ i offset)))
-                    (cond ((= offset 0) (+ i 1))
-                          ((i< next)    (loop next offset))
-                          (else         (loop i    offset)))))))))
+                  (let* ((o (arithmetic-shift o -1)) (next (+ i o)))
+                    (cond ((= o 0)                      (+ i 1))
+                          ((and (< next end) (i< next)) (loop next o))
+                          (else                         (loop i    o)))))))))
 ;; TODO: bisect-previous
 
 (define (table-project t prefix) ((t 'drop (t 'find< prefix)) 'take<= prefix))
