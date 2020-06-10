@@ -71,7 +71,8 @@
                                          ((ref)      p)
                                          ((set! new) (set! p new)))))
             (define (name param ...)
-              (relate (pc 'ref) (list param ...) `(,name . name)))
+              (relate (lambda (param ...) ((pc 'ref) param ...))
+                      (list param ...) `(,name . name)))
             (relations-register! name pc '(name param ...))))))
 (define-syntax define-relation
   (syntax-rules ()
