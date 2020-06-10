@@ -30,7 +30,7 @@
 
 (define (s-append a b)
   (define (k a) (if (null? a) b (cons (car a) (s-append (cdr a) b))))
-  (if (procedure? a) (thunk (k (a))) (k a)))
+  (if (procedure? a) (thunk (k (s-next a))) (k a)))
 
 (define (s-filter ? s)
   (thunk (let loop ((s (s-next s)))
