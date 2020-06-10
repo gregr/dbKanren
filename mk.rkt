@@ -6,6 +6,7 @@
   (struct-out conj)
   (struct-out constrain)
   (struct-out relate)
+  (struct-out var)
 
   relations relations-ref
   define-relation/proc define-relation let-relations
