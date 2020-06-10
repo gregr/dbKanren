@@ -1,5 +1,5 @@
 #lang racket/base
-(require "mk.rkt" racket/pretty)
+(require "mk.rkt" "relation.rkt" racket/function racket/pretty)
 (print-as-expression #f)
 (pretty-print-abbreviate-read-macros #f)
 
@@ -32,3 +32,25 @@
     ((1 2 3) (4 5))
     ((1 2 3 4) (5))
     ((1 2 3 4 5) ())))
+
+(define-relation/stream
+  (tripleo i x y z)
+  (thunk '(#(a b c)
+           #(d e f)
+           #(g h i))))
+
+(test 'tripleo-all
+  (run* (i x y z) (tripleo i x y z))
+  '((0 a b c) (1 d e f) (2 g h i)))
+(test 'tripleo-filter-before
+  (run* (i x y z)
+    (conde ((== y 'e))
+           ((== x 'g)))
+    (tripleo i x y z))
+  '((1 d e f) (2 g h i)))
+(test 'tripleo-filter-after
+  (run* (i x y z)
+    (tripleo i x y z)
+    (conde ((== i 0))
+           ((== z 'i))))
+  '((0 a b c) (2 g h i)))
