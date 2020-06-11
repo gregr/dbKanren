@@ -6,6 +6,33 @@ large-scale relations.
 
 ## TODO
 
+* redefine (ref i j)
+  * table should include a j-start for masking
+  * define (width)
+* redefine take/drop variants in terms of a single column
+  * and table-project
+* define tables that use column-oriented layout
+* higher level relation persistence interface
+  * filepath, schema, source data/query, key, and attribute orders for tables
+    * key is the optional column referring to a tuple's primary table position
+  * persist run^ results to file (via tabulate?)
+    * (re-)sort according to attribute orders to build each table
+      * build offset tables when any column types are variable-length
+    * reload via define-relation/tables
+
+* revert to a purely functional mk interpretation with a complete search
+  * safer interaction between concurrent evaluation/analysis of shared queries
+  * redefine var as immutable syntax (should not include a mutable value)
+    * for optimizations like mutable var cells, compile to a new representation
+* domain constraints
+  * a var's possible values are the intersection of one or more as bounded sets
+    * disagreeing bounds are refined by incremental intersection
+  * discrete values from a finite relation
+  * continuous ranges of values from an infinite relation
+    * types as ranges of values
+  * disequality constraints punch holes in continuous ranges
+
+
 ### Data processing
 
 * types
@@ -21,10 +48,8 @@ large-scale relations.
     * and radix sorting
 
 * table transformations
-  * file formats
-    * internal binary encoding
-    * text, such as csv, tsv, nq, json, s-expression
-      * column-specific types: string (default), number, json, s-expression
+  * high-level string transformation types: string, number, json, s-expression
+    * perform this with Racket computation via `use`
   * flattening of tuple/array (pair, vector) fields, increasing record arity
     * supports compact columnarization of scalar-only fields
   * positional ID generation and substitution
@@ -47,27 +72,10 @@ large-scale relations.
     * possibly involving embedded Racket computation
 
 * relational source data transformation
-  * all records are considered ordered
-    * though order may need to be implicitly given by a virtual `position` column
-  * nonuniform data width, without a position table for random access
-    * typical for text formats, which will be common for input sources
-  * able to process non-binary (text, such as csv, tsv) directly, given format
   * ability to attach metadata to relations, describing:
-    * representation (text (csv, tsv, json, s-expression, etc.) or binary)
-    * column types
-    * column semantics
-      * immediate value
-      * indirect value: logical or file position, or string suffix
-    * ephemeral or persistent status
-    * memory usage budget
-
-* general comparison operators for ordering relations
-  * must provide total order on s-expressions
-  * consistent normalization: careful comparison of exact and inexact numbers
-  * semantically order indirect references
-    * string suffixes must be dereferenced to be ordered semantically
-    * positional IDs from same source are orderable without dereferencing
-      * dereferenced source values guaranteed to be be in same order
+    * high-level column types, such as string suffix
+    * transient or persistent status
+    * memory usage budget/preferences
 
 
 ### Database representation
@@ -171,23 +179,12 @@ large-scale relations.
 ### Relational language for rules and queries
 
 * functional term sublanguage
-  * to what extent can this be done as embedded Racket evaluation?
-    * without jeopardizing dependency analysis and scheduling?
-  * atoms, constructors
-  * support first-order (and maybe limited higher-order) functions
-    * whitelist opaque Racket procedures
-    * optional constraint satisfaction rules and backward modes
-      * functions must only be used for calls
-      * logic variables must not flow to function positions
-    * arithmetic, aggregation
-      * track monotonicity for efficient incremental update
-    * note: partial/anywhere text searches are functional, not relational
-  * queries, which may be embedded for aggregation
-    * usual mk operators `run` and `run*`
-      * finite, grounded results will be returned non-duplicated and in order
-      * infinite or ungrounded results will be returned as in typical mk
-    * `query` streams results without order or duplication guarantees
-      * but forward/bottom-up computation will implicitly order and deduplicate
+  * atoms and constructors can be appear freely
+  * other computation appears under `use`
+    * should be referentially transparent
+    * e.g., subqueries used for aggregation, implicitly grouped by outer query
+  * maybe indicate monotonicity for efficient incremental update
+    * by default, `use` will stratify based on dependencies
 
 * relations
   * `(define-relation (name param ...) goal ...) => (define name (relation (param ...) goal ...))`
@@ -291,10 +288,10 @@ large-scale relations.
 * mode analysis
   * modes as binding patterns with result cardinalities
     * parameter binding classes from least to most constraining
-      * f: free
-      * x: constrained
-      * c: constructed
-      * b: bound
+      * f: free        (no guarantees of any kind)
+      * x: constrained (if it's a variable, it at least has some constraints)
+      * c: constructed (not a variable, but not necessarily fully ground)
+      * b: bound       (fully ground)
     * appendo: (b f f) -> (0 1) (b f b)
       * bound first param leads to 0 or 1 result with bound third param
   * mode-specific safety
