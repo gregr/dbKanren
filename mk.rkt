@@ -8,7 +8,7 @@
   (struct-out relate)
   (struct-out var)
 
-  relations relations-ref
+  relations relations-ref relations-set!
   relation/proc relation letrec-relations define-relation/proc define-relation
   conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
@@ -48,16 +48,22 @@
 (define-constraint (string-numbero t1 t2))
 (define (retrieve s args) (constrain `(retrieve ,s) args))
 
-(define relation-registry    (make-weak-hasheq '()))
-(define (relations)          (hash->list relation-registry))
-(define (relations-ref proc) (hash-ref relation-registry proc))
+(define relation-registry     (make-weak-hasheq '()))
+(define (relations)           (hash->list relation-registry))
+(define (relations-ref  proc) (hash-ref relation-registry proc))
+(define (relations-set! proc k v)
+  (hash-set! relation-registry proc (hash-set (relations-ref proc) k v)))
 (define (relations-register! proc proc-cell name attributes)
   (hash-set! relation-registry proc
-             (make-hash `((cell            . ,proc-cell)
-                          (name            . ,name)
-                          (attribute-names . ,attributes)
-                          (attribute-types . #f)
-                          (analysis        . #f)))))
+             (make-hash `((cell                       . ,proc-cell)
+                          (name                       . ,name)
+                          (attribute-names            . ,attributes)
+                          (attribute-types            . #f)
+                          (integrity-constraints      . #f)
+                          (location                   . #f)
+                          (monotonic-dependencies     . #f)
+                          (non-monotonic-dependencies . #f)
+                          (analysis                   . #f)))))
 
 (define-syntax relation/proc
   (syntax-rules ()
