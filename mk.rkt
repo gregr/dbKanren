@@ -51,11 +51,13 @@
 (define relation-registry    (make-weak-hasheq '()))
 (define (relations)          (hash->list relation-registry))
 (define (relations-ref proc) (hash-ref relation-registry proc))
-(define (relations-register! proc proc-cell signature)
+(define (relations-register! proc proc-cell name attributes)
   (hash-set! relation-registry proc
-             (make-hash `((cell      . ,proc-cell)
-                          (signature . ,(list->vector signature))
-                          (analysis  . #f)))))
+             (make-hash `((cell            . ,proc-cell)
+                          (name            . ,name)
+                          (attribute-names . ,attributes)
+                          (attribute-types . #f)
+                          (analysis        . #f)))))
 
 (define-syntax let-relations
   (syntax-rules ()
@@ -73,8 +75,8 @@
                                          ((set! new) (set! p new)))))
             (define (name param ...)
               (relate (lambda (param ...) ((pc 'ref) param ...))
-                      (list param ...) `(,name . name)))
-            (relations-register! name pc '(name param ...))))))
+                      (list param ...) name))
+            (relations-register! name pc 'name '(param ...))))))
 (define-syntax define-relation
   (syntax-rules ()
     ((_ (name param ...) g ...)
