@@ -161,7 +161,7 @@
         (append (current prefix+ts) (loop (next prefix+ts)))))))
 
 ;; TODO: maybe have an iteratee tabulator (push rather than pull)?
-(define (tabulate file-name offset-file-name? zmax type v< s)
+(define (tabulate dedup? file-name offset-file-name? zmax type v< s)
   (define fname-multi        (string-append file-name ".multi"))
   (define fname-multi-offset (string-append file-name ".multi.offset"))
   (define (main out out-offset)
@@ -173,13 +173,13 @@
     (cond (v? (let loop ((prev #f) (i 0))
                 (unless (= i item-count)
                   (define x (vector-ref v? i))
-                  (unless (and (< 0 i) (equal? x prev))  ;; remove duplicates
+                  (unless (and dedup? (< 0 i) (equal? x prev))
                     (when out-offset (encode out-offset otype
                                              (file-position out)))
                     (encode out type x))
                   (loop x (+ i 1)))))
           (else (let/files ((in fname-multi) (in-offset fname-multi-offset)) ()
-                  (multi-merge out out-offset type otype v< chunk-count
+                  (multi-merge dedup? out out-offset type otype v< chunk-count
                                in in-offset))
                 (delete-file fname-multi)
                 (delete-file fname-multi-offset)))
@@ -212,7 +212,8 @@
                           (+ chunk-count 1))))))))
 
 ;; TODO: separate chunk streaming from merging
-(define (multi-merge out out-offset type otype v< chunk-count in in-offset)
+(define (multi-merge
+          dedup? out out-offset type otype v< chunk-count in in-offset)
   (define (s< sa sb) (v< (car sa) (car sb)))
   (define (s-chunk pos end)
     (cond ((<= end pos) '())
@@ -228,7 +229,7 @@
   (let loop ((prev? #f) (prev #f) (hend chunk-count))
     (unless (= hend 0)
       (let* ((top (heap-top heap)) (x (car top)) (top (s-force (cdr top))))
-        (unless (and prev? (equal? x prev))  ;; remove duplicates
+        (unless (and dedup? prev? (equal? x prev))
           (when out-offset (encode out-offset otype (file-position out)))
           (encode out type x))
         (cond ((null? top) (heap-remove!  s< heap hend)
