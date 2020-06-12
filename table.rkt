@@ -1,7 +1,7 @@
 #lang racket/base
 (provide bisect bisect-next
          table/vector table/bytes table/port
-         table/bytes/offsets table/port/offsets tabulate
+         table/bytes/offsets table/port/offsets tabulator tabulate
          table-project table-intersect-start table-cross table-join
          call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
@@ -160,56 +160,69 @@
       (if (not prefix+ts) '()
         (append (current prefix+ts) (loop (next prefix+ts)))))))
 
-;; TODO: maybe have an iteratee tabulator (push rather than pull)?
-(define (tabulate dedup? file-name offset-file-name? zmax type v< s)
-  (define fname-multi        (string-append file-name ".multi"))
-  (define fname-multi-offset (string-append file-name ".multi.offset"))
-  (define (main out out-offset)
-    (match-define (vector item-count chunk-count v?)
-      (multi-sort fname-multi fname-multi-offset zmax type v< s))
-    (define omax (if v? (sizeof `#(array ,item-count ,type) v?)
-                   (file-size fname-multi)))
-    (define otype (and out-offset `#(nat ,(- (sizeof 'nat omax) 1))))
-    (cond (v? (let loop ((prev #f) (i 0))
-                (unless (= i item-count)
-                  (define x (vector-ref v? i))
-                  (unless (and dedup? (< 0 i) (equal? x prev))
-                    (when out-offset (encode out-offset otype
-                                             (file-position out)))
-                    (encode out type x))
-                  (loop x (+ i 1)))))
-          (else (let/files ((in fname-multi) (in-offset fname-multi-offset)) ()
-                  (multi-merge dedup? out out-offset type otype v< chunk-count
-                               in in-offset))
-                (delete-file fname-multi)
-                (delete-file fname-multi-offset)))
-    item-count)
-  (call-with-output-file
-    file-name (lambda (out)
-                (if offset-file-name?
-                  (call-with-output-file
-                    offset-file-name?
-                    (lambda (out-offset) (main out out-offset)))
-                  (main out #f)))))
+(define (tabulate dedup? file-name offset-file-name? buffer-size type v< s)
+  (define t (tabulator dedup? file-name offset-file-name? buffer-size type v<))
+  (s-each s (lambda (x) (t 'add x)))
+  (t 'close))
 
-;; TODO: for performance, pass a fill! procedure instead of stream?
-(define (multi-sort chunk-file-name offset-file-name zmax type v< s0)
-  (define v (make-vector zmax))
-  (match-define (cons n s1) (s-prefix! v zmax s0))
-  (vector-sort! v v< 0 n)
-  (define s2 (s-force s1))
-  (if (null? s2) (vector n 0 v)
-    (let/files () ((out-chunk chunk-file-name) (out-offset offset-file-name))
-      (let loop ((n n) (s s2) (item-count n) (chunk-count 1))
-        (for ((_ (in-range n)) (x (in-vector v)))
-             (encode out-chunk type x))
-        (encode out-offset 'nat (file-position out-chunk))
-        (define s1 (s-force s))
-        (cond ((null? s1) (vector item-count chunk-count #f))
-              (else (match-define (cons n s2) (s-prefix! v zmax s1))
-                    (vector-sort! v v< 0 n)
-                    (loop n s2 (+ item-count n)
-                          (+ chunk-count 1))))))))
+(define (tabulator dedup? data-file-name offset-file-name? buffer-size
+                   type value<)
+  (define fname-sort-data   (string-append data-file-name ".data.sort"))
+  (define fname-sort-offset (string-append data-file-name ".offset.sort"))
+  (define out-sort-data     (open-output-file fname-sort-data))
+  (define out-sort-offset   (open-output-file fname-sort-offset))
+  (define out-data          (open-output-file data-file-name))
+  (define out-offset
+    (and offset-file-name? (open-output-file offset-file-name?)))
+  (define sorter (multi-sorter out-sort-data out-sort-offset buffer-size
+                               type value<))
+  (method-lambda
+    ((add value) (sorter 'add value))
+    ((close)
+     (match-define (vector item-count chunk-count v?) (sorter 'close))
+     (close-output-port out-sort-data)
+     (close-output-port out-sort-offset)
+     (define omax (if v? (sizeof `#(array ,item-count ,type) v?)
+                    (file-size fname-sort-data)))
+     (define otype (and out-offset `#(nat ,(- (sizeof 'nat omax) 1))))
+     (cond (v? (let loop ((prev #f) (i 0))
+                 (unless (= i item-count)
+                   (define x (vector-ref v? i))
+                   (unless (and dedup? (< 0 i) (equal? x prev))
+                     (when out-offset (encode out-offset otype
+                                              (file-position out-data)))
+                     (encode out-data type x))
+                   (loop x (+ i 1)))))
+           (else
+             (let/files ((in fname-sort-data) (in-offset fname-sort-offset)) ()
+               (multi-merge dedup? out-data out-offset type otype value<
+                            chunk-count in in-offset))))
+     (delete-file fname-sort-data)
+     (delete-file fname-sort-offset)
+     (close-output-port out-data)
+     (when out-offset (close-output-port out-offset))
+     item-count)))
+
+(define (multi-sorter out-chunk out-offset buffer-size type value<)
+  (let ((v (make-vector buffer-size)) (chunk-count 0) (item-count 0) (i 0))
+    (method-lambda
+      ((add value) (vector-set! v i value)
+                   (set! i (+ i 1))
+                   (when (= i buffer-size)
+                     (vector-sort! v value<)
+                     (for ((x (in-vector v))) (encode out-chunk type x))
+                     (encode out-offset 'nat (file-position out-chunk))
+                     (set! item-count  (+ item-count buffer-size))
+                     (set! chunk-count (+ chunk-count 1))
+                     (set! i           0)))
+      ((close) (vector-sort! v value< 0 i)
+               (cond ((< 0 chunk-count)
+                      (vector-sort! v value< 0 i)
+                      (for ((i (in-range i)))
+                        (encode out-chunk type (vector-ref v i)))
+                      (encode out-offset 'nat (file-position out-chunk))
+                      (vector (+ item-count i) (+ chunk-count 1) #f))
+                     (else (vector i 0 v)))))))
 
 ;; TODO: separate chunk streaming from merging
 (define (multi-merge
