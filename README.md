@@ -12,13 +12,7 @@ large-scale relations.
 * redefine take/drop variants in terms of a single column
   * and table-project
 * define tables that use column-oriented layout
-* higher level relation persistence interface
-  * filepath, schema, source data/query, key, and attribute orders for tables
-    * key is the optional column referring to a tuple's primary table position
-  * persist run^ results to file (via tabulate?)
-    * (re-)sort according to attribute orders to build each table
-      * build offset tables when any column types are variable-length
-    * reload via define-relation/tables
+* high-level relation persistence interface (see: Data processing)
 
 * revert to a purely functional mk interpretation with a complete search
   * safer interaction between concurrent evaluation/analysis of shared queries
@@ -47,12 +41,19 @@ large-scale relations.
   * string (and suffix) full-text search via bytes rather than chars?
     * and radix sorting
 
-* table transformations
+* high-level relation specification for transforming stream
+  * filepath (prefix), schema, source, key?, attribute orders for tables
+    * key is the optional column referring to a tuple's primary table position
+  * persist run^ results to file (via tabulate?)
+    * (re-)sort according to attribute orders to build each table
+      * build offset tables when any column types are variable-length
+    * reload via define-relation/tables
   * high-level string transformation types: string, number, json, s-expression
     * perform this with Racket computation via `use`
   * flattening of tuple/array (pair, vector) fields, increasing record arity
     * supports compact columnarization of scalar-only fields
-  * positional ID generation and substitution
+  * generate helper relations for large or variable-length data columns
+    * positional ID generation and substitution
     * replace strings/structures with unique IDs
     * IDs given by logical or file position
       * original value obtained by dereferencing ID appropriately
