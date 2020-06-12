@@ -9,7 +9,7 @@
   (struct-out var)
 
   relations relations-ref
-  define-relation/proc define-relation let-relations
+  relation/proc relation letrec-relations define-relation/proc define-relation
   conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
@@ -59,29 +59,33 @@
                           (attribute-types . #f)
                           (analysis        . #f)))))
 
-(define-syntax let-relations
+(define-syntax relation/proc
+  (syntax-rules ()
+    ((_ name (attr ...) proc)
+     (letrec ((pc   (let ((p proc)) (method-lambda
+                                      ((ref)      p)
+                                      ((set! new) (set! p new)))))
+              (name (lambda (attr ...)
+                      (relate (lambda (attr ...) ((pc 'ref) attr ...))
+                              (list attr ...) name))))
+       (relations-register! name pc 'name '(attr ...))
+       name))))
+(define-syntax relation
+  (syntax-rules ()
+    ((_ name (param ...) g ...)
+     (relation/proc name (param ...) (lambda (param ...) (fresh () g ...))))))
+(define-syntax letrec-relations
   (syntax-rules ()
     ((_ (((name param ...) g ...) ...) body ...)
-     (let-values (((name ...) (let ()
-                                (define-relation (name param ...) g ...) ...
-                                ;; TODO: specify an appropriate caching mode
-                                (values name ...))))
-       body ...))))
+     (letrec ((name (relation name (param ...) g ...)) ...) body ...))))
 (define-syntax define-relation/proc
   (syntax-rules ()
-    ((_ (name param ...) proc)
-     (begin (define pc (let ((p proc)) (method-lambda
-                                         ((ref)      p)
-                                         ((set! new) (set! p new)))))
-            (define (name param ...)
-              (relate (lambda (param ...) ((pc 'ref) param ...))
-                      (list param ...) name))
-            (relations-register! name pc 'name '(param ...))))))
+    ((_ (name attr ...) proc)
+     (define name (relation/proc name (attr ...) proc)))))
 (define-syntax define-relation
   (syntax-rules ()
     ((_ (name param ...) g ...)
-     (define-relation/proc (name param ...)
-                           (lambda (param ...) (fresh () g ...))))))
+     (define name (relation name (param ...) g ...)))))
 (define succeed (== #t #t))
 (define fail    (== #f #t))
 (define-syntax conj*

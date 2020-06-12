@@ -123,36 +123,39 @@
     ;; TODO:
     ))
 
-(define (relation/stream attribute-names attribute-types s)
+(define (make-relation/stream attribute-names attribute-types s)
   ;; TODO: optional type validation of stream data?
   (method-lambda
     ((attribute-names) attribute-names)
     ((attribute-types) attribute-types)
     ((apply args)      (constrain `(retrieve ,s) args))))
 
+(define-syntax relation/stream
+  (syntax-rules ()
+    ;; TODO: specify types
+    ((_ name (attr ...) se)
+     (let ((r/s (make-relation/stream
+                  '(attr ...) '(attr ...)
+                  (let loop ((i 0) (s se))
+                    (thunk (let ((s (s-force s)))
+                             (if (null? s) '()
+                               (cons (cons i (car s))
+                                     (loop (+ i 1) (cdr s))))))))))
+       (relation/proc name (attr ...)
+                      (lambda (attr ...) (r/s 'apply (list attr ...))))))))
 (define-syntax define-relation/stream
   (syntax-rules ()
     ;; TODO: specify types
     ((_ (name attr ...) se)
-     (begin (define r/s
-              (relation/stream
-                '(attr ...) '(attr ...)
-                (let loop ((i 0) (s se))
-                  (thunk (let ((s (s-force s)))
-                           (if (null? s) '()
-                             (cons (cons i (car s))
-                                   (loop (+ i 1) (cdr s)))))))))
-            (define-relation/proc
-              (name attr ...)
-              (lambda (attr ...) (r/s 'apply (list attr ...))))))))
+     (define name (relation/stream name (attr ...) se)))))
 
 ;; TODO: attribute-types should be verified with tables
-(define (relation/tables attribute-names attribute-types attributed-tables)
-  (when (null? attributed-tables)
+(define (make-relation/tables attribute-names attribute-types attrs/tables)
+  (when (null? attrs/tables)
     (error "relation/tables must include at least one table:"
            attribute-names attribute-types))
-  (define attrs/main-table    (car attributed-tables))
-  (define attrss/index-tables (cdr attributed-tables))
+  (define attrs/main-table    (car attrs/tables))
+  (define attrss/index-tables (cdr attrs/tables))
   (let ((main-attrs (car attrs/main-table)))
     (for-each
       (lambda (name)
@@ -180,15 +183,20 @@
                    (if (var? v) (finish)
                      (loop (cdr attrs) (table-project t (vector v))))))))))
 
+(define-syntax relation/tables
+  (syntax-rules ()
+    ;; TODO: specify types
+    ((_ name (attr ...) as/ts)
+     (let ((r/s (make-relation/tables '(attr ...) '(attr ...) as/ts)))
+       (relation/proc name (attr ...)
+                      (lambda (attr ...) (r/s 'apply (list attr ...))))))))
+
 ;; TODO: need a higher level interface than this
 (define-syntax define-relation/tables
   (syntax-rules ()
     ;; TODO: specify types
-    ((_ (name attr ...) ts/ps)
-     (begin (define r/s (relation/tables '(attr ...) '(attr ...) ts/ps))
-            (define-relation/proc
-              (name attr ...)
-              (lambda (attr ...) (r/s 'apply (list attr ...))))))))
+    ((_ (name attr ...) as/ts)
+     (define name (relation/tables name (attr ...) as/ts)))))
 
 ;; example: safe-drug -(predicate)-> gene
 #|
