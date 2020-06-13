@@ -179,24 +179,27 @@
   (method-lambda
     ((add value) (sorter 'add value))
     ((close)
-     (match-define (vector item-count chunk-count v?) (sorter 'close))
+     (match-define (vector initial-item-count chunk-count v?) (sorter 'close))
      (close-output-port out-sort-data)
      (close-output-port out-sort-offset)
-     (define omax (if v? (sizeof `#(array ,item-count ,type) v?)
+     (define omax (if v? (sizeof `#(array ,initial-item-count ,type) v?)
                     (file-size fname-sort-data)))
      (define otype (and out-offset `#(nat ,(- (sizeof 'nat omax) 1))))
-     (cond (v? (let loop ((prev #f) (i 0))
-                 (unless (= i item-count)
-                   (define x (vector-ref v? i))
-                   (unless (and dedup? (< 0 i) (equal? x prev))
-                     (when out-offset (encode out-offset otype
-                                              (file-position out-data)))
-                     (encode out-data type x))
-                   (loop x (+ i 1)))))
-           (else
-             (let/files ((in fname-sort-data) (in-offset fname-sort-offset)) ()
-               (multi-merge dedup? out-data out-offset type otype value<
-                            chunk-count in in-offset))))
+     (define item-count
+       (cond (v? (let loop ((prev #f) (i 0) (count 0))
+                   (if (= i initial-item-count) count
+                     (let ((x (vector-ref v? i)))
+                       (cond ((not (and dedup? (< 0 i) (equal? x prev)))
+                              (when out-offset
+                                (encode out-offset otype (file-position
+                                                           out-data)))
+                              (encode out-data type x)
+                              (loop x (+ i 1) (+ count 1)))
+                             (else (loop x (+ i 1) count)))))))
+             (else (let/files ((in fname-sort-data)
+                               (in-offset fname-sort-offset)) ()
+                     (multi-merge dedup? out-data out-offset type otype value<
+                                  chunk-count in in-offset)))))
      (delete-file fname-sort-data)
      (delete-file fname-sort-offset)
      (close-output-port out-data)
@@ -239,16 +242,17 @@
                                  (vector-set! heap hi (s-chunk start end))
                                  (loop (+ hi 1) end)))
   (heap! s< heap chunk-count)
-  (let loop ((prev? #f) (prev #f) (hend chunk-count))
-    (unless (= hend 0)
+  (let loop ((prev #f) (i 0) (hend chunk-count))
+    (if (= hend 0) i
       (let* ((top (heap-top heap)) (x (car top)) (top (s-force (cdr top))))
-        (unless (and dedup? prev? (equal? x prev))
-          (when out-offset (encode out-offset otype (file-position out)))
-          (encode out type x))
-        (cond ((null? top) (heap-remove!  s< heap hend)
-                           (loop #t x (- hend 1)))
-              (else        (heap-replace! s< heap hend top)
-                           (loop #t x    hend)))))))
+        (loop x (cond ((not (and dedup? (< 0 i) (equal? x prev)))
+                       (when out-offset (encode out-offset otype
+                                                (file-position out)))
+                       (encode out type x)
+                       (+ i 1))
+                      (else i))
+              (cond ((null? top) (heap-remove!  s< heap hend)  (- hend 1))
+                    (else        (heap-replace! s< heap hend top) hend)))))))
 
 (define (heap-top h) (vector-ref h 0))
 (define (heap! ? h end)
