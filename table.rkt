@@ -162,7 +162,7 @@
 
 (define (tabulate dedup? file-name offset-file-name? buffer-size type v< s)
   (define t (tabulator dedup? file-name offset-file-name? buffer-size type v<))
-  (s-each s (lambda (x) (t 'add x)))
+  (s-each s (lambda (x) (t 'put x)))
   (t 'close))
 
 (define (tabulator dedup? data-file-name offset-file-name? buffer-size
@@ -177,7 +177,7 @@
   (define sorter (multi-sorter out-sort-data out-sort-offset buffer-size
                                type value<))
   (method-lambda
-    ((add value) (sorter 'add value))
+    ((put value) (sorter 'put value))
     ((close)
      (match-define (vector initial-item-count chunk-count v?) (sorter 'close))
      (close-output-port out-sort-data)
@@ -209,7 +209,7 @@
 (define (multi-sorter out-chunk out-offset buffer-size type value<)
   (let ((v (make-vector buffer-size)) (chunk-count 0) (item-count 0) (i 0))
     (method-lambda
-      ((add value) (vector-set! v i value)
+      ((put value) (vector-set! v i value)
                    (set! i (+ i 1))
                    (when (= i buffer-size)
                      (vector-sort! v value<)
