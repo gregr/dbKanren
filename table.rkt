@@ -169,11 +169,11 @@
                    type value<)
   (define fname-sort-data   (string-append data-file-name ".data.sort"))
   (define fname-sort-offset (string-append data-file-name ".offset.sort"))
-  (define out-sort-data     (open-output-file fname-sort-data))
-  (define out-sort-offset   (open-output-file fname-sort-offset))
   (define out-data          (open-output-file data-file-name))
   (define out-offset
-    (and offset-file-name? (open-output-file offset-file-name?)))
+    (and offset-file-name?  (open-output-file offset-file-name?)))
+  (define out-sort-data     (open-output-file fname-sort-data))
+  (define out-sort-offset   (open-output-file fname-sort-offset))
   (define sorter (multi-sorter out-sort-data out-sort-offset buffer-size
                                type value<))
   (method-lambda
