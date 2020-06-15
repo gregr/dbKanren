@@ -1,7 +1,7 @@
 #lang racket/base
 (provide bisect bisect-next
          table/vector table/bytes table/port
-         table/bytes/offsets table/port/offsets tabulator tabulate
+         table/bytes/offsets table/port/offsets sorter
          table-project table-intersect-start table-cross table-join
          call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
@@ -160,13 +160,8 @@
       (if (not prefix+ts) '()
         (append (current prefix+ts) (loop (next prefix+ts)))))))
 
-(define (tabulate dedup? file-name offset-file-name? buffer-size type v< s)
-  (define t (tabulator dedup? file-name offset-file-name? buffer-size type v<))
-  (s-each s (lambda (x) (t 'put x)))
-  (t 'close))
-
-(define (tabulator dedup? data-file-name offset-file-name? buffer-size
-                   type value<)
+(define (sorter dedup? data-file-name offset-file-name? buffer-size
+                type value<)
   (define fname-sort-data   (string-append data-file-name ".data.sort"))
   (define fname-sort-offset (string-append data-file-name ".offset.sort"))
   (define out-data          (open-output-file data-file-name))
@@ -174,12 +169,12 @@
     (and offset-file-name?  (open-output-file offset-file-name?)))
   (define out-sort-data     (open-output-file fname-sort-data))
   (define out-sort-offset   (open-output-file fname-sort-offset))
-  (define sorter (multi-sorter out-sort-data out-sort-offset buffer-size
-                               type value<))
+  (define ms (multi-sorter out-sort-data out-sort-offset buffer-size
+                           type value<))
   (method-lambda
-    ((put value) (sorter 'put value))
+    ((put value) (ms 'put value))
     ((close)
-     (match-define (vector initial-item-count chunk-count v?) (sorter 'close))
+     (match-define (vector initial-item-count chunk-count v?) (ms 'close))
      (close-output-port out-sort-data)
      (close-output-port out-sort-offset)
      (define omax (if v? (sizeof `#(array ,initial-item-count ,type) v?)
