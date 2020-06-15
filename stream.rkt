@@ -1,17 +1,10 @@
 #lang racket/base
-(provide s-next s-force s-prefix! s-split s-take s-drop s-append
+(provide s-next s-force s-split s-take s-drop s-append
          s-filter s-map s-each s-fold s-scan s-group s-memo s-enumerate)
 (require racket/function)
 
 (define (s-next  s) (if (procedure? s)          (s)  s))
 (define (s-force s) (if (procedure? s) (s-force (s)) s))
-
-(define (s-prefix! v n s)
-  (let loop ((i 0) (s s))
-    (if (= i n) (cons i s)
-      (let ((s (s-force s)))
-        (cond ((null? s) (cons i s))
-              (else (vector-set! v i (car s)) (loop (+ i 1) (cdr s))))))))
 
 (define (s-split n s)
   (let loop ((n n) (rxs '()) (s s))
