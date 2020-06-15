@@ -1,6 +1,6 @@
 #lang racket/base
 (provide s-next s-force s-prefix! s-split s-take s-drop s-append
-         s-filter s-map s-each s-fold s-scan s-group s-memo)
+         s-filter s-map s-each s-fold s-scan s-group s-memo s-enumerate)
 (require racket/function)
 
 (define (s-next  s) (if (procedure? s)          (s)  s))
@@ -76,3 +76,8 @@
                                  v)))
         ((null? s)      '())
         (else           (cons (car s) (s-memo (cdr s))))))
+
+(define (s-enumerate i s) (thunk (let ((s (s-force s)))
+                                   (if (null? s) '()
+                                     (cons (cons i (car s))
+                                           (s-enumerate (+ i 1) (cdr s)))))))

@@ -134,13 +134,8 @@
   (syntax-rules ()
     ;; TODO: specify types
     ((_ name (attr ...) se)
-     (let ((r/s (make-relation/stream
-                  '(attr ...) '(attr ...)
-                  (let loop ((i 0) (s se))
-                    (thunk (let ((s (s-force s)))
-                             (if (null? s) '()
-                               (cons (cons i (car s))
-                                     (loop (+ i 1) (cdr s))))))))))
+     (let ((r/s (make-relation/stream '(attr ...) '(attr ...)
+                                      (s-enumerate 0 se))))
        (relation/proc name (attr ...)
                       (lambda (attr ...) (r/s 'apply (list attr ...))))))))
 (define-syntax define-relation/stream
