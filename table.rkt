@@ -1,11 +1,12 @@
 #lang racket/base
 (provide bisect bisect-next
          table/vector table/bytes table/port
-         table/bytes/offsets table/port/offsets sorter
+         table/bytes/offsets table/port/offsets sorter tabulator
          table-project table-intersect-start table-cross table-join
          call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
-         racket/function racket/list racket/match racket/vector)
+         racket/file racket/function racket/list racket/match racket/set
+         racket/vector)
 
 (define (s-encode out type s) (s-each s (lambda (v) (encode out type v))))
 (define (s-decode in type)
@@ -160,25 +161,69 @@
       (if (not prefix+ts) '()
         (append (current prefix+ts) (loop (next prefix+ts)))))))
 
-(define (sorter dedup? data-file-name offset-file-name? buffer-size
+(define (tabulator file-prefix buffer-size source-names
+                   column-names column-types key-name sorted-columns)
+  (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
+                          (error "duplicates:" as)))
+  (unless (= (length column-names) (length column-types))
+    (error "mismatching column names and types:" column-names column-types))
+  (unique?! source-names)
+  (unique?! column-names)
+  (when (or (member key-name column-names) (member key-name source-names))
+    (error "key name must be distinct:" key-name column-names source-names))
+  (unless (subset? column-names source-names)
+    (error "column names not covered by source:" column-names source-names))
+  (unless (subset? sorted-columns column-names)
+    (error "unknown sorted column names:" sorted-columns column-names))
+  (define column-ixs
+    (map (lambda (a) (and (not (eq? a key-name))
+                          (or (index-of source-names a)
+                              (error "invalid attribute:" a))))
+         column-names))
+  (define row-type column-types)  ;; TODO: possibly change this to tuple?
+  (define row<     (compare-><? (type->compare row-type)))
+  (define row-size (sizeof row-type (void)))
+  (define fprefix  (if #f (path->string (build-path "TODO: configurable base"
+                                                    file-prefix))
+                     file-prefix))
+  (make-parent-directory* fprefix)
+  (define value-file-name  (string-append fprefix ".value.table"))
+  (define offset-file-name (and (not row-size)
+                                (string-append fprefix ".offset.table")))
+  (define tsorter (sorter #t value-file-name offset-file-name buffer-size
+                          row-type row<))
+  (method-lambda
+    ((put x) (tsorter 'put (map (lambda (ix) (list-ref x ix)) column-ixs)))
+    ((close) (define item-count (tsorter 'close))
+             `((value-file-size   . ,(file-size value-file-name))
+               (value-file-time   . ,(file-or-directory-modify-seconds value-file-name))
+               (offset-file-size  . ,(and offset-file-name (file-size offset-file-name)))
+               (offset-file-time  . ,(and offset-file-name (file-or-directory-modify-seconds offset-file-name)))
+               (length            . ,item-count)
+               (column-names      . ,column-names)
+               (column-types      . ,column-types)
+               (key-name          . ,key-name)
+               (sorted-columns    . ,sorted-columns)))))
+
+(define (sorter dedup? value-file-name offset-file-name? buffer-size
                 type value<)
-  (define fname-sort-data   (string-append data-file-name ".data.sort"))
-  (define fname-sort-offset (string-append data-file-name ".offset.sort"))
-  (define out-data          (open-output-file data-file-name))
+  (define fname-sort-value  (string-append value-file-name ".value.sort"))
+  (define fname-sort-offset (string-append value-file-name ".offset.sort"))
+  (define out-value         (open-output-file value-file-name))
   (define out-offset
     (and offset-file-name?  (open-output-file offset-file-name?)))
-  (define out-sort-data     (open-output-file fname-sort-data))
+  (define out-sort-value    (open-output-file fname-sort-value))
   (define out-sort-offset   (open-output-file fname-sort-offset))
-  (define ms (multi-sorter out-sort-data out-sort-offset buffer-size
+  (define ms (multi-sorter out-sort-value out-sort-offset buffer-size
                            type value<))
   (method-lambda
     ((put value) (ms 'put value))
     ((close)
      (match-define (vector initial-item-count chunk-count v?) (ms 'close))
-     (close-output-port out-sort-data)
+     (close-output-port out-sort-value)
      (close-output-port out-sort-offset)
      (define omax (if v? (sizeof `#(array ,initial-item-count ,type) v?)
-                    (file-size fname-sort-data)))
+                    (file-size fname-sort-value)))
      (define otype (and out-offset `#(nat ,(- (sizeof 'nat omax) 1))))
      (define item-count
        (cond (v? (let loop ((prev #f) (i 0) (count 0))
@@ -187,17 +232,17 @@
                        (cond ((not (and dedup? (< 0 i) (equal? x prev)))
                               (when out-offset
                                 (encode out-offset otype (file-position
-                                                           out-data)))
-                              (encode out-data type x)
+                                                           out-value)))
+                              (encode out-value type x)
                               (loop x (+ i 1) (+ count 1)))
                              (else (loop x (+ i 1) count)))))))
-             (else (let/files ((in fname-sort-data)
+             (else (let/files ((in fname-sort-value)
                                (in-offset fname-sort-offset)) ()
-                     (multi-merge dedup? out-data out-offset type otype value<
+                     (multi-merge dedup? out-value out-offset type otype value<
                                   chunk-count in in-offset)))))
-     (delete-file fname-sort-data)
+     (delete-file fname-sort-value)
      (delete-file fname-sort-offset)
-     (close-output-port out-data)
+     (close-output-port out-value)
      (when out-offset (close-output-port out-offset))
      item-count)))
 
