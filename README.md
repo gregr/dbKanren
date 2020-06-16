@@ -6,6 +6,21 @@ large-scale relations.
 
 ## TODO
 
+* single-relation materializer
+  * source-names
+  * relation materialization parameters
+    * buffer-size directory-path
+    * attribute-names attribute-types
+    * key? (used in primary table description, may be absent from attribute-names)
+    * ordered list of partial tabulation descriptions: columns sorted-columns
+
+* materialized-relation
+  * instantiate a relation using materialized data
+    * given directory-path where tables and metadata are found
+  * eventually, tables (primary or index) will be independent helper relations
+  * but for now, the main relation will directly join with appropriate helper
+    tables to avoid performance issues with naive DFS strategy
+
 * redefine (ref i j)
   * table should include a j-start for masking
   * define (width)
@@ -14,6 +29,13 @@ large-scale relations.
 * define tables that use column-oriented layout
 * high-level relation persistence interface (see: Data processing)
 
+* stop using cells: procs should return mk syntax or opaque constraints
+  * opaque relations (their procs return (constrain (relate ,proc) ,args))
+  * interpretations (possibly for multiple evaluation strategies) should be
+    attached to the registry dictionary, not the cell
+    * compilation will remove registry lookup overhead
+  * eliminate (constrain (retrieve ,s) ,args) and instead interpret the opaque
+    constraint according to the evaluation strategy
 * revert to a purely functional mk interpretation with a complete search
   * safer interaction between concurrent evaluation/analysis of shared queries
   * redefine var as immutable syntax (should not include a mutable value)
@@ -25,6 +47,7 @@ large-scale relations.
   * continuous ranges of values from an infinite relation
     * types as ranges of values
   * disequality constraints punch holes in continuous ranges
+  * descriptions for subsumption and/or simplification with other constraints
 
 
 ### Data processing
@@ -58,6 +81,11 @@ large-scale relations.
     * IDs given by logical or file position
       * original value obtained by dereferencing ID appropriately
     * leads to compact and uniform record representations
+  * job/task scheduler that automatically manages dependencies, validates
+    integrity, and parallelizes relational stream transformation/tabulation
+    * no need to manually coordinate stream processing tasks
+    * config option for fast-replay byte encoding of input streams that need
+      multiple passes
 
 * ingestion
   * parsing: nq (n-quads)
