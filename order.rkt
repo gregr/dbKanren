@@ -4,6 +4,7 @@
          compare-bytes compare-string compare-symbol
          compare-pair compare-list compare-array compare-tuple
          compare-string/pos compare-suffix compare-suffix-string
+         compare-><? compare-><=?
          any<?     any<=?
          null<?    null<=?
          boolean<? boolean<=?
@@ -16,6 +17,9 @@
          suffix<?       suffix<=?
          suffix<string? suffix<=string?)
 (require racket/match racket/math)
+
+(define ((compare-><?  compare) a b)      (eqv? (compare a b) -1))
+(define ((compare-><=? compare) a b) (not (eqv? (compare a b)  1)))
 
 (define (compare-any a b)
   (let loop ((i 0))
