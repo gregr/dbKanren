@@ -161,7 +161,7 @@
       (if (not prefix+ts) '()
         (append (current prefix+ts) (loop (next prefix+ts)))))))
 
-(define (tabulator file-prefix buffer-size source-names
+(define (tabulator buffer-size file-prefix source-names
                    column-names column-types key-name sorted-columns)
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
                           (error "duplicates:" as)))
@@ -196,9 +196,13 @@
     ((put x) (tsorter 'put (map (lambda (ix) (list-ref x ix)) column-ixs)))
     ((close) (define item-count (tsorter 'close))
              `((value-file-size   . ,(file-size value-file-name))
-               (value-file-time   . ,(file-or-directory-modify-seconds value-file-name))
-               (offset-file-size  . ,(and offset-file-name (file-size offset-file-name)))
-               (offset-file-time  . ,(and offset-file-name (file-or-directory-modify-seconds offset-file-name)))
+               (value-file-time   . ,(file-or-directory-modify-seconds
+                                       value-file-name))
+               (offset-file-size  . ,(and offset-file-name
+                                          (file-size offset-file-name)))
+               (offset-file-time  . ,(and offset-file-name
+                                          (file-or-directory-modify-seconds
+                                            offset-file-name)))
                (length            . ,item-count)
                (column-names      . ,column-names)
                (column-types      . ,column-types)
