@@ -32,13 +32,12 @@
   (call/files (list fin ...) (list fout ...)
               (lambda (in ... out ...) body ...)))
 
-;; TODO: parameterize over column types
-(define (table ref start end)
-  ;; TODO: column-type-specific comparison operators instead of any
+(define (table ref types start end)
+  (define compares (map type->compare types))
   (define (make-prefix<  prefix)
-    (tuple<? (vector-map (lambda (_) compare-any) prefix)))
+    (tuple<?  (list->vector (s-take (vector-length prefix) compares))))
   (define (make-prefix<= prefix)
-    (tuple<=? (vector-map (lambda (_) compare-any) prefix)))
+    (tuple<=? (list->vector (s-take (vector-length prefix) compares))))
   (method-lambda
     ((length) (- end start))
     ;; TODO: column-specific ref, i.e., ((ref i j) etc.)
@@ -46,7 +45,7 @@
     ((mask j)
      ;; TODO: these copies will inefficiently cascade
      ;; this will be fixed by column-specific ref
-     (table (lambda (i) (vector-copy (ref i) j)) start end))
+     (table (lambda (i) (vector-copy (ref i) j)) (s-drop j types) start end))
     ((stream) (let loop ((i 0))
                 (thunk (if (= i (- end start)) '()
                          (cons (vector->list (ref (+ start i)))
@@ -59,26 +58,26 @@
                      (bisect start end i<=))
     ((drop< prefix)  (define prefix< (make-prefix< prefix))
                      (define (i< i) (prefix< (ref i) prefix))
-                     (table ref (bisect-next start end i<) end))
+                     (table ref types (bisect-next start end i<) end))
     ((drop<= prefix) (define prefix<= (make-prefix<= prefix))
                      (define (i<= i) (prefix<= (ref i) prefix))
-                     (table ref (bisect-next start end i<=) end))
+                     (table ref types (bisect-next start end i<=) end))
     ((take<= prefix) (define prefix<= (make-prefix<= prefix))
                      (define (i<= i) (prefix<= (ref i) prefix))
-                     (table ref start (bisect-next start end i<=)))
+                     (table ref types start (bisect-next start end i<=)))
     ;; TODO: > >= variants: take>= drop> drop>=
     ;((drop> prefix)  (define prefix< (make-prefix< prefix))
                      ;(define (i> i) (prefix< prefix (ref i)))
-                     ;(table ref start (bisect-previous start end i>)))
-    ((take count) (table ref start           (+ count start)))
-    ((drop count) (table ref (+ count start) end))))
+                     ;(table ref types start (bisect-previous start end i>)))
+    ((take count) (table ref types start           (+ count start)))
+    ((drop count) (table ref types (+ count start) end))))
 
 (define (table/port/offsets table.offsets types in)
   (define type `#(tuple ,@types))
   (define (ref i)
     (file-position in (vector-ref (table.offsets 'ref i) 0))
     (decode in type))
-  (table ref 0 (table.offsets 'length)))
+  (table ref types 0 (table.offsets 'length)))
 
 (define (table/bytes/offsets table.offsets types bs)
   (define in (open-input-bytes bs))
@@ -89,14 +88,14 @@
   (define type `#(tuple ,@types))
   (define width (sizeof type (void)))
   (define (ref i) (file-position in (* i width)) (decode in type))
-  (table ref 0 len))
+  (table ref types 0 len))
 
 (define (table/bytes types bs)
   (define in (open-input-bytes bs))
   (table/port (quotient (bytes-length bs) (sizeof types (void))) types in))
 
 (define (table/vector types v)
-  (table (lambda (i) (vector-ref v i)) 0 (vector-length v)))
+  (table (lambda (i) (vector-ref v i)) types 0 (vector-length v)))
 
 (define (table/metadata retrieval-type file-prefix info-alist)
   ;(define (warning . args) (printf "warning: ~s\n" args))
