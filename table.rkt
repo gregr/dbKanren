@@ -178,21 +178,14 @@
     (error "column names not covered by source:" column-names source-names))
   (unless (subset? sorted-columns column-names)
     (error "unknown sorted column names:" sorted-columns column-names))
-  (define column-ixs
-    (map (lambda (a) (and (not (eq? a key-name))
-                          (or (index-of source-names a)
-                              (error "invalid attribute:" a))))
-         column-names))
+  (define column-ixs (map (lambda (a) (index-of source-names a)) column-names))
   (define row-type column-types)  ;; TODO: possibly change this to tuple?
   (define row<     (compare-><? (type->compare row-type)))
   (define row-size (sizeof row-type (void)))
-  (define fprefix  (if #f (path->string (build-path "TODO: configurable base"
-                                                    file-prefix))
-                     file-prefix))
-  (make-parent-directory* fprefix)
-  (define value-file-name  (string-append fprefix ".value.table"))
+  (make-parent-directory* file-prefix)
+  (define value-file-name  (string-append file-prefix ".value.table"))
   (define offset-file-name (and (not row-size)
-                                (string-append fprefix ".offset.table")))
+                                (string-append file-prefix ".offset.table")))
   (define tsorter (sorter #t value-file-name offset-file-name buffer-size
                           row-type row<))
   (method-lambda
