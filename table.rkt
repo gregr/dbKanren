@@ -33,7 +33,7 @@
               (lambda (in ... out ...) body ...)))
 
 (define (table ref types mask start end)
-  (define compares (map type->compare (s-drop mask types)))
+  (define compares (map type->compare types))
   (define (make-prefix<  prefix)
     (tuple<?  (list->vector (s-take (vector-length prefix) compares))))
   (define (make-prefix<= prefix)
@@ -48,10 +48,12 @@
   ;(define (make-i>= prefix) (let ((prefix<= (make-prefix<= prefix)))
                               ;(lambda (i) (prefix<= prefix (ref* i)))))
   (method-lambda
+    ((types)   types)
+    ((width)   (length types))
     ((length)  (- end start))
     ((ref* i)  (ref* (+ start i)))
     ((ref i j) (vector-ref (ref (+ start i)) (+ mask j)))
-    ((mask j)  (table ref types (+ mask j) start end))
+    ((mask j)  (table ref (s-drop j types) (+ mask j) start end))
     ((stream)  (let loop ((i 0))
                  (thunk (if (= i (- end start)) '()
                           (cons (vector->list (ref* (+ start i)))
