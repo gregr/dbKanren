@@ -1,6 +1,6 @@
 #lang racket/base
 (provide bisect bisect-next
-         table/vector table/bytes table/port
+         table/metadata table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets sorter tabulator encoder
          table-project table-intersect-start table-cross table-join
          value-table-file-name offset-table-file-name
@@ -93,6 +93,54 @@
 
 (define (table/vector v)
   (table (lambda (i) (vector-ref v i)) 0 (vector-length v)))
+
+(define (table/metadata retrieval-type file-prefix info-alist)
+  ;(define (warning . args) (printf "warning: ~s\n" args))
+  (define (warning . args) (error "warning:" args))
+  (define fname.value  (value-table-file-name  file-prefix))
+  (define fname.offset (offset-table-file-name file-prefix))
+  (define info (make-immutable-hash info-alist))
+  (define column-types (hash-ref info 'column-types))
+  (define row-type (list->vector (cons 'tuple column-types)))
+  (define row-size (sizeof row-type (void)))
+  (define len (hash-ref info 'length))
+  (define fsize (hash-ref info 'value-file-size))
+  (unless (equal? (file-size fname.value) fsize)
+    (error "file size does not match metadata:" fname.value
+           (file-size fname.value) fsize))
+  (unless (equal? (file-or-directory-modify-seconds fname.value)
+                  (hash-ref info 'value-file-time))
+    (warning "file modification time does not match metadata:" fname.value
+             (file-or-directory-modify-seconds fname.value)
+             (hash-ref info 'value-file-time)))
+  (unless row-size
+    (unless (equal? (file-size fname.offset) (hash-ref info 'offset-file-size))
+      (error "file size does not match metadata:" fname.offset
+             (file-size fname.offset) (hash-ref info 'offset-file-size)))
+    (unless (equal? (file-or-directory-modify-seconds fname.offset)
+                    (hash-ref info 'offset-file-time))
+      (warning "file modification time does not match metadata:" fname.offset
+               (file-or-directory-modify-seconds fname.offset)
+               (hash-ref info 'offset-file-time))))
+  (define t.value
+    (case retrieval-type
+      ((disk) (define in.value (open-input-file fname.value))
+              (if row-size
+                (table/port row-type len in.value)
+                (table/port/offsets (table/port (nat-type/max fsize) len
+                                                (open-input-file fname.offset))
+                                    row-type in.value)))
+      ((bytes) (define bs.value (file->bytes fname.value))
+               (if row-size
+                 (table/bytes row-type bs.value)
+                 (table/bytes/offsets (table/bytes (nat-type/max fsize)
+                                                   (file->bytes fname.offset))
+                                      row-type bs.value)))
+      ((scm) (let/files ((in.value fname.value)) ()
+               (table/vector
+                 (list->vector (s-take #f (s-decode in.value row-type))))))
+      (else (error "unknown retrieval type:" retrieval-type))))
+  t.value)
 
 (define (bisect start end i<)
   (let loop ((start start) (end end))
