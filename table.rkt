@@ -278,6 +278,11 @@
      (close-output-port out-sort-offset)
      (define omax (if v? (sizeof `#(array ,initial-item-count ,type) v?)
                     (file-size fname-sort-value)))
+     ;; TODO: recorded offset type may differ from perceived type due to
+     ;; difference in initial and final item-count.  To fix this, sorter
+     ;; either needs to rewrite offsets, or also return either the
+     ;; initial-item-count or the recorded offset type.  Returning the
+     ;; recorded offset type seems best.
      (define otype (and out-offset (nat-type/max omax)))
      (define item-count
        (cond (v? (let loop ((prev #f) (i 0) (count 0))
