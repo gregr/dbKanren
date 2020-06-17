@@ -74,7 +74,9 @@
     ((drop count) (table ref (+ count start) end))))
 
 (define (table/port/offsets table.offsets type in)
-  (define (ref i) (file-position in (table.offsets 'ref i)) (decode in type))
+  (define (ref i)
+    (file-position in (vector-ref (table.offsets 'ref i) 0))
+    (decode in type))
   (table ref 0 (table.offsets 'length)))
 
 (define (table/bytes/offsets table.offsets type bs)
@@ -125,13 +127,13 @@
     (case retrieval-type
       ((disk) (define in.value (open-input-file fname.value))
               (if offset-type
-                (table/port/offsets (table/port offset-type len
+                (table/port/offsets (table/port `#(tuple ,offset-type) len
                                                 (open-input-file fname.offset))
                                     row-type in.value)
                 (table/port row-type len in.value)))
       ((bytes) (define bs.value (file->bytes fname.value))
                (if offset-type
-                 (table/bytes/offsets (table/bytes offset-type
+                 (table/bytes/offsets (table/bytes `#(tuple ,offset-type)
                                                    (file->bytes fname.offset))
                                       row-type bs.value)
                  (table/bytes row-type bs.value)))
