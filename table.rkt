@@ -1,7 +1,7 @@
 #lang racket/base
 (provide bisect bisect-next
          table/vector table/bytes table/port
-         table/bytes/offsets table/port/offsets sorter tabulator
+         table/bytes/offsets table/port/offsets sorter tabulator encoder
          table-project table-intersect-start table-cross table-join
          call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
@@ -12,6 +12,9 @@
 (define (s-decode in type)
   (thunk (let loop () (if (eof-object? (peek-byte in)) '()
                         (cons (decode in type) (thunk (loop)))))))
+
+(define (encoder out type) (method-lambda ((put v) (encode out type v))
+                                          ((close) (flush-output out))))
 
 (define (call/files fins fouts p)
   (let loop ((fins fins) (ins '()))
