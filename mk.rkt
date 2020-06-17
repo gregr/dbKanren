@@ -9,6 +9,7 @@
   (struct-out var)
 
   relations relations-ref relations-set!
+  make-relation/proc
   relation/proc relation letrec-relations define-relation/proc define-relation
   conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
@@ -65,6 +66,15 @@
                           (non-monotonic-dependencies . #f)
                           (analysis                   . #f)))))
 
+(define (make-relation/proc name attributes proc)
+  (letrec ((pc (let ((p proc)) (method-lambda
+                                 ((ref)      p)
+                                 ((set! new) (set! p new)))))
+           (r  (lambda args
+                 (relate (lambda args (apply (pc 'ref) args)) args r))))
+    (relations-register! r pc name attributes)
+    r))
+;; TODO: use make-relation/proc?
 (define-syntax relation/proc
   (syntax-rules ()
     ((_ name (attr ...) proc)
