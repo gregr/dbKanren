@@ -209,8 +209,6 @@
                (key-name          . ,key-name)
                (sorted-columns    . ,sorted-columns)))))
 
-(define (offset-type max-offset) `#(nat ,(- (sizeof 'nat max-offset) 1)))
-
 (define (sorter dedup? value-file-name offset-file-name? buffer-size
                 type value<)
   (define fname-sort-value  (string-append value-file-name ".value.sort"))
@@ -230,7 +228,7 @@
      (close-output-port out-sort-offset)
      (define omax (if v? (sizeof `#(array ,initial-item-count ,type) v?)
                     (file-size fname-sort-value)))
-     (define otype (and out-offset (offset-type omax)))
+     (define otype (and out-offset (nat-type/max omax)))
      (define item-count
        (cond (v? (let loop ((prev #f) (i 0) (count 0))
                    (if (= i initial-item-count) count

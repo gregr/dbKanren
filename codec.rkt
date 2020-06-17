@@ -1,5 +1,5 @@
 #lang racket/base
-(provide encode decode sizeof)
+(provide encode decode sizeof nat-type/max)
 (require racket/list racket/match)
 
 (define (<< i s) (arithmetic-shift i s))
@@ -15,6 +15,8 @@
   (range (length '(t:bytes t:string t:symbol t:array t:pair
                    t:true t:false t:null t:number
                    t:nat t:neg t:int t:float))))
+
+(define (nat-type/max max-nat) `#(nat ,(- (sizeof 'nat max-nat) 1)))
 
 (define (sizeof type v)
   (match type
