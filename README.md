@@ -6,28 +6,17 @@ large-scale relations.
 
 ## TODO
 
-* single-relation materializer
-  * source-names
-  * relation materialization parameters
-    * buffer-size directory-path
-    * attribute-names attribute-types
-    * key? (used in primary table description, may be absent from attribute-names)
-    * ordered list of partial tabulation descriptions: columns sorted-columns
-
-* materialized-relation
-  * instantiate a relation using materialized data
-    * given directory-path where tables and metadata are found
-  * eventually, tables (primary or index) will be independent helper relations
-  * but for now, the main relation will directly join with appropriate helper
-    tables to avoid performance issues with naive DFS strategy
-
 * redefine (ref i j)
   * table should include a j-start for masking
   * define (width)
 * redefine take/drop variants in terms of a single column
   * and table-project
 * define tables that use column-oriented layout
-* high-level relation persistence interface (see: Data processing)
+
+* materialized-relation
+  * eventually, tables (primary or index) will be independent helper relations
+  * but for now, the main relation will directly join with appropriate helper
+    tables to avoid performance issues with naive DFS strategy
 
 * stop using cells: procs should return mk syntax or opaque constraints
   * opaque relations (their procs return (constrain (relate ,proc) ,args))
@@ -65,12 +54,6 @@ large-scale relations.
     * and radix sorting
 
 * high-level relation specification for transforming stream
-  * filepath (prefix), schema, source, key?, attribute orders for tables
-    * key is the optional column referring to a tuple's primary table position
-  * persist run^ results to file (via tabulate?)
-    * (re-)sort according to attribute orders to build each table
-      * build offset tables when any column types are variable-length
-    * reload via define-relation/tables
   * high-level string transformation types: string, number, json, s-expression
     * perform this with Racket computation via `use`
   * flattening of tuple/array (pair, vector) fields, increasing record arity
@@ -90,7 +73,6 @@ large-scale relations.
 * ingestion
   * parsing: nq (n-quads)
   * gathering statistics
-    * total cardinality
     * reservoir sampling
     * optional column type inference
     * per-type statistics for polymorphic columns
@@ -111,16 +93,11 @@ large-scale relations.
 
 * metadata and data storage
   * hierarchical directory structure (generalizing catalog/schema/table org)
-    * leaves are tables backing persistent extensional relations
-    * not mapped directly to host filesystem due naming limitations
     * directories/relations are (un)loadable at runtime
       * causes dynamic extension/retraction of dependent intensional relations
       * later, support arbitrary insertion, deletion, and update
         * describe via temporal rules
-  * relation schemas/definitions and their metadata, integrity checking info
-  * database directory structure:
-    * metadata.scm
-    * `data/*.bin` table data files
+  * record definition/dependency information in relation metadata
   * support export and import (and mounting) of database fragments
 
 * intensional relations (user-level)
@@ -137,71 +114,36 @@ large-scale relations.
       * some insertions may happen at non-deterministic times (async)
 
 * extensional relations (user-level)
-  * backed by one or more tables and indices
-  * mapping between user-level and low-level values
-    * value (dis)assembly for dispatching to low-level tables
-    * described using pattern matching?
-      * tuple/array (un)flattening and reordering
-      * ID substitution
   * metadata
-    * field/column names and types
-      * optional remapping of lexicographical order
-    * backing tables: record, any indices, vw-columns, and/or text-suffixes
     * constraints:
       * degree (subsumes uniqueness, functional dependency, cardinality)
         * in relation R, given (A B C), how many (D E F)s are there?
           * lower and upper bounds, i.e., 0 to 2, exactly 1, at least 5, etc.
         * maybe support more precise constraints given specific field values
-      * monotonicity: (C D) is nondecreasing when sorting by (A B C D)
-        * implies sorted rows for (C D A B) appear in same order as (A B C D)
+      * sorted-columns: C is nondecreasing when sorting by (A B C D)
+        * implies sorted rows for (C A B D) appear in same order as (A B C D)
           * one index can support either ordering
     * statistics (derived from table statistics)
 
 * low-level tables with optional keys/indices (not user-level)
   * disk/memory residence and memory structure reconfigurable at runtime
-  * bulk lookup and joining via binary search (with optional galloping)
-  * types of tables:
-    * source records: lexicographically sorted fixed-width tuples
-      * reference variable-width columns by position
-    * variable-width columns: sorted variable-width elements (like text)
-      * source record columns map to variable-width elements by position
-    * variable-width column offsets: map logical position (ID) to file position
-    * indices: map an indexed source column to source records by position
+  * other types of tables:
     * suffix arrays: given order of the array describes sorted text
   * high-level semantic types
     * variable-width: logical position (ID) determined by offset table
-      * #f:          `#f`
       * text:        `string`
         * also possible to map text to a smaller alphabet for faster search
     * fixed-width: logical position (ID) = file-position / width
-      * offset:      file-pos
       * text suffix: `(ID . start-pos)`
-      * record:      `#(tuple fw-value ...)`
-      * index:       `(fw-value . ID)`
   * metadata
     * integrity/consistency checking
-      * file-size, file-or-directory-modify-seconds
       * source files (csvs or otherwise) with their size/modification-time
         * element type/transformations, maybe statistics about their content
     * files/types and table dependencies
-      * variable-width columns
-        * vw-values file
-          * `#f` or `string`
-        * offsets file
-          * `#(nat ,size)`
       * text suffix:
         * suffix file
           * `(#(nat ,text-ID-size) . #(nat ,pos-size))`
         * text column table
-      * record:
-        * fw-values file
-          * `#(tuple ,fw-type ...)`
-        * vw-value `(#f or text)` column tables
-          * these column tables may be foreign/shared
-      * index:
-        * fw-values file
-          * fw-type: probably known-width `nat` (ID), `int`, or `float`
-        * record table
     * statistics
 
 
