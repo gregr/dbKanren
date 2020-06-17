@@ -8,13 +8,13 @@
 (define (\| a b) (bitwise-ior a b))
 (define (^ a b)  (bitwise-xor a b))
 
-(match-define (list t:bytes t:string t:symbol t:array t:pair
-                    t:true t:false t:null t:number
+(match-define (list t.bytes t.string t.symbol t.array t.pair
+                    t.true t.false t.null t.number
                     ;; TODO: support more efficient numeric representations
-                    t:nat t:neg t:int t:float)
-  (range (length '(t:bytes t:string t:symbol t:array t:pair
-                   t:true t:false t:null t:number
-                   t:nat t:neg t:int t:float))))
+                    t.nat t.neg t.int t.float)
+  (range (length '(t.bytes t.string t.symbol t.array t.pair
+                   t.true t.false t.null t.number
+                   t.nat t.neg t.int t.float))))
 
 (define (nat-type/max max-nat) `#(nat ,(- (sizeof 'nat max-nat) 1)))
 
@@ -102,15 +102,15 @@
     ((or 'true 'false '()) 0)))
 (define (encode-any out v)
   (define (tag t) (encode-nat out 1 t))
-  (cond ((vector? v) (tag t:array)  (encode-array  out #f #f v))
-        ((string? v) (tag t:string) (encode-string out #f    v))
-        ((bytes?  v) (tag t:bytes)  (encode-bytes  out #f    v))
-        ((pair?   v) (tag t:pair)   (encode-pair   out #f #f v))
-        ((number? v) (tag t:number) (encode-number out       v))
-        ((symbol? v) (tag t:symbol) (encode-string out #f (symbol->string v)))
-        ((null?   v) (tag t:null))
-        ((eqv? #t v) (tag t:true))
-        ((not     v) (tag t:false))
+  (cond ((vector? v) (tag t.array)  (encode-array  out #f #f v))
+        ((string? v) (tag t.string) (encode-string out #f    v))
+        ((bytes?  v) (tag t.bytes)  (encode-bytes  out #f    v))
+        ((pair?   v) (tag t.pair)   (encode-pair   out #f #f v))
+        ((number? v) (tag t.number) (encode-number out       v))
+        ((symbol? v) (tag t.symbol) (encode-string out #f (symbol->string v)))
+        ((null?   v) (tag t.null))
+        ((eqv? #t v) (tag t.true))
+        ((not     v) (tag t.false))
         (else (error "encode-any; invalid type:" v))))
 (define (encode-nat out size n)
   (define (enc/size sz) (unless (= sz 0)
@@ -167,15 +167,15 @@
 (define (decode-any in)
   (define tag (decode-nat in 1))
   (define (? t) (= tag t))
-  (cond ((? t:array)                  (decode-array  in #f #f))
-        ((? t:string)                 (decode-string in #f))
-        ((? t:bytes)                  (decode-bytes  in #f))
-        ((? t:pair)                   (decode-pair   in #f #f))
-        ((? t:number)                 (decode-number in))
-        ((? t:symbol) (string->symbol (decode-string in #f)))
-        ((? t:null)                   '())
-        ((? t:true)                   #t)
-        ((? t:false)                  #f)
+  (cond ((? t.array)                  (decode-array  in #f #f))
+        ((? t.string)                 (decode-string in #f))
+        ((? t.bytes)                  (decode-bytes  in #f))
+        ((? t.pair)                   (decode-pair   in #f #f))
+        ((? t.number)                 (decode-number in))
+        ((? t.symbol) (string->symbol (decode-string in #f)))
+        ((? t.null)                   '())
+        ((? t.true)                   #t)
+        ((? t.false)                  #f)
         (else (error "decode-any; invalid tag:" tag))))
 (define (decode-nat in size)
   (if size (let loop ((n 0) (sz size))

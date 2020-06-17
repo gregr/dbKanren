@@ -73,13 +73,13 @@
     ((take count) (table ref start           (+ count start)))
     ((drop count) (table ref (+ count start) end))))
 
-(define (table/port/offsets table:offsets type in)
-  (define (ref i) (file-position in (table:offsets 'ref i)) (decode in type))
-  (table ref 0 (table:offsets 'length)))
+(define (table/port/offsets table.offsets type in)
+  (define (ref i) (file-position in (table.offsets 'ref i)) (decode in type))
+  (table ref 0 (table.offsets 'length)))
 
-(define (table/bytes/offsets table:offsets type bs)
+(define (table/bytes/offsets table.offsets type bs)
   (define in (open-input-bytes bs))
-  (table/port/offsets table:offsets type in))
+  (table/port/offsets table.offsets type in))
 
 ;; TODO: table/file that does len calculation via file-size?
 (define (table/port type len in)
