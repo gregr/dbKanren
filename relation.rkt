@@ -1,7 +1,8 @@
 #lang racket/base
-(provide relation/stream define-relation/stream define-relation/tables)
-(require "method.rkt" "mk.rkt" "stream.rkt" "table.rkt"
-         racket/function racket/list racket/set)
+(provide relation/stream define-relation/stream define-relation/tables
+         materializer)
+(require "codec.rkt" "method.rkt" "mk.rkt" "stream.rkt" "table.rkt"
+         racket/file racket/function racket/list racket/pretty racket/set)
 
 ;; * extensional relation:
 ;;   * schema:
@@ -143,6 +144,81 @@
     ;; TODO: specify types
     ((_ (name attr ...) se)
      (define name (relation/stream name (attr ...) se)))))
+
+(define (materializer source-names buffer-size directory-path
+                      attribute-names attribute-types key table-descriptions)
+  (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
+                          (error "duplicates:" as)))
+  (unique?! source-names)
+  (unique?! attribute-names)
+  (unless (subset? (set-remove attribute-names key) source-names)
+    (error "missing source names for attributes:"
+           source-names (set-remove attribute-names key)))
+  (unless (= (length attribute-names) (length attribute-types))
+    (error "mismatching attribute names and types:"
+           attribute-names attribute-types))
+  (define name=>type (make-immutable-hash
+                       (map cons attribute-names attribute-types)))
+  (when (null? table-descriptions)
+    (error "empty list of table descriptions for:" attribute-names))
+  (define index-tds            (cdr table-descriptions))
+  (define primary-td           (car table-descriptions))
+  (define primary-column-names (car primary-td))
+  (define primary-column-types (map (lambda (n) (hash-ref name=>type n))
+                                    primary-column-names))
+  (define primary-source-names (if key (cons key primary-column-names)
+                                 primary-column-names))
+  (unique?! primary-column-names)
+  (when (or (member key primary-column-names) (member key source-names))
+    (error "key name must be distinct:" key primary-column-names source-names))
+  (unless (equal? (set-remove (list->set attribute-names) key)
+                  (list->set primary-column-names))
+    (error "primary columns must include all non-key attributes:"
+           (set->list (set-remove (list->set attribute-names) key))
+           (set->list (list->set primary-column-names))))
+  (define dpath (if #f (path->string (build-path "TODO: configurable base"
+                                                 directory-path))
+                  directory-path))
+  (make-directory* dpath)
+  (define metadata-fname (path->string (build-path dpath "metadata.scm")))
+  (define primary-fname  (path->string (build-path dpath "primary")))
+  (define index-fnames
+    (map (lambda (i)
+           (path->string (build-path dpath (string-append
+                                             "index." (number->string i)))))
+         (range (length index-tds))))
+  (define metadata-out (open-output-file metadata-fname))
+  (define primary-t
+    (tabulator source-names buffer-size primary-fname
+               primary-column-names primary-column-types
+               key (cdr primary-td)))
+  (method-lambda
+    ((put x) (primary-t 'put x))
+    ((close) (define primary-info (primary-t 'close))
+             (define key-type (nat-type/max
+                                (cdr (assoc 'length primary-info))))
+             (define index-ts
+               (let* ((name=>type (hash-set name=>type key key-type))
+                      (name->type (lambda (n) (hash-ref name=>type n))))
+                 (map (lambda (fname td)
+                        (define column-names   (car td))
+                        (define sorted-columns (cdr td))
+                        (tabulator primary-source-names buffer-size fname
+                                   column-names (map name->type column-names)
+                                   #f sorted-columns))
+                      index-fnames index-tds)))
+             (let/files ((in (value-table-file-name primary-fname))) ()
+               (define primary-s (s-decode in primary-column-types))
+               (s-each (if key (s-enumerate 0 primary-s) primary-s)
+                       (lambda (x) (for-each (lambda (t) (t 'put x))
+                                             index-ts))))
+             (define index-infos  (map (lambda (t) (t 'close)) index-ts))
+             (pretty-write `((attribute-names . ,attribute-names)
+                             (attribute-types . ,attribute-types)
+                             (primary-table   . ,primary-info)
+                             (index-tables    . ,index-infos))
+                           metadata-out)
+             (close-output-port metadata-out))))
 
 ;; TODO: attribute-types should be verified with tables
 (define (make-relation/tables attribute-names attribute-types attrs/tables)
