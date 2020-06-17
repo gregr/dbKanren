@@ -168,7 +168,7 @@
 (define (value-table-file-name  prefix) (string-append prefix ".value.table"))
 (define (offset-table-file-name prefix) (string-append prefix ".offset.table"))
 
-(define (tabulator buffer-size file-prefix source-names
+(define (tabulator source-names buffer-size file-prefix
                    column-names column-types key-name sorted-columns)
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
                           (error "duplicates:" as)))
