@@ -1,6 +1,6 @@
 #lang racket/base
 (provide relation/stream define-relation/stream define-relation/tables
-         materializer)
+         materializer materialized-relation define-materialized-relation)
 (require "codec.rkt" "method.rkt" "mk.rkt" "stream.rkt" "table.rkt"
          racket/file racket/function racket/list racket/pretty racket/set)
 
@@ -219,6 +219,63 @@
                              (index-tables    . ,index-infos))
                            metadata-out)
              (close-output-port metadata-out))))
+
+(define (materialized-relation relation-name retrieval-type directory-path)
+  (let/files ((in (path->string
+                    (build-path directory-path "metadata.scm")))) ()
+    (define info-alist (read in))
+    (when (eof-object? info-alist)
+      (error "corrupt relation metadata:" directory-path))
+    (define info (make-immutable-hash info-alist))
+    (define attribute-names    (hash-ref info 'attribute-names))
+    (define attribute-types    (hash-ref info 'attribute-types))
+    (define primary-info-alist (hash-ref info 'primary-table))
+    (define primary-info       (make-immutable-hash primary-info-alist))
+    (define fn.primary (path->string (build-path directory-path "primary")))
+    (define primary-t
+      (table/metadata retrieval-type fn.primary primary-info-alist))
+    (define primary-column-names (hash-ref primary-info 'column-names))
+    (define primary-key-name     (hash-ref primary-info 'key-name))
+    (define key-name (and (member primary-key-name attribute-names)
+                          primary-key-name))
+    ;; TODO: use index-tables
+    ;(define index-infos (map make-immutable-hash
+    ;(hash-ref info 'index-table)))
+    ;; * is the table key an attribute?  if so, we have two (or more with
+    ;;   sorted columns) efficient attribute orders to try (w/ virtual tables)
+    ;;   * use these as indices
+    ;; * if an attribute order gets stuck, and there are remaining ground args,
+    ;;   find an appropriate index to join with
+    ;;   * repeat until either attributes are satisfied, or all indices used
+    ;;   * then iterate over the remaining primary columns while maintaining
+    ;;     index join intersections
+    ;;     * every concrete value chosen for a column in the primary table may
+    ;;       activate another index to help with pruning
+    (make-relation/proc
+      relation-name attribute-names
+      (lambda args
+        (unless (= (length args) (length attribute-names))
+          (error "invalid number of arguments:" attribute-names args))
+        (define env (map cons attribute-names args))
+        (define (ref name) (cdr (assoc name env)))
+        (define key (and key-name (ref key-name)))
+        (cond ((and (integer? key) (<= 0 key) (< key (primary-t 'length)))
+               (== (vector->list (primary-t 'ref key))
+                   (map ref primary-column-names)))
+              ((and key-name (not (var? key))) (== #t #f))
+              (else (let loop ((cols primary-column-names) (t primary-t))
+                      (define (finish) (constrain `(retrieve ,(t 'stream))
+                                                  (map ref cols)))
+                      (cond ((null? cols) (finish))
+                            (else (define v (ref (car cols)))
+                                  (if (var? v) (finish)
+                                    (loop (cdr cols) (table-project
+                                                       t (vector v)))))))))))))
+
+(define-syntax define-materialized-relation
+  (syntax-rules ()
+    ((_ name retrieval-type directory-path)
+     (define name (materialized-relation 'name retrieval-type directory-path)))))
 
 ;; TODO: attribute-types should be verified with tables
 (define (make-relation/tables attribute-names attribute-types attrs/tables)
