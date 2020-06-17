@@ -3,6 +3,7 @@
          table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets sorter tabulator encoder
          table-project table-intersect-start table-cross table-join
+         value-table-file-name offset-table-file-name
          call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
          racket/file racket/function racket/list racket/match racket/set
@@ -164,6 +165,9 @@
       (if (not prefix+ts) '()
         (append (current prefix+ts) (loop (next prefix+ts)))))))
 
+(define (value-table-file-name  prefix) (string-append prefix ".value.table"))
+(define (offset-table-file-name prefix) (string-append prefix ".offset.table"))
+
 (define (tabulator buffer-size file-prefix source-names
                    column-names column-types key-name sorted-columns)
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
@@ -183,9 +187,9 @@
   (define row<     (compare-><? (type->compare row-type)))
   (define row-size (sizeof row-type (void)))
   (make-parent-directory* file-prefix)
-  (define value-file-name  (string-append file-prefix ".value.table"))
+  (define value-file-name  (value-table-file-name file-prefix))
   (define offset-file-name (and (not row-size)
-                                (string-append file-prefix ".offset.table")))
+                                (offset-table-file-name file-prefix)))
   (define tsorter (sorter #t value-file-name offset-file-name buffer-size
                           row-type row<))
   (method-lambda
