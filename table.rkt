@@ -103,7 +103,6 @@
   (define offset-type  (hash-ref info 'offset-type))
   (define column-types (hash-ref info 'column-types))
   (define row-type (list->vector (cons 'tuple column-types)))
-  (define row-size (sizeof row-type (void)))
   (define len (hash-ref info 'length))
   (unless (equal? (file-size fname.value) (hash-ref info 'value-file-size))
     (error "file size does not match metadata:" fname.value
@@ -113,7 +112,7 @@
     (warning "file modification time does not match metadata:" fname.value
              (file-or-directory-modify-seconds fname.value)
              (hash-ref info 'value-file-time)))
-  (unless row-size
+  (when offset-type
     (unless (equal? (file-size fname.offset) (hash-ref info 'offset-file-size))
       (error "file size does not match metadata:" fname.offset
              (file-size fname.offset) (hash-ref info 'offset-file-size)))
@@ -125,17 +124,17 @@
   (define t.value
     (case retrieval-type
       ((disk) (define in.value (open-input-file fname.value))
-              (if row-size
-                (table/port row-type len in.value)
+              (if offset-type
                 (table/port/offsets (table/port offset-type len
                                                 (open-input-file fname.offset))
-                                    row-type in.value)))
+                                    row-type in.value)
+                (table/port row-type len in.value)))
       ((bytes) (define bs.value (file->bytes fname.value))
-               (if row-size
-                 (table/bytes row-type bs.value)
+               (if offset-type
                  (table/bytes/offsets (table/bytes offset-type
                                                    (file->bytes fname.offset))
-                                      row-type bs.value)))
+                                      row-type bs.value)
+                 (table/bytes row-type bs.value)))
       ((scm) (let/files ((in.value fname.value)) ()
                (table/vector
                  (list->vector (s-take #f (s-decode in.value row-type))))))
