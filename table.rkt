@@ -100,14 +100,14 @@
   (define fname.value  (value-table-file-name  file-prefix))
   (define fname.offset (offset-table-file-name file-prefix))
   (define info (make-immutable-hash info-alist))
+  (define offset-type  (hash-ref info 'offset-type))
   (define column-types (hash-ref info 'column-types))
   (define row-type (list->vector (cons 'tuple column-types)))
   (define row-size (sizeof row-type (void)))
   (define len (hash-ref info 'length))
-  (define fsize (hash-ref info 'value-file-size))
-  (unless (equal? (file-size fname.value) fsize)
+  (unless (equal? (file-size fname.value) (hash-ref info 'value-file-size))
     (error "file size does not match metadata:" fname.value
-           (file-size fname.value) fsize))
+           (file-size fname.value) (hash-ref info 'value-file-size)))
   (unless (equal? (file-or-directory-modify-seconds fname.value)
                   (hash-ref info 'value-file-time))
     (warning "file modification time does not match metadata:" fname.value
@@ -127,13 +127,13 @@
       ((disk) (define in.value (open-input-file fname.value))
               (if row-size
                 (table/port row-type len in.value)
-                (table/port/offsets (table/port (nat-type/max fsize) len
+                (table/port/offsets (table/port offset-type len
                                                 (open-input-file fname.offset))
                                     row-type in.value)))
       ((bytes) (define bs.value (file->bytes fname.value))
                (if row-size
                  (table/bytes row-type bs.value)
-                 (table/bytes/offsets (table/bytes (nat-type/max fsize)
+                 (table/bytes/offsets (table/bytes offset-type
                                                    (file->bytes fname.offset))
                                       row-type bs.value)))
       ((scm) (let/files ((in.value fname.value)) ()
@@ -244,7 +244,7 @@
                           row-type row<))
   (method-lambda
     ((put x) (tsorter 'put (map (lambda (ix) (list-ref x ix)) column-ixs)))
-    ((close) (define item-count (tsorter 'close))
+    ((close) (match-define (cons offset-type item-count) (tsorter 'close))
              `((value-file-size   . ,(file-size value-file-name))
                (value-file-time   . ,(file-or-directory-modify-seconds
                                        value-file-name))
@@ -253,6 +253,7 @@
                (offset-file-time  . ,(and offset-file-name
                                           (file-or-directory-modify-seconds
                                             offset-file-name)))
+               (offset-type       . ,offset-type)
                (length            . ,item-count)
                (column-names      . ,column-names)
                (column-types      . ,column-types)
@@ -278,11 +279,6 @@
      (close-output-port out-sort-offset)
      (define omax (if v? (sizeof `#(array ,initial-item-count ,type) v?)
                     (file-size fname-sort-value)))
-     ;; TODO: recorded offset type may differ from perceived type due to
-     ;; difference in initial and final item-count.  To fix this, sorter
-     ;; either needs to rewrite offsets, or also return either the
-     ;; initial-item-count or the recorded offset type.  Returning the
-     ;; recorded offset type seems best.
      (define otype (and out-offset (nat-type/max omax)))
      (define item-count
        (cond (v? (let loop ((prev #f) (i 0) (count 0))
@@ -303,7 +299,7 @@
      (delete-file fname-sort-offset)
      (close-output-port out-value)
      (when out-offset (close-output-port out-offset))
-     item-count)))
+     (cons otype item-count))))
 
 (define (multi-sorter out-chunk out-offset buffer-size type value<)
   (let ((v (make-vector buffer-size)) (chunk-count 0) (item-count 0) (i 0))
