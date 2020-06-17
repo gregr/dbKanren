@@ -176,6 +176,8 @@
     (error "mismatching column names and types:" column-names column-types))
   (unique?! source-names)
   (unique?! column-names)
+  (unless (andmap symbol? column-names)
+    (error "column names must be symbols:" column-names))
   (when (or (member key-name column-names) (member key-name source-names))
     (error "key name must be distinct:" key-name column-names source-names))
   (unless (subset? column-names source-names)
