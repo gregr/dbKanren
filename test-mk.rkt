@@ -85,6 +85,7 @@
 (define-relation/tables
   (triple2o x y z)
   (list (cons '(y z x) (table/vector
+                         '(#f #f #f)
                          #(#(a b  0)
                            #(a b  1)
                            #(a b  2)

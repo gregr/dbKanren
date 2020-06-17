@@ -73,27 +73,29 @@
     ((take count) (table ref start           (+ count start)))
     ((drop count) (table ref (+ count start) end))))
 
-(define (table/port/offsets table.offsets type in)
+(define (table/port/offsets table.offsets types in)
+  (define type `#(tuple ,@types))
   (define (ref i)
     (file-position in (vector-ref (table.offsets 'ref i) 0))
     (decode in type))
   (table ref 0 (table.offsets 'length)))
 
-(define (table/bytes/offsets table.offsets type bs)
+(define (table/bytes/offsets table.offsets types bs)
   (define in (open-input-bytes bs))
-  (table/port/offsets table.offsets type in))
+  (table/port/offsets table.offsets types in))
 
 ;; TODO: table/file that does len calculation via file-size?
-(define (table/port type len in)
+(define (table/port len types in)
+  (define type `#(tuple ,@types))
   (define width (sizeof type (void)))
   (define (ref i) (file-position in (* i width)) (decode in type))
   (table ref 0 len))
 
-(define (table/bytes type bs)
+(define (table/bytes types bs)
   (define in (open-input-bytes bs))
-  (table/port type (quotient (bytes-length bs) (sizeof type (void))) in))
+  (table/port (quotient (bytes-length bs) (sizeof types (void))) types in))
 
-(define (table/vector v)
+(define (table/vector types v)
   (table (lambda (i) (vector-ref v i)) 0 (vector-length v)))
 
 (define (table/metadata retrieval-type file-prefix info-alist)
@@ -104,7 +106,6 @@
   (define info (make-immutable-hash info-alist))
   (define offset-type  (hash-ref info 'offset-type))
   (define column-types (hash-ref info 'column-types))
-  (define row-type (list->vector (cons 'tuple column-types)))
   (define len (hash-ref info 'length))
   (unless (equal? (file-size fname.value) (hash-ref info 'value-file-size))
     (error "file size does not match metadata:" fname.value
@@ -127,19 +128,21 @@
     (case retrieval-type
       ((disk) (define in.value (open-input-file fname.value))
               (if offset-type
-                (table/port/offsets (table/port `#(tuple ,offset-type) len
+                (table/port/offsets (table/port len `(,offset-type)
                                                 (open-input-file fname.offset))
-                                    row-type in.value)
-                (table/port row-type len in.value)))
+                                    column-types in.value)
+                (table/port len column-types in.value)))
       ((bytes) (define bs.value (file->bytes fname.value))
                (if offset-type
-                 (table/bytes/offsets (table/bytes `#(tuple ,offset-type)
+                 (table/bytes/offsets (table/bytes `(,offset-type)
                                                    (file->bytes fname.offset))
-                                      row-type bs.value)
-                 (table/bytes row-type bs.value)))
+                                      column-types bs.value)
+                 (table/bytes column-types bs.value)))
       ((scm) (let/files ((in.value fname.value)) ()
                (table/vector
-                 (list->vector (s-take #f (s-decode in.value row-type))))))
+                 column-types
+                 (list->vector
+                   (s-take #f (s-decode in.value `#(tuple ,@column-types)))))))
       (else (error "unknown retrieval type:" retrieval-type))))
   t.value)
 
