@@ -260,7 +260,7 @@
         (define (ref name) (cdr (assoc name env)))
         (define key (and key-name (ref key-name)))
         (cond ((and (integer? key) (<= 0 key) (< key (primary-t 'length)))
-               (== (vector->list (primary-t 'ref key))
+               (== (vector->list (primary-t 'ref* key))
                    (map ref primary-column-names)))
               ((and key-name (not (var? key))) (== #t #f))
               (else (let loop ((cols primary-column-names) (t primary-t))
