@@ -164,7 +164,8 @@
                           (else                         (loop i    o)))))))))
 ;; TODO: bisect-prev
 
-(define (table-project t prefix)
+(define (table-project t v)
+  (define prefix (vector v))
   (((t 'drop< prefix) 'take<= prefix) 'mask (vector-length prefix)))
 
 ;; TODO: table-intersect-end

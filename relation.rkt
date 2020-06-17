@@ -270,7 +270,7 @@
                             (else (define v (ref (car cols)))
                                   (if (var? v) (finish)
                                     (loop (cdr cols) (table-project
-                                                       t (vector v)))))))))))))
+                                                       t v))))))))))))
 
 (define-syntax define-materialized-relation
   (syntax-rules ()
@@ -309,7 +309,7 @@
        (cond ((null? attrs) (finish))
              (else (define v (cdr (assoc (car attrs) env)))
                    (if (var? v) (finish)
-                     (loop (cdr attrs) (table-project t (vector v))))))))))
+                     (loop (cdr attrs) (table-project t v)))))))))
 
 (define-syntax relation/tables
   (syntax-rules ()
