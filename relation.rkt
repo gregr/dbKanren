@@ -267,7 +267,8 @@
                 (let loop ((cols primary-column-names) (t primary-t))
                       (define (finish)
                         (if key-name
-                          (constrain `(retrieve ,(s-enumerate (t 'stream)))
+                          (constrain `(retrieve ,(s-enumerate (t 'key)
+                                                              (t 'stream)))
                                      (map ref (cons key-name cols)))
                           (constrain `(retrieve ,(t 'stream))
                                      (map ref cols))))

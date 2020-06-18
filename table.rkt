@@ -46,6 +46,7 @@
     ((types)   types)
     ((width)   (length types))
     ((length)  (- end start))
+    ((key)     start)
     ((ref* i)  (ref* (+ start i)))
     ((ref i j) (ref  (+ start i) j))
     ((mask j)  (table vref (s-drop j types) (+ mask j) start end))
