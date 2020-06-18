@@ -239,9 +239,17 @@
     (define primary-key-name     (hash-ref primary-info 'key-name))
     (define key-name (and (member primary-key-name attribute-names)
                           primary-key-name))
-    ;; TODO: use index-tables
-    ;(define index-infos (map make-immutable-hash
-    ;(hash-ref info 'index-table)))
+    (define index-info-alists (hash-ref info 'index-tables))
+    (define index-infos (map make-immutable-hash index-info-alists))
+    (define index-ts
+      (map (lambda (i info)
+             (define fn.index
+               (path->string (build-path dpath (string-append
+                                                 "index."
+                                                 (number->string i)))))
+             (table/metadata retrieval-type fn.index info))
+           (range (length index-info-alists))
+           index-info-alists))
     ;; * is the table key an attribute?  if so, we have two (or more with
     ;;   sorted columns) efficient attribute orders to try (w/ virtual tables)
     ;;   * use these as indices
@@ -265,19 +273,45 @@
                    (map ref primary-column-names)))
               ((and key-name (not (var? key))) (== #t #f))
               (else
-                (let loop ((cols primary-column-names) (t primary-t))
-                      (define (finish)
-                        (if key-name
-                          (constrain `(retrieve ,(s-enumerate (t 'key)
-                                                              (t 'stream)))
-                                     (map ref (cons key-name cols)))
-                          (constrain `(retrieve ,(t 'stream))
-                                     (map ref cols))))
-                      (cond ((null? cols) (finish))
-                            (else (define v (ref (car cols)))
-                                  (if (not (ground? v)) (finish)
-                                    (loop (cdr cols) (table-project
-                                                       t v))))))))))))
+                ;; TODO: before guessing, try to satisfy index table columns
+                ;; * if any index tables start with the key, remember them,
+                ;;   and use them to prune the primary table on every
+                ;;   intersection/projection/guess
+                ;; * if any index tables start with the missing column,
+                ;;   intersect with the primary table
+                ;; TODO: consider sorted-columns for out-of-order satifying
+                (define ordered-attributes
+                  (if key-name (append primary-column-names (list key-name))
+                    primary-column-names))
+                (define ordered-args
+                  (filter-not ground? (map ref ordered-attributes)))
+                (define result-stream
+                  (let loop ((cols primary-column-names)
+                             (t primary-t)
+                             ;; TODO:
+                             ;(ixts index-ts)
+                             ;; index tables for pruning key
+                             ;(ixts/key '())
+                             (acc '()))
+                    (cond ((= (t 'length) 0) '())
+                          ((null? cols)
+                           (s-map (lambda (suffix) (foldl cons suffix acc))
+                                  (if key-name
+                                    (s-enumerate (t 'key) (t 'stream))
+                                    '(()))))
+                          (else (define v (ref (car cols)))
+                                (if (ground? v)
+                                  (loop (cdr cols) (table-project t v) acc)
+                                  (let guess ((t t))
+                                    (if (= (t 'length) 0) '()
+                                      (let ((v (t 'ref 0 0)))
+                                        (thunk
+                                          (s-append
+                                            (loop (cdr cols)
+                                                  (table-project t v)
+                                                  (cons v acc))
+                                            (guess (t 'drop<= v))))))))))))
+                (constrain `(retrieve ,result-stream) ordered-args)))))))
 
 (define-syntax define-materialized-relation
   (syntax-rules ()
