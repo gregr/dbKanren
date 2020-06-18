@@ -221,17 +221,18 @@
              (close-output-port metadata-out))))
 
 (define (materialized-relation relation-name retrieval-type directory-path)
-  (let/files ((in (path->string
-                    (build-path directory-path "metadata.scm")))) ()
+  (define dpath (if #f (path->string (build-path "TODO: configurable base"
+                                                 directory-path))
+                  directory-path))
+  (let/files ((in (path->string (build-path dpath "metadata.scm")))) ()
     (define info-alist (read in))
-    (when (eof-object? info-alist)
-      (error "corrupt relation metadata:" directory-path))
+    (when (eof-object? info-alist) (error "corrupt relation metadata:" dpath))
     (define info (make-immutable-hash info-alist))
     (define attribute-names    (hash-ref info 'attribute-names))
     (define attribute-types    (hash-ref info 'attribute-types))
     (define primary-info-alist (hash-ref info 'primary-table))
     (define primary-info       (make-immutable-hash primary-info-alist))
-    (define fn.primary (path->string (build-path directory-path "primary")))
+    (define fn.primary (path->string (build-path dpath "primary")))
     (define primary-t
       (table/metadata retrieval-type fn.primary primary-info-alist))
     (define primary-column-names (hash-ref primary-info 'column-names))
