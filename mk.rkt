@@ -7,6 +7,7 @@
   (struct-out constrain)
   (struct-out relate)
   (struct-out var)
+  ground?
 
   relations relations-ref relations-set!
   make-relation/proc
@@ -237,6 +238,11 @@
                                                 (loop (- i 1)))))))
           ((string? t1) (and (string? t2) (string=? t1 t2)))
           (else         #f))))
+(define (ground? t)
+  (cond ((var?    t)  #f)
+        ((pair?   t) (and (ground? (car t)) (ground? (cdr t))))
+        ((vector? t) (andmap ground? (vector->list t)))
+        (else        #t)))
 ;; TODO: walk* decision should be made by relate-proc instead
 (define (relate-expand r) (apply (relate-proc r) (walk* (relate-args r))))
 ;; TODO: constraint satisfaction

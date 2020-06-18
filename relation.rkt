@@ -273,7 +273,7 @@
                                      (map ref cols))))
                       (cond ((null? cols) (finish))
                             (else (define v (ref (car cols)))
-                                  (if (var? v) (finish)
+                                  (if (not (ground? v)) (finish)
                                     (loop (cdr cols) (table-project
                                                        t v))))))))))))
 
@@ -313,7 +313,7 @@
                                         attrs)))
        (cond ((null? attrs) (finish))
              (else (define v (cdr (assoc (car attrs) env)))
-                   (if (var? v) (finish)
+                   (if (not (ground? v)) (finish)
                      (loop (cdr attrs) (table-project t v)))))))))
 
 (define-syntax relation/tables
