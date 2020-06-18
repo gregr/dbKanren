@@ -6,13 +6,6 @@ large-scale relations.
 
 ## TODO
 
-* redefine (ref i j)
-  * table should include a j-start for masking
-  * define (width)
-* redefine take/drop variants in terms of a single column
-  * and table-project
-* define tables that use column-oriented layout
-
 * materialized-relation
   * eventually, tables (primary or index) will be independent helper relations
   * but for now, the main relation will directly join with appropriate helper
@@ -37,6 +30,12 @@ large-scale relations.
     * types as ranges of values
   * disequality constraints punch holes in continuous ranges
   * descriptions for subsumption and/or simplification with other constraints
+
+* define tables that use column-oriented layout
+
+* how do we express columns of suffix type?
+  * it would have this representation type: `#(suffix count len)
+  * but it would use a different comparison operator
 
 
 ### Data processing
