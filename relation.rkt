@@ -263,9 +263,14 @@
                (== (vector->list (primary-t 'ref* key))
                    (map ref primary-column-names)))
               ((and key-name (not (var? key))) (== #t #f))
-              (else (let loop ((cols primary-column-names) (t primary-t))
-                      (define (finish) (constrain `(retrieve ,(t 'stream))
-                                                  (map ref cols)))
+              (else
+                (let loop ((cols primary-column-names) (t primary-t))
+                      (define (finish)
+                        (if key-name
+                          (constrain `(retrieve ,(s-enumerate (t 'stream)))
+                                     (map ref (cons key-name cols)))
+                          (constrain `(retrieve ,(t 'stream))
+                                     (map ref cols))))
                       (cond ((null? cols) (finish))
                             (else (define v (ref (car cols)))
                                   (if (var? v) (finish)
