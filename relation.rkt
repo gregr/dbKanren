@@ -250,6 +250,7 @@
              (table/metadata retrieval-type fn.index info))
            (range (length index-info-alists))
            index-info-alists))
+    ;; TODO: consider sorted-columns for out-of-order satifying
     (define (advance-table env col=>ts t)
       (define cols (t 'columns))
       (cond ((= 0 (t 'length)) #f)
@@ -264,10 +265,41 @@
     (define (advance-tables env col=>ts ts)
       (foldl (lambda (t col=>ts) (and col=>ts (advance-table env col=>ts t)))
              col=>ts ts))
-    ;; TODO:
-    ;; * is the table key an attribute?  if so, we have two (or more with
-    ;;   sorted columns) efficient attribute orders to try (w/ virtual tables)
-    ;;   * use these as indices
+    (define (loop cols t0 env col=>ts0 acc)
+      (define k+ts
+        (and col=>ts0
+             (let ((ts (hash-ref col=>ts0 primary-key-name '())))
+               (if (null? ts) (list (t0 'key))
+                 (table-intersect-start
+                   (cons ((car ts) 'drop< (t0 'key)) (cdr ts)))))))
+      (define col=>ts
+        (and k+ts (hash-set col=>ts0 primary-key-name (cdr k+ts))))
+      (define t (and k+ts (t0 'drop-key< (car k+ts))))
+      (cond ((or (not k+ts) (= (t 'length) 0)) '())
+            ((null? cols)
+             (s-map (lambda (suffix) (foldl cons suffix acc))
+                    (if key-name (s-enumerate (t 'key) (t 'stream)) '(()))))
+            (else (define col          (car cols))
+                  (define v            (hash-ref    env     col))
+                  (define col=>ts//col (hash-remove col=>ts col))
+                  (define ixts         (hash-ref    col=>ts col '()))
+                  (if (ground? v) (loop (cdr cols) (table-project t v) env
+                                        (advance-tables env col=>ts//col ixts)
+                                        acc)
+                    (let ((v+ts (table-intersect-start (cons t ixts))))
+                      (if (not v+ts) '()
+                        (let* ((v    (car v+ts))
+                               (t    (cadr v+ts))
+                               (ixts (cddr v+ts)))
+                          (thunk (s-append
+                                   (let* ((env (hash-set env col v))
+                                          (col=>ts (advance-tables
+                                                     env col=>ts//col ixts)))
+                                     (loop (cdr cols) (table-project t v) env
+                                           col=>ts (cons v acc)))
+                                   (loop cols (t 'drop<= v) env
+                                         (advance-tables env col=>ts//col ixts)
+                                         acc))))))))))
     (make-relation/proc
       relation-name attribute-names
       (lambda args
@@ -280,64 +312,16 @@
                (== (vector->list (primary-t 'ref* key))
                    (map ref primary-column-names)))
               ((and key-name (not (var? key))) (== #t #f))
-              (else
-                ;; TODO: consider sorted-columns for out-of-order satifying
-                (define ordered-attributes
-                  (if key-name (append primary-column-names (list key-name))
-                    primary-column-names))
-                (define ordered-args
-                  (filter-not ground? (map ref ordered-attributes)))
-                (define result-stream
-                  (let loop ((cols     primary-column-names)
-                             (t0       primary-t)
-                             (env      env)
-                             (col=>ts0 (advance-tables env (hash) index-ts))
-                             (acc      '()))
-                    (define k+ts
-                      (and col=>ts0
-                           (let ((ts (hash-ref col=>ts0 primary-key-name '())))
-                             (if (null? ts) (list (t0 'key))
-                               (table-intersect-start
-                                 (cons ((car ts) 'drop< (t0 'key))
-                                       (cdr ts)))))))
-                    (define col=>ts
-                      (and k+ts (hash-set col=>ts0 primary-key-name
-                                          (cdr k+ts))))
-                    (define t (and k+ts (t0 'drop-key< (car k+ts))))
-                    (cond ((or (not k+ts) (= (t 'length) 0)) '())
-                          ((null? cols)
-                           (s-map (lambda (suffix) (foldl cons suffix acc))
-                                  (if key-name
-                                    (s-enumerate (t 'key) (t 'stream))
-                                    '(()))))
-                          (else (define col          (car cols))
-                                (define v            (hash-ref    env     col))
-                                (define col=>ts//col (hash-remove col=>ts col))
-                                (define ixts (hash-ref col=>ts col '()))
-                                (if (ground? v)
-                                  (loop (cdr cols) (table-project t v) env
-                                        (advance-tables env col=>ts//col ixts)
-                                        acc)
-                                  (let ((v+ts (table-intersect-start
-                                                (cons t ixts))))
-                                    (if (not v+ts) '()
-                                      (let* ((v    (car v+ts))
-                                             (t    (cadr v+ts))
-                                             (ixts (cddr v+ts)))
-                                        (thunk
-                                          (s-append
-                                            (let* ((env (hash-set env col v))
-                                                   (col=>ts
-                                                     (advance-tables
-                                                       env col=>ts//col ixts)))
-                                              (loop (cdr cols)
-                                                    (table-project t v)
-                                                    env col=>ts (cons v acc)))
-                                            (loop cols (t 'drop<= v)
-                                                  env (advance-tables
-                                                        env col=>ts//col ixts)
-                                                  acc)))))))))))
-                (constrain `(retrieve ,result-stream) ordered-args)))))))
+              (else (define ordered-attributes
+                      (if key-name
+                        (append primary-column-names (list key-name))
+                        primary-column-names))
+                    (define ordered-args
+                      (filter-not ground? (map ref ordered-attributes)))
+                    (define result-stream
+                      (loop primary-column-names primary-t env
+                            (advance-tables env (hash) index-ts) '()))
+                    (constrain `(retrieve ,result-stream) ordered-args)))))))
 
 (define-syntax define-materialized-relation
   (syntax-rules ()
