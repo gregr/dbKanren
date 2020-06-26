@@ -81,7 +81,7 @@
 
 (define (table/bytes/offsets table.offsets cols types bs)
   (define in (open-input-bytes bs))
-  (table/port/offsets table.offsets types in))
+  (table/port/offsets table.offsets cols types in))
 
 ;; TODO: table/file that does len calculation via file-size?
 (define (table/port len cols types in)
@@ -92,7 +92,8 @@
 
 (define (table/bytes cols types bs)
   (define in (open-input-bytes bs))
-  (table/port (quotient (bytes-length bs) (sizeof types (void))) types in))
+  (table/port (quotient (bytes-length bs) (sizeof types (void)))
+              cols types in))
 
 (define (table/vector cols types v)
   (table (lambda (i) (vector-ref v i)) cols types 0 0 (vector-length v)))
@@ -131,7 +132,7 @@
                 (table/port/offsets (table/port len '(offset) `(,offset-type)
                                                 (open-input-file fname.offset))
                                     column-names column-types in.value)
-                (table/port len column-types in.value)))
+                (table/port len column-names column-types in.value)))
       ((bytes) (define bs.value (file->bytes fname.value))
                (if offset-type
                  (table/bytes/offsets (table/bytes '(offset) `(,offset-type)
