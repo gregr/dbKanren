@@ -67,6 +67,8 @@
     ;; TODO: > >= variants: take>= drop> drop>=
     ;((drop> v)  (table vref cols types mask
                        ;start (bisect-prev start end (make-i> v))))
+    ((drop-key< k) (table vref cols types mask (max start (min k end)) end))
+    ((drop-key> k) (table vref cols types mask start (min end (max k start))))
     ((take count) (table vref cols types mask start           (+ count start)))
     ((drop count) (table vref cols types mask (+ count start) end))))
 
