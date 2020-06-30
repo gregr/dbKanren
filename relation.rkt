@@ -9,6 +9,8 @@
   (cond (kv              (cdr kv))
         ((void? default) (error "missing key in association list:" key alist))
         (else            default)))
+(define (alist-remove alist key)
+  (filter (lambda (kv) (not (equal? (car kv) key))) alist))
 
 ;; * extensional relation:
 ;;   * schema:
