@@ -322,6 +322,27 @@
     ((_ (name attr ...) as/ts)
      (define name (relation/tables name (attr ...) as/ts)))))
 
+;; TODO: mk constraint integration
+;; When a variable is unified, its constraints are queued for re-evaluation
+;; (e.g., bounds refinement, propagation).
+;; When an index constraint incorporates a unified value as prefix, it needs to
+;; update itself, attaching to the next prefix variable(s) (might be more than
+;; one variable due to either sorted columns (multiple index orders) or if a
+;; column includes pair/vector values) in the index (if any).
+
+;; constraint info:
+;; * descriptions used for subsumption
+;;   * #(,relation ,attributes-satisfied ,attributes-pending)
+;;   * within a relation, table constraint A subsumes B if
+;;     B's attributes-pending is a prefix of A's
+;;     AND
+;;     B does not have any attributes-satisfied that A does not have
+;; * lower and upper domain bounds
+
+;; Relations built on streams do not provide typical constraints since they
+;; only support linear scanning.  Accessing them should probably be treated as
+;; search (as with conde).
+
 ;; example: safe-drug -(predicate)-> gene
 #|
 (run* (D->G)
@@ -358,4 +379,25 @@
 ;; branch/subtree?  In other words, resolving the internal node can be seen as
 ;; removing it, which disconnects the query graph.  The disconnected subgraphs
 ;; are independent, and so could be solved independently to avoid re-solving
-;; each one multiple times.
+;; each one multiple times.  This is sort of an on-the-fly tree decomposition.
+;; Before fully solving each independent problem, ensure that each is
+;; satisfiable.  Existential-only paths can stop after satisfiability check.
+
+;; Comparing join structures to loop structures:
+;; * iterative joining is naturally right-associative (think of nested for loops
+;;   in a result position)
+;;   * for x in (intersect ...):
+;;       for y in (intersect ...):
+;;         for z in (intersect ...):
+;;         ...
+;; * intermediate computations correspond to left-factorings (prefix of joins)
+;;   (think of nested for loops in a generating position)
+;;   * intermediate = (for x in (intersect ...):
+;;                       for y in (intersect ...):
+;;                         return (x, y))
+;;     for z in (intersect ... intermediate ...):
+;;       ...
+;;   * computing intermediates reduces downstream duplication of effort, but
+;;     risks useless effort up front, and the intermediate result uses extra
+;;     space and probably requires indexing to integrate with the rest of the
+;;     computation
