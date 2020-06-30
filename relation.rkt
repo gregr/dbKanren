@@ -4,6 +4,12 @@
 (require "codec.rkt" "method.rkt" "mk.rkt" "stream.rkt" "table.rkt"
          racket/file racket/function racket/list racket/pretty racket/set)
 
+(define (alist-ref alist key (default (void)))
+  (define kv (assoc key alist))
+  (cond (kv              (cdr kv))
+        ((void? default) (error "missing key in association list:" key alist))
+        (else            default)))
+
 ;; * extensional relation:
 ;;   * schema:
 ;;     * heading: set of attributes and their types
@@ -195,8 +201,7 @@
   (method-lambda
     ((put x) (primary-t 'put x))
     ((close) (define primary-info (primary-t 'close))
-             (define key-type (nat-type/max
-                                (cdr (assoc 'length primary-info))))
+             (define key-type (nat-type/max (alist-ref primary-info 'length)))
              (define index-ts
                (let* ((name=>type (hash-set name=>type key key-type))
                       (name->type (lambda (n) (hash-ref name=>type n))))
@@ -355,10 +360,10 @@
      (define env (map cons attribute-names args))
      (let loop ((attrs (car attrs/main-table)) (t (cdr attrs/main-table)))
        (define (finish) (constrain `(retrieve ,(t 'stream))
-                                   (map (lambda (attr) (cdr (assoc attr env)))
+                                   (map (lambda (attr) (alist-ref env attr))
                                         attrs)))
        (cond ((null? attrs) (finish))
-             (else (define v (cdr (assoc (car attrs) env)))
+             (else (define v (alist-ref env (car attrs)))
                    (if (not (ground? v)) (finish)
                      (loop (cdr attrs) (table-project t v)))))))))
 
