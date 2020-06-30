@@ -151,8 +151,14 @@
     ((_ (name attr ...) se)
      (define name (relation/stream name (attr ...) se)))))
 
-(define (materializer source-names buffer-size directory-path
-                      attribute-names attribute-types key table-descriptions)
+(define (materializer kwargs)
+  (define buffer-size        (alist-ref kwargs 'buffer-size))
+  (define directory-path     (alist-ref kwargs 'path))
+  (define source-names       (alist-ref kwargs 'source-columns))
+  (define attribute-names    (alist-ref kwargs 'attribute-names))
+  (define attribute-types    (alist-ref kwargs 'attribute-types))
+  (define key                (alist-ref kwargs 'key-name))
+  (define table-descriptions (alist-ref kwargs 'tables))
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
                           (error "duplicates:" as)))
   (unique?! source-names)
