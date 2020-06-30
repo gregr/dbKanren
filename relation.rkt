@@ -178,7 +178,10 @@
                            metadata-out)
              (close-output-port metadata-out))))
 
-(define (materialized-relation relation-name retrieval-type directory-path)
+(define (materialized-relation kwargs)
+  (define relation-name  (alist-ref kwargs 'relation-name))
+  (define directory-path (alist-ref kwargs 'path))
+  (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
   (define dpath (if #f (path->string (build-path "TODO: configurable base"
                                                  directory-path))
                   directory-path))
@@ -283,8 +286,8 @@
 
 (define-syntax define-materialized-relation
   (syntax-rules ()
-    ((_ name retrieval-type directory-path)
-     (define name (materialized-relation 'name retrieval-type directory-path)))))
+    ((_ name kwargs) (define name (materialized-relation
+                                    `((relation-name . name) . ,kwargs))))))
 
 ;; TODO: attribute-types should be verified with tables
 (define (make-relation/tables attribute-names attribute-types attrs/tables)
