@@ -96,9 +96,16 @@
                                         (map (lambda (_) #f) attribute-names)))
   (define source-names       (alist-ref kwargs 'source-columns
                                         attribute-names))
-  (define key                (alist-ref kwargs 'key-name #f))
-  (define table-descriptions (alist-ref kwargs 'tables
-                                        `(((columns . ,attribute-names)))))
+  (define key                (alist-ref kwargs 'key-name #t))
+  (define index-descriptions
+    (map (lambda (itd)
+           (cons (cons 'columns (append (alist-ref itd 'columns) (list key)))
+                 (alist-remove itd 'columns)))
+         (alist-ref kwargs 'indexes '())))
+  (define table-descriptions
+    (append (alist-ref kwargs 'tables
+                       `(((columns . ,attribute-names))))
+            index-descriptions))
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
                           (error "duplicates:" as)))
   (unique?! source-names)
