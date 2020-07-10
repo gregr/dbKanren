@@ -94,8 +94,6 @@
   (define attribute-names    (alist-ref kwargs 'attribute-names))
   (define attribute-types    (alist-ref kwargs 'attribute-types
                                         (map (lambda (_) #f) attribute-names)))
-  (define source-names       (alist-ref kwargs 'source-columns
-                                        attribute-names))
   (define key                (alist-ref kwargs 'key-name #t))
   (define index-descriptions
     (map (lambda (itd)
@@ -108,11 +106,7 @@
             index-descriptions))
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
                           (error "duplicates:" as)))
-  (unique?! source-names)
   (unique?! attribute-names)
-  (unless (subset? (set-remove attribute-names key) source-names)
-    (error "missing source names for attributes:"
-           source-names (set-remove attribute-names key)))
   (unless (= (length attribute-names) (length attribute-types))
     (error "mismatching attribute names and types:"
            attribute-names attribute-types))
@@ -128,8 +122,8 @@
   (define primary-source-names (if key (cons key primary-column-names)
                                  primary-column-names))
   (unique?! primary-column-names)
-  (when (or (member key primary-column-names) (member key source-names))
-    (error "key name must be distinct:" key primary-column-names source-names))
+  (when (member key primary-column-names)
+    (error "key name must be distinct:" key primary-column-names))
   (unless (equal? (set-remove (list->set attribute-names) key)
                   (list->set primary-column-names))
     (error "primary columns must include all non-key attributes:"
@@ -147,10 +141,9 @@
                                              "index." (number->string i)))))
          (range (length index-tds))))
   (define metadata-out (open-output-file metadata-fname))
-  (define primary-t
-    (tabulator source-names buffer-size primary-fname
-               primary-column-names primary-column-types
-               key (cdr primary-td)))
+  (define primary-t (tabulator primary-column-names buffer-size primary-fname
+                               primary-column-names primary-column-types
+                               key (cdr primary-td)))
   (method-lambda
     ((put x) (primary-t 'put x))
     ((close) (define primary-info (primary-t 'close))
