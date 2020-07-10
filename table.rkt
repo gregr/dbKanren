@@ -9,7 +9,7 @@
          racket/file racket/function racket/list racket/match racket/set
          racket/vector)
 
-(define (s-encode out type s) (s-each s (lambda (v) (encode out type v))))
+(define (s-encode out type s) (s-each (lambda (v) (encode out type v)) s))
 (define (s-decode in type)
   (thunk (let loop () (if (eof-object? (peek-byte in)) '()
                         (cons (decode in type) (thunk (loop)))))))
