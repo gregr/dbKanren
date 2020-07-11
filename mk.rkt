@@ -55,10 +55,9 @@
 (define (relations-ref  proc) (hash-ref relation-registry proc))
 (define (relations-set! proc k v)
   (hash-set! relation-registry proc (hash-set (relations-ref proc) k v)))
-(define (relations-register! proc proc-cell name attributes)
+(define (relations-register! proc name attributes)
   (hash-set! relation-registry proc
-             (make-hash `((cell                       . ,proc-cell)
-                          (name                       . ,name)
+             (make-hash `((name                       . ,name)
                           (attribute-names            . ,attributes)
                           (attribute-types            . #f)
                           (integrity-constraints      . #f)
@@ -68,24 +67,18 @@
                           (analysis                   . #f)))))
 
 (define (make-relation/proc name attributes proc)
-  (letrec ((pc (let ((p proc)) (method-lambda
-                                 ((ref)      p)
-                                 ((set! new) (set! p new)))))
-           (r  (lambda args
-                 (relate (lambda args (apply (pc 'ref) args)) args r))))
-    (relations-register! r pc name attributes)
+  (letrec ((r (lambda args
+                (relate (lambda args (apply proc args)) args r))))
+    (relations-register! r name attributes)
     r))
 ;; TODO: use make-relation/proc?
 (define-syntax relation/proc
   (syntax-rules ()
     ((_ name (attr ...) proc)
-     (letrec ((pc   (let ((p proc)) (method-lambda
-                                      ((ref)      p)
-                                      ((set! new) (set! p new)))))
-              (name (lambda (attr ...)
-                      (relate (lambda (attr ...) ((pc 'ref) attr ...))
+     (letrec ((name (lambda (attr ...)
+                      (relate (lambda (attr ...) (proc attr ...))
                               (list attr ...) name))))
-       (relations-register! name pc 'name '(attr ...))
+       (relations-register! name 'name '(attr ...))
        name))))
 (define-syntax relation
   (syntax-rules ()

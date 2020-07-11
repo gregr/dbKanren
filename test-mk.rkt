@@ -55,32 +55,32 @@
            ((== z 'i))))
   '((0 a b c) (2 g h i)))
 
-((hash-ref (relations-ref tripleo) 'cell)
- 'set!
- (lambda args
-   (constrain '(retrieve ((10 r s t) (11 u v w) (12 x y z))) args)))
+;((hash-ref (relations-ref tripleo) 'cell)
+ ;'set!
+ ;(lambda args
+   ;(constrain '(retrieve ((10 r s t) (11 u v w) (12 x y z))) args)))
 
-(test 'tripleo-rewired-filter-before
-  (run* (i x y z)
-    (conde ((== i 11))
-           ((== i 12)))
-    (tripleo i x y z))
-  '((11 u v w) (12 x y z)))
-(test 'tripleo-rewired-filter-after
-  (run* (i x y z)
-    (tripleo i x y z)
-    (conde ((== i 10))
-           ((== i 12))))
-  '((10 r s t) (12 x y z)))
+;(test 'tripleo-rewired-filter-before
+  ;(run* (i x y z)
+    ;(conde ((== i 11))
+           ;((== i 12)))
+    ;(tripleo i x y z))
+  ;'((11 u v w) (12 x y z)))
+;(test 'tripleo-rewired-filter-after
+  ;(run* (i x y z)
+    ;(tripleo i x y z)
+    ;(conde ((== i 10))
+           ;((== i 12))))
+  ;'((10 r s t) (12 x y z)))
 
-((hash-ref (relations-ref appendo) 'cell)
- 'set!
- (lambda args
-   (constrain '(retrieve ((10 20 30) (100 200 300))) args)))
+;((hash-ref (relations-ref appendo) 'cell)
+ ;'set!
+ ;(lambda args
+   ;(constrain '(retrieve ((10 20 30) (100 200 300))) args)))
 
-(test 'appendo-rewired
-  (run* (a b c) (appendo a b c))
-  '((10 20 30) (100 200 300)))
+;(test 'appendo-rewired
+  ;(run* (a b c) (appendo a b c))
+  ;'((10 20 30) (100 200 300)))
 
 (define-relation/tables
   (triple2o x y z)
