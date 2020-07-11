@@ -57,15 +57,16 @@
   (hash-set! relation-registry proc (hash-set (relations-ref proc) k v)))
 (define (relations-register! proc name attributes)
   (hash-set! relation-registry proc
-             (make-hash `((name                       . ,name)
-                          (expand                     . #f)
-                          (attribute-names            . ,attributes)
-                          (attribute-types            . #f)
-                          (integrity-constraints      . #f)
-                          (location                   . #f)
-                          (monotonic-dependencies     . #f)
-                          (non-monotonic-dependencies . #f)
-                          (analysis                   . #f)))))
+             (make-immutable-hash
+               `((name                       . ,name)
+                 (expand                     . #f)
+                 (attribute-names            . ,attributes)
+                 (attribute-types            . #f)
+                 (integrity-constraints      . #f)
+                 (location                   . #f)
+                 (monotonic-dependencies     . #f)
+                 (non-monotonic-dependencies . #f)
+                 (analysis                   . #f)))))
 
 (define (make-relation/proc name attributes proc)
   (letrec ((r (lambda args
