@@ -58,6 +58,7 @@
 (define (relations-register! proc name attributes)
   (hash-set! relation-registry proc
              (make-hash `((name                       . ,name)
+                          (expand                     . #f)
                           (attribute-names            . ,attributes)
                           (attribute-types            . #f)
                           (integrity-constraints      . #f)
@@ -151,9 +152,12 @@
                                      (thunk (loop st g2 gs))))
         (`#s(relate   ,proc  ,args ,desc) (loop st (relate-expand g) gs))
         (`#s(constrain (relate ,proc) ,args)
-          (define app (hash-ref (relations-ref proc) 'apply/stream #f))
-          (unless app (error "no stream interpretation for:" proc args))
-          (apply app args))
+          (define r (relations-ref proc))
+          (define app (hash-ref r 'apply/stream #f))
+          (cond (app (apply app (walk* args)))  ;; TODO: walk* within app
+                (else (define ex (hash-ref r 'expand #f))
+                      (unless ex (error "no interpretation for:" proc args))
+                      (loop st (apply ex (walk* args)) gs))))
         (`#s(constrain (retrieve ,s) ,args)
           (let ((s (s-force s)))
             (if (null? s) fail
