@@ -157,6 +157,11 @@
         (`#s(disj ,g1 ,g2) (s-append (loop (state-new st) g1 gs)
                                      (thunk (loop st g2 gs))))
         (`#s(relate   ,proc  ,args ,desc) (loop st (relate-expand g) gs))
+        (`#s(constrain (relate ,proc) ,args)
+          (define args->stream (hash-ref (relations-ref proc) 'DFS-stream #f))
+          (unless args->stream
+            (error "no DFS-stream interpretation for:" proc args))
+          (args->stream args))
         (`#s(constrain (retrieve ,s) ,args)
           (let ((s (s-force s)))
             (if (null? s) fail
