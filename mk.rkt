@@ -9,8 +9,7 @@
   ground?
 
   make-relation-proc relations relations-ref relations-set!
-  make-relation/proc
-  relation/proc relation letrec-relations define-relation/proc define-relation
+  relation letrec-relations define-relation
   conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
@@ -73,29 +72,16 @@
         (relations-register! #,n '#,name '(#,@attributes))
         #,n)))
 
-(define (make-relation/proc name attributes proc)
-  (define r (make-relation-proc name attributes))
-  ;; TODO: caller should register this interpretation
-  ;(relations-set! r 'apply/stream proc)
-  (relations-set! r 'expand proc)
-  r)
-;; TODO: use make-relation/proc?
-(define-syntax relation/proc
-  (syntax-rules ()
-    ((_ name (attr ...) proc)
-     (make-relation/proc 'name '(attr ...) proc))))
 (define-syntax relation
   (syntax-rules ()
     ((_ name (param ...) g ...)
-     (relation/proc name (param ...) (lambda (param ...) (fresh () g ...))))))
+     (let ((r (make-relation-proc 'name '(param ...))))
+       (relations-set! r 'expand (lambda (param ...) (fresh () g ...)))
+       r))))
 (define-syntax letrec-relations
   (syntax-rules ()
     ((_ (((name param ...) g ...) ...) body ...)
      (letrec ((name (relation name (param ...) g ...)) ...) body ...))))
-(define-syntax define-relation/proc
-  (syntax-rules ()
-    ((_ (name attr ...) proc)
-     (define name (relation/proc name (attr ...) proc)))))
 (define-syntax define-relation
   (syntax-rules ()
     ((_ (name param ...) g ...)
