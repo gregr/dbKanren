@@ -5,7 +5,6 @@
   (struct-out disj)
   (struct-out conj)
   (struct-out constrain)
-  (struct-out relate)
   (struct-out var)
   ground?
 
@@ -26,7 +25,6 @@
                                    #:constructor-name make-query)
 (struct use       (proc args desc) #:prefab #:name make-use
                                    #:constructor-name make-use)
-(struct relate    (proc args desc) #:prefab)
 (struct disj      (g1 g2)          #:prefab)
 (struct conj      (g1 g2)          #:prefab)
 (struct constrain (op terms)       #:prefab)
@@ -48,7 +46,8 @@
 (define-constraint (string-appendo t1 t2 t3))
 (define-constraint (string-symbolo t1 t2))
 (define-constraint (string-numbero t1 t2))
-(define (retrieve s args) (constrain `(retrieve ,s) args))
+(define (retrieve s args)  (constrain `(retrieve ,s)  args))
+(define (relate proc args) (constrain `(relate ,proc) args))
 
 (define relation-registry     (make-weak-hasheq '()))
 (define (relations)           (hash->list relation-registry))
@@ -68,20 +67,22 @@
                  (non-monotonic-dependencies . #f)
                  (analysis                   . #f)))))
 
-(define (make-relation/proc name attributes proc)
-  (letrec ((r (lambda args
-                (relate (lambda args (apply proc args)) args r))))
+(define (make-relation-proc name attributes)
+  (letrec ((r (lambda args (relate r args))))
     (relations-register! r name attributes)
     r))
+
+(define (make-relation/proc name attributes proc)
+  (define r (make-relation-proc name attributes))
+  ;; TODO: caller should register this interpretation
+  ;(relations-set! r 'apply/stream proc)
+  (relations-set! r 'expand proc)
+  r)
 ;; TODO: use make-relation/proc?
 (define-syntax relation/proc
   (syntax-rules ()
     ((_ name (attr ...) proc)
-     (letrec ((name (lambda (attr ...)
-                      (relate (lambda (attr ...) (proc attr ...))
-                              (list attr ...) name))))
-       (relations-register! name 'name '(attr ...))
-       name))))
+     (make-relation/proc 'name '(attr ...) proc))))
 (define-syntax relation
   (syntax-rules ()
     ((_ name (param ...) g ...)
@@ -151,7 +152,6 @@
         (`#s(conj ,g1 ,g2) (loop st g1 (cons g2 gs)))
         (`#s(disj ,g1 ,g2) (s-append (loop (state-new st) g1 gs)
                                      (thunk (loop st g2 gs))))
-        (`#s(relate   ,proc  ,args ,desc) (loop st (relate-expand g) gs))
         (`#s(constrain (relate ,proc) ,args)
           (define r (relations-ref proc))
           (define app (hash-ref r 'apply/stream #f))
@@ -245,8 +245,6 @@
         ((pair?   t) (and (ground? (car t)) (ground? (cdr t))))
         ((vector? t) (andmap ground? (vector->list t)))
         (else        #t)))
-;; TODO: walk* decision should be made by relate-proc instead
-(define (relate-expand r) (apply (relate-proc r) (walk* (relate-args r))))
 ;; TODO: constraint satisfaction
 
 (define (pretty-printer)
