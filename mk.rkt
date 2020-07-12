@@ -8,13 +8,13 @@
   (struct-out var)
   ground?
 
-  relations relations-ref relations-set!
+  make-relation-proc relations relations-ref relations-set!
   make-relation/proc
   relation/proc relation letrec-relations define-relation/proc define-relation
   conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
-  retrieve
+  walk* retrieve/dfs
 
   pretty-query pretty-goal pretty-term
   )
@@ -46,7 +46,6 @@
 (define-constraint (string-appendo t1 t2 t3))
 (define-constraint (string-symbolo t1 t2))
 (define-constraint (string-numbero t1 t2))
-(define (retrieve s args)  (constrain `(retrieve ,s)  args))
 (define (relate proc args) (constrain `(relate ,proc) args))
 
 (define relation-registry     (make-weak-hasheq '()))
@@ -169,7 +168,6 @@
             (else (define ex (hash-ref r 'expand #f))
                   (unless ex (error "no interpretation for:" proc args))
                   (lambda (st) ((loop (apply ex (walk* args)) k) st)))))
-    (`#s(constrain (retrieve ,s) ,args) (retrieve/dfs k s args))
     (`#s(constrain == (,t1 ,t2))
       (lambda (st) ((if (unify* st t1 t2) k fail/dfs) st)))))
 

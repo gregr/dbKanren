@@ -67,21 +67,17 @@
 (define (degree-domain      d) (vector-ref d 2))
 (define (degree-range       d) (vector-ref d 3))
 
-(define (make-relation/stream attribute-names attribute-types s)
-  ;; TODO: optional type validation of stream data?
-  (method-lambda
-    ((attribute-names) attribute-names)
-    ((attribute-types) attribute-types)
-    ((apply args)      (constrain `(retrieve ,s) args))))
-
 (define-syntax relation/stream
   (syntax-rules ()
     ;; TODO: specify types
     ((_ name (attr ...) se)
-     (let ((r/s (make-relation/stream '(attr ...) '(attr ...)
-                                      (s-enumerate 0 se))))
-       (relation/proc name (attr ...)
-                      (lambda (attr ...) (r/s 'apply (list attr ...))))))))
+     (let ((r (make-relation-proc 'name '(attr ...))))
+       (relations-set!
+         r 'apply/dfs
+         (lambda (k args)
+           (lambda (st)
+             ((retrieve/dfs k (s-enumerate 0 se) (walk* args)) st))))
+       r))))
 (define-syntax define-relation/stream
   (syntax-rules ()
     ;; TODO: specify types
@@ -270,28 +266,32 @@
                                    (loop cols (t 'drop<= v) env
                                          (advance-tables env col=>ts//col ixts)
                                          acc))))))))))
-    (make-relation/proc
-      relation-name attribute-names
-      (lambda args
-        (unless (= (length args) (length attribute-names))
-          (error "invalid number of arguments:" attribute-names args))
-        (define env (make-immutable-hash (map cons attribute-names args)))
-        (define (ref name) (hash-ref env name))
-        (define key (and key-name (ref key-name)))
-        (cond ((and (integer? key) (<= 0 key) (< key (primary-t 'length)))
-               (== (vector->list (primary-t 'ref* key))
-                   (map ref primary-column-names)))
-              ((and key-name (not (var? key))) (== #t #f))
-              (else (define ordered-attributes
-                      (if key-name
-                        (append primary-column-names (list key-name))
-                        primary-column-names))
-                    (define ordered-args
-                      (filter-not ground? (map ref ordered-attributes)))
-                    (define result-stream
-                      (loop primary-column-names primary-t env
-                            (advance-tables env (hash) index-ts) '()))
-                    (constrain `(retrieve ,result-stream) ordered-args)))))))
+    (define r (make-relation-proc relation-name attribute-names))
+    (relations-set!
+      r 'apply/dfs
+      (lambda (k as)
+        (lambda (st)
+          (define args (walk* as))
+          (unless (= (length args) (length attribute-names))
+            (error "invalid number of arguments:" attribute-names args))
+          (define env (make-immutable-hash (map cons attribute-names args)))
+          (define (ref name) (hash-ref env name))
+          (define key (and key-name (ref key-name)))
+          (cond ((and (integer? key) (<= 0 key) (< key (primary-t 'length)))
+                 (== (vector->list (primary-t 'ref* key))
+                     (map ref primary-column-names)))
+                ((and key-name (not (var? key))) (== #t #f))
+                (else (define ordered-attributes
+                        (if key-name
+                          (append primary-column-names (list key-name))
+                          primary-column-names))
+                      (define ordered-args
+                        (filter-not ground? (map ref ordered-attributes)))
+                      (define result-stream
+                        (loop primary-column-names primary-t env
+                              (advance-tables env (hash) index-ts) '()))
+                      ((retrieve/dfs k result-stream ordered-args) st))))))
+    r))
 
 (define-syntax define-materialized-relation
   (syntax-rules ()
@@ -316,29 +316,30 @@
         (unless (member name attribute-names)
           (error "unknown attribute in primary table:" name attribute-names)))
       main-attrs))
-  (method-lambda
-    ((attribute-names) attribute-names)
-    ((attribute-types) attribute-types)
-    ((apply args)
-     ;; TODO: make use of index tables; later, use the constraint system
-     ;; for now, index whatever possible from main table, then stream the rest
-     (define env (map cons attribute-names args))
-     (let loop ((attrs (car attrs/main-table)) (t (cdr attrs/main-table)))
-       (define (finish) (constrain `(retrieve ,(t 'stream))
-                                   (map (lambda (attr) (alist-ref env attr))
-                                        attrs)))
-       (cond ((null? attrs) (finish))
-             (else (define v (alist-ref env (car attrs)))
-                   (if (not (ground? v)) (finish)
-                     (loop (cdr attrs) (table-project t v)))))))))
+  (lambda (k as)
+    (lambda (st)
+      (define args (walk* as))
+      ;; TODO: make use of index tables; later, use the constraint system
+      ;; for now, index whatever possible from main table, then stream the rest
+      (define env (map cons attribute-names args))
+      (let loop ((attrs (car attrs/main-table)) (t (cdr attrs/main-table)))
+        (define (finish)
+          ((retrieve/dfs k (t 'stream)
+                         (map (lambda (attr) (alist-ref env attr))
+                              attrs)) st))
+        (cond ((null? attrs) (finish))
+              (else (define v (alist-ref env (car attrs)))
+                    (if (not (ground? v)) (finish)
+                      (loop (cdr attrs) (table-project t v)))))))))
 
 (define-syntax relation/tables
   (syntax-rules ()
     ;; TODO: specify types
     ((_ name (attr ...) as/ts)
-     (let ((r/s (make-relation/tables '(attr ...) '(attr ...) as/ts)))
-       (relation/proc name (attr ...)
-                      (lambda (attr ...) (r/s 'apply (list attr ...))))))))
+     (let ((r (make-relation-proc 'name '(attr ...))))
+       (relations-set!
+         r 'apply/dfs (make-relation/tables '(attr ...) '(attr ...) as/ts))
+       r))))
 
 ;; TODO: need a higher level interface than this
 (define-syntax define-relation/tables
