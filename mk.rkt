@@ -163,7 +163,7 @@
                       (loop st (apply ex (walk* args)) gs))))
         (`#s(constrain (retrieve ,s) ,args)
           (let ((s (s-force s)))
-            (if (null? s) fail
+            (if (null? s) (fail)
               (loop st (disj (== (car s) args)
                              (constrain `(retrieve ,(cdr s)) args))
                     gs))))
