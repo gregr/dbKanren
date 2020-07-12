@@ -203,11 +203,22 @@
   (define primary-column-names (primary-t 'columns))
   (define key-name (and (member primary-key-name attribute-names)
                         primary-key-name))
-  (define index-info-alists (hash-ref info 'index-tables))
-  (define index-infos (map make-immutable-hash index-info-alists))
   (define index-ts
     (map (lambda (info) (table/metadata retrieval-type dpath info))
-         index-info-alists))
+         (hash-ref info 'index-tables)))
+  (make-relation/tables2
+    relation-name attribute-names primary-key-name primary-t index-ts))
+
+(define-syntax define-materialized-relation
+  (syntax-rules ()
+    ((_ name kwargs) (define name (materialized-relation
+                                    `((relation-name . name) . ,kwargs))))))
+
+(define (make-relation/tables2
+          relation-name attribute-names primary-key-name primary-t index-ts)
+  (define primary-column-names (primary-t 'columns))
+  (define key-name (and (member primary-key-name attribute-names)
+                        primary-key-name))
   ;; TODO: consider sorted-columns for out-of-order satifying
   (define (advance-table env col=>ts t)
     (define cols (t 'columns))
@@ -284,11 +295,6 @@
                             (advance-tables env (hash) index-ts) '()))
                     ((retrieve/dfs k result-stream ordered-args) st))))))
   r)
-
-(define-syntax define-materialized-relation
-  (syntax-rules ()
-    ((_ name kwargs) (define name (materialized-relation
-                                    `((relation-name . name) . ,kwargs))))))
 
 ;; TODO: attribute-types should be verified with tables
 (define (make-relation/tables attribute-names attribute-types attrs/tables)
