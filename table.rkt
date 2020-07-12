@@ -1,5 +1,6 @@
 #lang racket/base
 (provide bisect bisect-next
+         vector-table? vector-table-sort! vector-dedup
          table/metadata table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets sorter tabulator encoder
          table-project table-intersect-start table-cross table-join
@@ -97,6 +98,16 @@
 
 (define (table/vector cols types v)
   (table (lambda (i) (vector-ref v i)) cols types 0 0 (vector-length v)))
+
+(define (vector-table? types v)
+  (define v< (compare-><? (type->compare types)))
+  (define i (- (vector-length v) 1))
+  (or (<= i 0) (let loop ((i (- i 1)) (next (vector-ref v i)))
+                 (define current (vector-ref v i))
+                 (and (v< current next) (or (= i 0) (loop (- i 1) current))))))
+(define (vector-table-sort! types v)
+  (vector-sort! v (compare-><? (type->compare types))))
+(define (vector-dedup v) (list->vector (s-dedup (vector->list v))))
 
 (define (table/metadata retrieval-type directory-path info-alist)
   ;(define (warning . args) (printf "warning: ~s\n" args))
