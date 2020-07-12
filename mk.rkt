@@ -68,9 +68,11 @@
                  (analysis                   . #f)))))
 
 (define (make-relation-proc name attributes)
-  (letrec ((r (lambda args (relate r args))))
-    (relations-register! r name attributes)
-    r))
+  (define n ((make-syntax-introducer) (datum->syntax #f name)))
+  (eval-syntax
+    #`(letrec ((#,n (lambda args (relate #,n args))))
+        (relations-register! #,n '#,name '(#,@attributes))
+        #,n)))
 
 (define (make-relation/proc name attributes proc)
   (define r (make-relation-proc name attributes))
