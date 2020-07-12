@@ -131,14 +131,13 @@
                   directory-path))
   (make-directory* dpath)
   (define metadata-fname (path->string (build-path dpath "metadata.scm")))
-  (define primary-fname  (path->string (build-path dpath "primary")))
-  (define index-fnames
-    (map (lambda (i)
-           (path->string (build-path dpath (string-append
-                                             "index." (number->string i)))))
+  (define primary-fprefix "primary")
+  (define primary-fname (path->string (build-path dpath primary-fprefix)))
+  (define index-fprefixes
+    (map (lambda (i) (string-append "index." (number->string i)))
          (range (length index-tds))))
   (define metadata-out (open-output-file metadata-fname))
-  (define primary-t (tabulator buffer-size primary-fname
+  (define primary-t (tabulator buffer-size dpath primary-fprefix
                                primary-column-names primary-column-types
                                key (cdr primary-td)))
   (method-lambda
@@ -163,10 +162,10 @@
                                 (match-define (list #,@ss.sources) row)
                                 (list #,@ss.columns))))
                         (cons transform
-                              (tabulator buffer-size fname
+                              (tabulator buffer-size dpath fname
                                          column-names (map name->type column-names)
                                          #f sorted-columns)))
-                      index-fnames index-tds)))
+                      index-fprefixes index-tds)))
              (define index-transforms (map car index-tts))
              (define index-tables     (map cdr index-tts))
              (let/files ((in (value-table-file-name primary-fname))) ()
@@ -199,9 +198,7 @@
   (define attribute-types    (hash-ref info 'attribute-types))
   (define primary-info-alist (hash-ref info 'primary-table))
   (define primary-info       (make-immutable-hash primary-info-alist))
-  (define fn.primary (path->string (build-path dpath "primary")))
-  (define primary-t
-    (table/metadata retrieval-type fn.primary primary-info-alist))
+  (define primary-t (table/metadata retrieval-type dpath primary-info-alist))
   (define primary-key-name     (hash-ref primary-info 'key-name))
   (define primary-column-names (primary-t 'columns))
   (define key-name (and (member primary-key-name attribute-names)
@@ -209,13 +206,7 @@
   (define index-info-alists (hash-ref info 'index-tables))
   (define index-infos (map make-immutable-hash index-info-alists))
   (define index-ts
-    (map (lambda (i info)
-           (define fn.index
-             (path->string (build-path dpath (string-append
-                                               "index."
-                                               (number->string i)))))
-           (table/metadata retrieval-type fn.index info))
-         (range (length index-info-alists))
+    (map (lambda (info) (table/metadata retrieval-type dpath info))
          index-info-alists))
   ;; TODO: consider sorted-columns for out-of-order satifying
   (define (advance-table env col=>ts t)
