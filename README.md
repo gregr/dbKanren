@@ -6,13 +6,6 @@ large-scale relations.
 
 ## TODO
 
-* stop using cells: procs should return mk syntax or opaque constraints
-  * opaque relations (their procs return (constrain (relate ,proc) ,args))
-  * interpretations (possibly for multiple evaluation strategies) should be
-    attached to the registry dictionary, not the cell
-    * compilation will remove registry lookup overhead
-  * eliminate (constrain (retrieve ,s) ,args) and instead interpret the opaque
-    constraint according to the evaluation strategy
 * revert to a purely functional mk interpretation with a complete search
   * safer interaction between concurrent evaluation/analysis of shared queries
   * redefine var as immutable syntax (should not include a mutable value)
