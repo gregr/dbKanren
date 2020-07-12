@@ -83,22 +83,21 @@
   ;'((10 20 30) (100 200 300)))
 
 (define-relation/tables
-  (triple2o x y z)
-  (list (cons '(y z x) (table/vector
-                         '(y z x) '(#f #f #f)
-                         #(#(a b  0)
-                           #(a b  1)
-                           #(a b  2)
-                           #(a b  3)
-                           #(a c  4)
-                           #(a c  5)
-                           #(a c  6)
-                           #(b a  7)
-                           #(b d  8)
-                           #(b f  9)
-                           #(b q 10)
-                           #(c a 11)
-                           #(c d 12))))))
+  (triple2o x y z) #f (table/vector
+                        '(y z x) '(#f #f #f)
+                        #(#(a b  0)
+                          #(a b  1)
+                          #(a b  2)
+                          #(a b  3)
+                          #(a c  4)
+                          #(a c  5)
+                          #(a c  6)
+                          #(b a  7)
+                          #(b d  8)
+                          #(b f  9)
+                          #(b q 10)
+                          #(c a 11)
+                          #(c d 12))))
 
 (test 'triple2o-all
   (run* (x y z) (triple2o x y z))

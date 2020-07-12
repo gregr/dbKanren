@@ -183,7 +183,7 @@
              (close-output-port metadata-out))))
 
 (define (materialized-relation kwargs)
-  (define relation-name  (alist-ref kwargs 'relation-name))
+  (define name  (alist-ref kwargs 'relation-name))
   (define directory-path (alist-ref kwargs 'path))
   (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
   (define dpath (if #f (path->string (build-path "TODO: configurable base"
@@ -206,15 +206,14 @@
   (define index-ts
     (map (lambda (info) (table/metadata retrieval-type dpath info))
          (hash-ref info 'index-tables)))
-  (make-relation/tables2
-    relation-name attribute-names primary-key-name primary-t index-ts))
+  (relation/tables name attribute-names primary-key-name primary-t index-ts))
 
 (define-syntax define-materialized-relation
   (syntax-rules ()
     ((_ name kwargs) (define name (materialized-relation
                                     `((relation-name . name) . ,kwargs))))))
 
-(define (make-relation/tables2
+(define (relation/tables
           relation-name attribute-names primary-key-name primary-t index-ts)
   (define primary-column-names (primary-t 'columns))
   (define key-name (and (member primary-key-name attribute-names)
@@ -296,55 +295,13 @@
                     ((retrieve/dfs k result-stream ordered-args) st))))))
   r)
 
-;; TODO: attribute-types should be verified with tables
-(define (make-relation/tables attribute-names attribute-types attrs/tables)
-  (when (null? attrs/tables)
-    (error "relation/tables must include at least one table:"
-           attribute-names attribute-types))
-  (define attrs/main-table    (car attrs/tables))
-  (define attrss/index-tables (cdr attrs/tables))
-  (let ((main-attrs (car attrs/main-table)))
-    (for-each
-      (lambda (name)
-        (unless (member name main-attrs)
-          (error "missing attribute in primary table:" name attrs/main-table)))
-      attribute-names)
-    (for-each
-      (lambda (name)
-        (unless (member name attribute-names)
-          (error "unknown attribute in primary table:" name attribute-names)))
-      main-attrs))
-  (lambda (k as)
-    (lambda (st)
-      (define args (walk* as))
-      ;; TODO: make use of index tables; later, use the constraint system
-      ;; for now, index whatever possible from main table, then stream the rest
-      (define env (map cons attribute-names args))
-      (let loop ((attrs (car attrs/main-table)) (t (cdr attrs/main-table)))
-        (define (finish)
-          ((retrieve/dfs k (t 'stream)
-                         (map (lambda (attr) (alist-ref env attr))
-                              attrs)) st))
-        (cond ((null? attrs) (finish))
-              (else (define v (alist-ref env (car attrs)))
-                    (if (not (ground? v)) (finish)
-                      (loop (cdr attrs) (table-project t v)))))))))
-
-(define-syntax relation/tables
-  (syntax-rules ()
-    ;; TODO: specify types
-    ((_ name (attr ...) as/ts)
-     (let ((r (make-relation-proc 'name '(attr ...))))
-       (relations-set!
-         r 'apply/dfs (make-relation/tables '(attr ...) '(attr ...) as/ts))
-       r))))
-
 ;; TODO: need a higher level interface than this
 (define-syntax define-relation/tables
   (syntax-rules ()
     ;; TODO: specify types
-    ((_ (name attr ...) as/ts)
-     (define name (relation/tables name (attr ...) as/ts)))))
+    ((_ (name attr ...) primary-key-name primary-t index-ts ...)
+     (define name (relation/tables 'name '(attr ...) 'primary-key-name
+                                   primary-t (list index-ts ...))))))
 
 ;; TODO: mk constraint integration
 ;; When a variable is unified, its constraints are queued for re-evaluation
