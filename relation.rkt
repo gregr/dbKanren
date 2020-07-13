@@ -1,5 +1,5 @@
 #lang racket/base
-(provide relation/stream define-relation/stream define-relation/tables
+(provide define-relation/tables
          materializer materialized-relation define-materialized-relation)
 (require "codec.rkt" "method.rkt" "mk.rkt" "stream.rkt" "table.rkt"
          (except-in racket/match ==)
@@ -66,23 +66,6 @@
 (define (degree-upper-bound d) (vector-ref d 1))
 (define (degree-domain      d) (vector-ref d 2))
 (define (degree-range       d) (vector-ref d 3))
-
-(define-syntax relation/stream
-  (syntax-rules ()
-    ;; TODO: specify types
-    ((_ name (attr ...) se)
-     (let ((r (make-relation-proc 'name '(attr ...))))
-       (relations-set!
-         r 'apply/dfs
-         (lambda (k args)
-           (lambda (st)
-             ((retrieve/dfs k (s-enumerate 0 se) (walk* args)) st))))
-       r))))
-(define-syntax define-relation/stream
-  (syntax-rules ()
-    ;; TODO: specify types
-    ((_ (name attr ...) se)
-     (define name (relation/stream name (attr ...) se)))))
 
 (define (materializer kwargs)
   ;; TODO: configurable default buffer-size

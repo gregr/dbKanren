@@ -1,5 +1,6 @@
 #lang racket/base
-(require "mk.rkt" "relation.rkt" "table.rkt" racket/function racket/pretty)
+(require "mk.rkt" "relation.rkt" "stream.rkt" "table.rkt"
+         racket/function racket/pretty)
 (print-as-expression #f)
 (pretty-print-abbreviate-read-macros #f)
 
@@ -33,11 +34,14 @@
     ((1 2 3 4) (5))
     ((1 2 3 4 5) ())))
 
-(define-relation/stream
+(define-relation/tables
   (tripleo i x y z)
-  (thunk '((a b c)
-           (d e f)
-           (g h i))))
+  i (table/vector '(x y z) '(#f #f #f)
+                  (list->vector
+                    (map list->vector
+                         (s-take #f (thunk '((a b c)
+                                             (d e f)
+                                             (g h i))))))))
 
 (test 'tripleo-all
   (run* (i x y z) (tripleo i x y z))
