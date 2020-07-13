@@ -125,6 +125,8 @@
                                key (cdr primary-td)))
   (method-lambda
     ((put x) (primary-t 'put x))
+    ;; TODO: factor out index building to allow incrementally adding new ones
+    ;; (incremental builds need to be initiated by caller, not here)
     ((close) (define primary-info (primary-t 'close))
              (define key-type (nat-type/max (alist-ref primary-info 'length)))
              (define index-tts
@@ -167,6 +169,8 @@
 
 (define (materialized-relation kwargs)
   (define name  (alist-ref kwargs 'relation-name))
+  ;; TODO: vector/stream source as an alternative to file source
+  ;; given an appropriate source, build indexes here, on the spot?
   (define directory-path (alist-ref kwargs 'path))
   (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
   (define dpath (if #f (path->string (build-path "TODO: configurable base"
