@@ -11,10 +11,11 @@
 (match-define (list t.bytes t.string t.symbol t.array t.pair
                     t.true t.false t.null t.number
                     ;; TODO: support more efficient numeric representations
-                    t.nat t.neg t.int t.float)
+                    ;; is a separate rat type (for rationals) superfluous?
+                    t.nat t.int t.rat)
   (range (length '(t.bytes t.string t.symbol t.array t.pair
                    t.true t.false t.null t.number
-                   t.nat t.neg t.int t.float))))
+                   t.nat t.int t.rat))))
 
 (define (nat-type/max max-nat) `#(nat ,(- (sizeof 'nat max-nat) 1)))
 
