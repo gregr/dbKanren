@@ -6,6 +6,13 @@ large-scale relations.
 
 ## TODO
 
+* floating point numbers are not valid terms
+  * reordering operations endangers soundness
+  * remove from total order (use exact? instead of number?)
+  * detect float literals when doing so won't hurt performance
+  * open interval should be bounded on the bottom by a type with a top element
+    * such as () or booleans (though booleans may need to be at top of order)
+
 * consolidate table/stream-based relation implementations
   * replace relation/tables with a memory-only option for materialized-relation
     * take a vector or stream as a source instead of a directory path
@@ -57,7 +64,8 @@ large-scale relations.
     * suffix: `(ID . start)`
     * slice:  `#(ID start end)`
   * binary/bytevector serialization format for compact storage and fast loading
-    * more efficient numbers: polymorphic, neg, int, float
+    * more efficient numbers: polymorphic, int, rat
+      * consider exponent-based representations when they would be more compact
   * string (and suffix) full-text search via bytes rather than chars?
     * and radix sorting
 

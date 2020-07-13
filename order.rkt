@@ -46,6 +46,7 @@
   (cond ((< a b) -1)
         ((< b a)  1)
         (else     0)))
+;; TODO: rule out inexact numbers (including nan and +-inf)
 (define (compare-number a b)
   (cond ((< a b)     -1)
         ((equal? a b) 0)
@@ -153,6 +154,7 @@
 (define (((suffix<=string? source) sb) a)
   (not (eqv? (((compare-suffix-string source) sb) a) 1)))
 
+;; TODO: move booleans to bottom of this list? (making them largest)
 (define compares (vector null?    compare-null
                          boolean? compare-boolean
                          number?  compare-number

@@ -43,6 +43,7 @@
           ((string? v) (sizeof-string #f    v))
           ((bytes?  v) (sizeof-bytes  #f    v))
           ((pair?   v) (sizeof-pair   #f #f v))
+          ;; TODO: rule out inexact numbers
           ((number? v) (sizeof-number       v))
           ((symbol? v) (sizeof-symbol #f    v))
           ((or (null? v) (eqv? #t v) (not v)) 0)
@@ -60,6 +61,7 @@
                          ((< n (<< 1 56)) 7)
                          ((< n (<< 1 64)) 8)
                          (else (error "sizeof-nat; too large:" n)))))))
+;; TODO: consider exponent representations, which may be more compact
 (define (sizeof-number v)   (sizeof-string #f (if (void? v) v
                                                 (number->string v))))
 (define (sizeof-bytes l v)  (or l (and (not (void? v))
@@ -108,6 +110,7 @@
         ((string? v) (tag t.string) (encode-string out #f    v))
         ((bytes?  v) (tag t.bytes)  (encode-bytes  out #f    v))
         ((pair?   v) (tag t.pair)   (encode-pair   out #f #f v))
+        ;; TODO: rule out inexact numbers
         ((number? v) (tag t.number) (encode-number out       v))
         ((symbol? v) (tag t.symbol) (encode-string out #f (symbol->string v)))
         ((null?   v) (tag t.null))
@@ -128,6 +131,7 @@
         ((< n (<< 1 56)) (enc 7))
         ((< n (<< 1 64)) (enc 8))
         (else (error "encode-nat; too large:" n))))
+;; TODO: consider exponent representations, which may be more compact
 (define (encode-number out n) (encode-string out #f (number->string n)))
 (define (encode-bytes out len bs)
   (unless len (encode-nat out #f (bytes-length bs)))
@@ -184,6 +188,7 @@
              (if (= sz 0) n
                (loop (+ (<< n 8) (read-byte in)) (- sz 1))))
     (let ((size (decode-nat in 1))) (decode-nat in size))))
+;; TODO: consider exponent representations, which may be more compact
 (define (decode-number in)      (string->number (decode-string in #f)))
 (define (decode-bytes in l)     (if l (read-bytes l in)
                                   (decode-bytes in (decode-nat in #f))))
