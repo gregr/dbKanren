@@ -151,15 +151,14 @@
 
 (define (exact-number? x) (and (number? x) (exact? x)))
 
-;; TODO: move booleans to bottom of this list? (making them largest)
 (define compares (vector null?         compare-null
-                         boolean?      compare-boolean
                          exact-number? compare-number
                          symbol?       compare-symbol
                          string?       compare-string
                          bytes?        compare-bytes
                          pair?         (compare-pair compare-any compare-any)
-                         vector?       (compare-array compare-any)))
+                         vector?       (compare-array compare-any)
+                         boolean?      compare-boolean))
 
 (define (type->compare type)
   (match type
