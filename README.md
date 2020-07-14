@@ -6,13 +6,6 @@ large-scale relations.
 
 ## TODO
 
-* floating point numbers are not valid terms
-  * reordering operations endangers soundness
-  * remove from total order (use exact? instead of number?)
-  * detect float literals when doing so won't hurt performance
-  * open interval should be bounded on the bottom by a type with a top element
-    * such as () or booleans (though booleans may need to be at top of order)
-
 * consolidate table/stream-based relation implementations
   * replace relation/tables with a memory-only option for materialized-relation
     * take a vector or stream as a source instead of a directory path
@@ -34,10 +27,8 @@ large-scale relations.
     * mix of discrete and continuous ranges of values for an infinite relation
     * ordered, disjoint, singletons and open intervals
       * usual total order
-    * abstract elements representing endpoints in widest open interval
-      * or consider () the smallest, and #t the largest value
-        * would mean moving booleans to the top of the total order
     * define intersection involving intervals
+    * complement, join (least ub), meet (greatest lb)
   * disequality constraints punch holes in continuous ranges
   * description metadata
     * for subsumption and/or simplification with other constraints
@@ -49,9 +40,22 @@ large-scale relations.
 
 * metadata.scm protocol versioning for automatic update/migration
 
+* floating point numbers are not valid terms
+  * reordering operations endangers soundness
+  * detect float literals when doing so won't hurt performance
+
 * how do we express columns of suffix type?
   * it would have this representation type: `#(suffix count len)`
   * but it would use a different comparison operator
+
+* dynamically-scoped config system (use parameters) to provide defaults
+  * logging (levels, output locations, and verbosity (what also gets printed))
+    * e.g., warnings, materialization progress
+  * error-handling mechanism (halt, warn/log, or interact)
+    * e.g., materialized relation already exists
+  * buffer-size for sorter
+  * base-path for storage
+  * mk search strategy
 
 
 ### Data processing
