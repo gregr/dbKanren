@@ -1,5 +1,6 @@
 #lang racket/base
-(provide type->compare compare-any compare-null compare-boolean
+(provide term.min term.max interval.full (struct-out interval)
+         type->compare compare-any compare-null compare-boolean
          compare-nat compare-number
          compare-bytes compare-string compare-symbol
          compare-pair compare-list compare-array compare-tuple
@@ -17,6 +18,12 @@
          suffix<?       suffix<=?
          suffix<string? suffix<=string?)
 (require racket/match racket/math)
+
+(define term.min '())
+(define term.max  #t)
+
+(struct interval (lb ub) #:prefab)
+(define interval.full (interval term.min term.max))
 
 (define ((compare-><?  compare) a b)      (eqv? (compare a b) -1))
 (define ((compare-><=? compare) a b) (not (eqv? (compare a b)  1)))
