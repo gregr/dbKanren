@@ -42,17 +42,12 @@
 (define (boolean<?  a b) (and b (not a)))
 (define (boolean<=? a b) (or  b (not a)))
 
-(define (compare-nat a b)
+(define (compare-number a b)
   (cond ((< a b) -1)
         ((< b a)  1)
         (else     0)))
-;; TODO: rule out inexact numbers (including nan and +-inf)
-(define (compare-number a b)
-  (cond ((< a b)     -1)
-        ((equal? a b) 0)
-        ((= a b) (if (exact? b) 1 -1))
-        ((nan? b)    -1)
-        (else         1)))
+(define compare-nat compare-number)
+
 (define (number<?  a b)      (eqv? (compare-number a b) -1))
 (define (number<=? a b) (not (eqv? (compare-number a b)  1)))
 
@@ -154,15 +149,17 @@
 (define (((suffix<=string? source) sb) a)
   (not (eqv? (((compare-suffix-string source) sb) a) 1)))
 
+(define (exact-number? x) (and (number? x) (exact? x)))
+
 ;; TODO: move booleans to bottom of this list? (making them largest)
-(define compares (vector null?    compare-null
-                         boolean? compare-boolean
-                         number?  compare-number
-                         symbol?  compare-symbol
-                         string?  compare-string
-                         bytes?   compare-bytes
-                         pair?    (compare-pair compare-any compare-any)
-                         vector?  (compare-array compare-any)))
+(define compares (vector null?         compare-null
+                         boolean?      compare-boolean
+                         exact-number? compare-number
+                         symbol?       compare-symbol
+                         string?       compare-string
+                         bytes?        compare-bytes
+                         pair?         (compare-pair compare-any compare-any)
+                         vector?       (compare-array compare-any)))
 
 (define (type->compare type)
   (match type
