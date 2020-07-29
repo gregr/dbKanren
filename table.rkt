@@ -106,7 +106,7 @@
                  (define current (vector-ref v i))
                  (and (v< current next) (or (= i 0) (loop (- i 1) current))))))
 (define (vector-table-sort! types v)
-  (vector-sort! v (compare-><? (type->compare types))))
+  (vector-sort! v (compare-><? (type->compare `#(tuple ,@types)))))
 (define (vector-dedup v) (list->vector (s-dedup (vector->list v))))
 
 ;; TODO: switch back to file->bytes once Racket IO bug is fixed
