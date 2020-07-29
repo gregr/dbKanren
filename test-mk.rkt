@@ -34,14 +34,14 @@
     ((1 2 3 4) (5))
     ((1 2 3 4 5) ())))
 
-(define-relation/tables
-  (tripleo i x y z)
-  i (table/vector '(x y z) '(#f #f #f)
-                  (list->vector
-                    (map list->vector
-                         (s-take #f (thunk '((a b c)
-                                             (d e f)
-                                             (g h i))))))))
+(define-materialized-relation
+  tripleo
+  `((attribute-names i x y z)
+    (primary-table (key-name . i)
+                   (column-names x y z))
+    (source . ,(vector #(a b c)
+                       #(d e f)
+                       #(g h i)))))
 
 (test 'tripleo-all
   (run* (i x y z) (tripleo i x y z))
@@ -86,22 +86,25 @@
   ;(run* (a b c) (appendo a b c))
   ;'((10 20 30) (100 200 300)))
 
-(define-relation/tables
-  (triple2o x y z) #f (table/vector
-                        '(y z x) '(#f #f #f)
-                        #(#(a b  0)
-                          #(a b  1)
-                          #(a b  2)
-                          #(a b  3)
-                          #(a c  4)
-                          #(a c  5)
-                          #(a c  6)
-                          #(b a  7)
-                          #(b d  8)
-                          #(b f  9)
-                          #(b q 10)
-                          #(c a 11)
-                          #(c d 12))))
+(define-materialized-relation
+  triple2o
+  `((attribute-names x y z)
+    (primary-table (key-name . #t)
+                   (column-names y z x))
+    (index-tables ((column-names x #t)))
+    (source . ,(vector #(a b  0)
+                       #(a b  1)
+                       #(a b  2)
+                       #(a b  3)
+                       #(a c  4)
+                       #(a c  5)
+                       #(a c  6)
+                       #(b a  7)
+                       #(b d  8)
+                       #(b f  9)
+                       #(b q 10)
+                       #(c a 11)
+                       #(c d 12)))))
 
 (test 'triple2o-all
   (run* (x y z) (triple2o x y z))
@@ -123,7 +126,7 @@
   (run* (x y z)
     (conde ((== y 'a) (== z 'c))
            ((== y 'a) (== z 'd))
-           ((== y 'b) (== x '8))
+           ((== x '8))
            ((== y 'b) (== x '12))
            ((== y 'b) (== z 'f) (== x '9))
            ((== y 'b) (== z 'g) (== x '9))
