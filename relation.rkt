@@ -168,10 +168,15 @@
              (close-output-port metadata-out))))
 
 (define (materialized-relation kwargs)
-  (define name  (alist-ref kwargs 'relation-name))
   ;; TODO: vector/stream source as an alternative to file source
   ;; given an appropriate source, build indexes here, on the spot?
-  (define directory-path (alist-ref kwargs 'path))
+  (define directory-path? (alist-ref kwargs 'path   #f))
+  (define source?         (alist-ref kwargs 'source #f))
+  (cond (directory-path? (materialized-relation/path directory-path? kwargs))
+        (else (error "missing relation path or source:" kwargs))))
+
+(define (materialized-relation/path directory-path kwargs)
+  (define name           (alist-ref kwargs 'relation-name))
   (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
   (define dpath (if #f (path->string (build-path "TODO: configurable base"
                                                  directory-path))
@@ -188,11 +193,9 @@
   (define primary-t (table/metadata retrieval-type dpath primary-info-alist))
   (define primary-key-name     (hash-ref primary-info 'key-name))
   (define primary-column-names (primary-t 'columns))
-  (define key-name (and (member primary-key-name attribute-names)
-                        primary-key-name))
   (define index-ts
     (map (lambda (info) (table/metadata retrieval-type dpath info))
-         (hash-ref info 'index-tables)))
+         (hash-ref info 'index-tables '())))
   (relation/tables name attribute-names primary-key-name primary-t index-ts))
 
 (define-syntax define-materialized-relation
