@@ -6,11 +6,6 @@ large-scale relations.
 
 ## TODO
 
-* consolidate table/stream-based relation implementations
-  * replace relation/tables with a memory-only option for materialized-relation
-    * take a vector or stream as a source instead of a directory path
-      * attribute-names attribute-types source-columns key-name tables indexes
-    * sort vector in-memory, vector-map and re-sort as necessary for indexing
 * support materializing additional indexes without rebuilding existing ones
 
 * move depth-first-search components to mk-dfs.rkt
