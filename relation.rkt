@@ -1,6 +1,5 @@
 #lang racket/base
-(provide define-relation/tables
-         materializer materialized-relation define-materialized-relation)
+(provide materializer materialized-relation define-materialized-relation)
 (require "codec.rkt" "method.rkt" "mk.rkt" "stream.rkt" "table.rkt"
          (except-in racket/match ==)
          racket/file racket/function racket/list racket/pretty racket/set
@@ -348,14 +347,6 @@
                             (advance-tables env (hash) index-ts) '()))
                     ((retrieve/dfs k result-stream ordered-args) st))))))
   r)
-
-;; TODO: need a higher level interface than this
-(define-syntax define-relation/tables
-  (syntax-rules ()
-    ;; TODO: specify types
-    ((_ (name attr ...) primary-key-name primary-t index-ts ...)
-     (define name (relation/tables 'name '(attr ...) 'primary-key-name
-                                   primary-t (list index-ts ...))))))
 
 ;; TODO: mk constraint integration
 ;; When a variable is unified, its constraints are queued for re-evaluation
