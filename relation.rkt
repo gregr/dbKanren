@@ -157,6 +157,14 @@
                            metadata-out)
              (close-output-port metadata-out))))
 
+(define (list-arranger input-names output-names)
+  (define ss.in    (generate-temporaries input-names))
+  (define name=>ss (make-immutable-hash (map cons input-names ss.in)))
+  (define ss.out   (map (lambda (n) (hash-ref name=>ss n)) output-names))
+  (eval-syntax #`(lambda (row)
+                   (match-define (list #,@ss.in) row)
+                   (list #,@ss.out))))
+
 (define (table-materializer kwargs)
   ;; TODO: configurable default buffer-size
   (define buffer-size    (alist-ref kwargs 'buffer-size 100000))
@@ -169,12 +177,7 @@
   (define sorted-columns (alist-ref kwargs 'sorted-columns '()))
   (define t (tabulator buffer-size dpath fprefix column-names column-types
                        key-name sorted-columns))
-  (define ss.sources (generate-temporaries source-names))
-  (define name=>ss (make-immutable-hash (map cons source-names ss.sources)))
-  (define ss.columns (map (lambda (n) (hash-ref name=>ss n)) column-names))
-  (define transform (eval-syntax #`(lambda (row)
-                                     (match-define (list #,@ss.sources) row)
-                                     (list #,@ss.columns))))
+  (define transform (list-arranger source-names column-names))
   (method-lambda
     ((put x) (t 'put (transform x)))
     ((close) (t 'close))))
