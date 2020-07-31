@@ -115,6 +115,11 @@
   (define metadata-fname (path->string (build-path dpath "metadata.scm")))
   (define primary-fprefix "primary")
   (define primary-fname (path->string (build-path dpath primary-fprefix)))
+  ;; TODO: caller should decide whether to materialize a fresh relation, or
+  ;; to materialize additional indexes for an existing relation.
+  ;; * check directory for available fprefixes
+  ;; * also, check metadata to see which index descriptions have already
+  ;;   been satisfied, and which need to be added
   (define index-fprefixes
     (map (lambda (i) (string-append "index." (number->string i)))
          (range (length index-tds))))
@@ -128,34 +133,44 @@
     ;; (incremental builds need to be initiated by caller, not here)
     ((close) (define primary-info (primary-t 'close))
              (define key-type (nat-type/max (alist-ref primary-info 'length)))
-             (define index-ms
-               (let* ((name=>type (if key (hash-set name=>type key key-type)
-                                    name=>type))
-                      (name->type (lambda (n) (hash-ref name=>type n))))
-                 (map (lambda (fprefix td)
-                        (define column-names   (alist-ref td 'columns))
-                        (define sorted-columns (alist-ref td 'sorted '()))
-                        (define column-types (map name->type column-names))
-                        (table-materializer
-                          `((source-names   . ,primary-source-names)
-                            (directory      . ,dpath)
-                            (file-prefix    . ,fprefix)
-                            (column-names   . ,column-names)
-                            (column-types   . ,column-types)
-                            (key-name       . #f)
-                            (sorted-columns . ,sorted-columns))))
+             (define name->type
+               (let ((name=>type (if key (hash-set name=>type key key-type)
+                                   name=>type)))
+                 (lambda (n) (hash-ref name=>type n))))
+             (define index-infos
+               (materialize-index-tables
+                 dpath primary-fname name->type primary-source-names
+                 (map (lambda (fprefix td) `((file-prefix . ,fprefix) . ,td))
                       index-fprefixes index-tds)))
-             (let/files ((in (value-table-file-name primary-fname))) ()
-               (define primary-s (s-decode in primary-column-types))
-               (s-each (lambda (x) (for-each (lambda (m) (m 'put x)) index-ms))
-                       (s-enumerate 0 primary-s)))
-             (define index-infos (map (lambda (m) (m 'close)) index-ms))
              (pretty-write `((attribute-names . ,attribute-names)
                              (attribute-types . ,attribute-types)
                              (primary-table   . ,primary-info)
                              (index-tables    . ,index-infos))
                            metadata-out)
              (close-output-port metadata-out))))
+
+(define (materialize-index-tables dpath source-fprefix name->type source-names
+                                  index-descriptions)
+  (define index-ms
+    (map (lambda (td)
+           (define fprefix        (alist-ref td 'file-prefix))
+           (define column-names   (alist-ref td 'columns))
+           (define sorted-columns (alist-ref td 'sorted '()))
+           (define column-types (map name->type column-names))
+           (table-materializer
+             `((source-names   . ,source-names)
+               (directory      . ,dpath)
+               (file-prefix    . ,fprefix)
+               (column-names   . ,column-names)
+               (column-types   . ,column-types)
+               (key-name       . #f)
+               (sorted-columns . ,sorted-columns))))
+         index-descriptions))
+  (let/files ((in (value-table-file-name source-fprefix))) ()
+    (define src (s-decode in (map name->type (cdr source-names))))
+    (s-each (lambda (x) (for-each (lambda (m) (m 'put x)) index-ms))
+            (s-enumerate 0 src)))
+  (map (lambda (m) (m 'close)) index-ms))
 
 (define (list-arranger input-names output-names)
   (define ss.in    (generate-temporaries input-names))
