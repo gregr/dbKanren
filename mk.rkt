@@ -6,7 +6,6 @@
   (struct-out conj)
   (struct-out constrain)
   (struct-out var)
-  ground?
 
   make-relation relations relations-ref relations-set! relations-set*!
   relation letrec-relations define-relation
@@ -15,6 +14,7 @@
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
   walk* retrieve/dfs
 
+  ground?
   pretty-query pretty-goal pretty-term
   )
 
@@ -227,6 +227,7 @@
   (cond ((var?    t)  #f)
         ((pair?   t) (and (ground? (car t)) (ground? (cdr t))))
         ((vector? t) (andmap ground? (vector->list t)))
+        ((use?    t) (andmap ground? (use-args t)))
         (else        #t)))
 ;; TODO: constraint satisfaction
 
