@@ -6,8 +6,6 @@ large-scale relations.
 
 ## TODO
 
-* support materializing additional indexes without rebuilding existing ones
-
 * move depth-first-search components to mk-dfs.rkt
   * use some kind of `dfs:` naming convention?
 * revert to a purely functional mk interpretation with a complete search
