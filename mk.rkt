@@ -8,7 +8,7 @@
   (struct-out var)
   ground?
 
-  make-relation-proc relations relations-ref relations-set!
+  make-relation relations relations-ref relations-set! relations-set*!
   relation letrec-relations define-relation
   conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
@@ -45,37 +45,29 @@
 (define-constraint (string-appendo t1 t2 t3))
 (define-constraint (string-symbolo t1 t2))
 (define-constraint (string-numbero t1 t2))
-(define (relate proc args) (constrain `(relate ,proc) args))
+(define (relate proc args) (constrain proc args))
 
-(define relation-registry     (make-weak-hasheq '()))
-(define (relations)           (hash->list relation-registry))
-(define (relations-ref  proc) (hash-ref relation-registry proc))
-(define (relations-set! proc k v)
-  (hash-set! relation-registry proc (hash-set (relations-ref proc) k v)))
-(define (relations-register! proc name attributes)
+(define relation-registry          (make-weak-hasheq '()))
+(define (relations)                (hash->list relation-registry))
+(define (relations-ref   proc)     (hash-ref relation-registry proc))
+(define (relations-set!  proc k v) (relations-set*! proc `((,k . ,v))))
+(define (relations-set*! proc alist)
   (hash-set! relation-registry proc
-             (make-immutable-hash
-               `((name                       . ,name)
-                 (expand                     . #f)
-                 (attribute-names            . ,attributes)
-                 (attribute-types            . #f)
-                 (integrity-constraints      . #f)
-                 (location                   . #f)
-                 (monotonic-dependencies     . #f)
-                 (non-monotonic-dependencies . #f)
-                 (analysis                   . #f)))))
-
-(define (make-relation-proc name attributes)
+             (foldl (lambda (kv acc) (hash-set acc (car kv) (cdr kv)))
+                    (relations-ref proc) alist)))
+(define (make-relation name attributes)
   (define n ((make-syntax-introducer) (datum->syntax #f name)))
-  (eval-syntax
-    #`(letrec ((#,n (lambda args (relate #,n args))))
-        (relations-register! #,n '#,name '(#,@attributes))
-        #,n)))
+  (define r (eval-syntax #`(letrec ((#,n (lambda args (relate #,n args))))
+                             #,n)))
+  (hash-set! relation-registry r (make-immutable-hash
+                                   `((name            . ,name)
+                                     (attribute-names . ,attributes))))
+  r)
 
 (define-syntax relation
   (syntax-rules ()
     ((_ name (param ...) g ...)
-     (let ((r (make-relation-proc 'name '(param ...))))
+     (let ((r (make-relation 'name '(param ...))))
        (relations-set! r 'expand (lambda (param ...) (fresh () g ...)))
        r))))
 (define-syntax letrec-relations
@@ -147,7 +139,7 @@
   (match g
     (`#s(conj ,g1 ,g2) (loop g1 (loop g2 k)))
     (`#s(disj ,g1 ,g2) (mplus/dfs (loop g1 k) (loop g2 k)))
-    (`#s(constrain (relate ,proc) ,args)
+    (`#s(constrain ,(? procedure? proc) ,args)
       (define r (relations-ref proc))
       (define apply/dfs (hash-ref r 'apply/dfs #f))
       (cond (apply/dfs (apply/dfs k args))

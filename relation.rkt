@@ -413,7 +413,7 @@
                                  (loop cols (t 'drop<= v) env
                                        (advance-tables env col=>ts//col ixts)
                                        acc))))))))))
-  (define r (make-relation-proc relation-name attribute-names))
+  (define r (make-relation relation-name attribute-names))
   (relations-set!
     r 'apply/dfs
     (lambda (k as)
