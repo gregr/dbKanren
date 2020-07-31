@@ -1,5 +1,6 @@
 #lang racket/base
-(provide materializer materialized-relation define-materialized-relation)
+(provide materializer materialized-relation define-materialized-relation
+         extend-materialization)
 (require "codec.rkt" "method.rkt" "mk.rkt" "stream.rkt" "table.rkt"
          (except-in racket/match ==)
          racket/file racket/function racket/list racket/pretty racket/set
@@ -81,8 +82,7 @@
                  (alist-remove itd 'columns)))
          (alist-ref kwargs 'indexes '())))
   (define table-descriptions
-    (append (alist-ref kwargs 'tables
-                       `(((columns . ,attribute-names))))
+    (append (alist-ref kwargs 'tables `(((columns . ,attribute-names))))
             index-descriptions))
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
                           (error "duplicates:" as)))
@@ -148,6 +148,68 @@
                              (index-tables    . ,index-infos))
                            metadata-out)
              (close-output-port metadata-out))))
+
+(define (extend-materialization kwargs)
+  ;; TODO: validate existing relation against kwargs?
+  (define directory-path (alist-ref kwargs 'path))
+  (define dpath (if #f (path->string (build-path "TODO: configurable base"
+                                                 directory-path))
+                  directory-path))
+  (define path.metadata (path->string (build-path dpath "metadata.scm")))
+  (define path.metadata.backup
+    (path->string (build-path dpath "metadata.scm.backup")))
+  (define info-alist (let/files ((in path.metadata)) () (read in)))
+  (when (eof-object? info-alist) (error "corrupt relation metadata:" dpath))
+  (define info                 (make-immutable-hash info-alist))
+  (define primary-info         (hash-ref info 'primary-table))
+  (define index-infos          (hash-ref info 'index-tables))
+  (define attribute-names      (hash-ref info 'attribute-names))
+  (define attribute-types      (hash-ref info 'attribute-types))
+  (define primary-key-name     (alist-ref primary-info 'key-name))
+  (define primary-column-names (alist-ref primary-info 'column-names))
+  (define source-fprefix
+    (path->string (build-path dpath (alist-ref primary-info 'file-prefix))))
+  (define source-names (cons primary-key-name primary-column-names))
+  (define key-type (nat-type/max (alist-ref primary-info 'length)))
+  (define name=>type
+    (let ((name=>type (make-immutable-hash
+                        (map cons attribute-names attribute-types))))
+      (if primary-key-name (hash-set name=>type primary-key-name key-type)
+        name=>type)))
+  (define (name->type n) (hash-ref name=>type n))
+  (define index-descriptions
+    (map (lambda (itd)
+           (cons (cons 'columns (append (alist-ref itd 'columns)
+                                        (list primary-key-name)))
+                 (alist-remove itd 'columns)))
+         (alist-ref kwargs 'indexes '())))
+  (define table-descriptions
+    (append (alist-ref kwargs 'tables `(((columns . ,attribute-names))))
+            index-descriptions))
+  (define index-tds (cdr table-descriptions))
+  (define existing-index-column-names
+    (list->set (map (lambda (ii) (alist-ref ii 'column-names)) index-infos)))
+  (define new-index-tds
+    (filter (lambda (td) (not (set-member? existing-index-column-names
+                                           (alist-ref td 'columns))))
+            index-tds))
+  (define index-fprefixes
+    (map (lambda (i) (string-append "index." (number->string i)))
+         (range    (length index-infos)
+                   (+ (length index-infos) (length new-index-tds)))))
+  (define new-index-infos
+    (materialize-index-tables
+      dpath source-fprefix name->type source-names
+      (map (lambda (fprefix td) `((file-prefix . ,fprefix) . ,td))
+           index-fprefixes new-index-tds)))
+  (rename-file-or-directory path.metadata path.metadata.backup #t)
+  (let/files () ((metadata-out path.metadata))
+    (pretty-write `((attribute-names . ,attribute-names)
+                    (attribute-types . ,attribute-types)
+                    (primary-table   . ,primary-info)
+                    (index-tables    . ,(append index-infos new-index-infos)))
+                  metadata-out))
+  (delete-file path.metadata.backup))
 
 (define (materialize-index-tables dpath source-fprefix name->type source-names
                                   index-descriptions)
