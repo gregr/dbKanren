@@ -15,8 +15,7 @@
   walk* retrieve/dfs
 
   ground?
-  pretty-query pretty-goal pretty-term
-  )
+  make-pretty pretty)
 
 (require "method.rkt" "stream.rkt" racket/function racket/match racket/vector)
 
@@ -122,7 +121,7 @@
 (define (query->stream q) ((query->dfs q) (state-empty)))
 (define (query->dfs q)
   (match-define `#s(query ,x ,g) q)
-  (define (return st) (let ((result (pretty-term x)))
+  (define (return st) (let ((result (pretty (walk* x))))
                         (state-undo! st)
                         (list result)))
   (goal->dfs g return))
@@ -231,41 +230,30 @@
         (else        #t)))
 ;; TODO: constraint satisfaction
 
-(define (pretty-printer)
-  (define st (state-empty))
-  (define var-count 0)
-  (define (pretty-var x)
-    (define v `#s(var ,(var-name x) ,var-count))
-    (set! var-count (+ var-count 1))
-    (var-assign! st x v)
-    v)
+(define (make-pretty)
+  (define var=>id (make-hash))
   (define (pretty-term t)
-    (let ((t (walk t)))
-      (cond ((pair? t)   (cons (pretty-term (car t)) (pretty-term (cdr t))))
-            ((vector? t) (vector-map pretty-term t))
-            ((var? t)    (pretty-var t))
-            ((use? t)    `(let ,(map list
+    (cond ((pair? t)   (cons (pretty-term (car t)) (pretty-term (cdr t))))
+          ((vector? t) (vector-map pretty-term t))
+          ((var? t)    `#s(var ,(var-name t)
+                               ,(let ((id (hash-ref   var=>id t #f))
+                                      (c  (hash-count var=>id)))
+                                  (or id (begin (hash-set! var=>id t c) c)))))
+          ((use? t)    `#s(let ,(map list
                                      (car (use-desc t))
                                      (map pretty-term (use-args t)))
-                            . ,(cdr (use-desc t))))
-            (else        t))))
+                            ,@(cdr (use-desc t))))
+          (else        t)))
   (define (pretty-goal g)
     (match g
-      (`#s(disj ,g1 ,g2)         `(disj ,(pretty-goal g1) ,(pretty-goal g2)))
-      (`#s(conj ,g1 ,g2)         `(conj ,(pretty-goal g1) ,(pretty-goal g2)))
-      (`#s(constrain ,op ,terms) `(,op . ,(map pretty-term terms)))
-      (`#s(relate ,_ ,args (,_ . ,name))
-        `(relate ,name . ,(map pretty-term args)))))
-  (define (pretty-query q)
-    (match q
-      (`#s(query ,x ,g)
-        `(query ,(pretty-term x) ,(pretty-goal g)))))
-  (define (return x) (state-undo! st) x)
-  (method-lambda
-    ((query q) (return (pretty-query q)))
-    ((term t)  (return (pretty-term t)))
-    ((goal g)  (return (pretty-goal g)))))
-
-(define (pretty-query q) ((pretty-printer) 'query q))
-(define (pretty-goal  g) ((pretty-printer) 'goal  g))
-(define (pretty-term  t) ((pretty-printer) 'term  t))
+      (`#s(disj ,g1 ,g2)         `#s(disj ,(pretty-goal g1) ,(pretty-goal g2)))
+      (`#s(conj ,g1 ,g2)         `#s(conj ,(pretty-goal g1) ,(pretty-goal g2)))
+      (`#s(constrain ,op ,terms) `(,op ,(map pretty-term terms)))))
+  (lambda (x)
+    (match x
+      (`#s(query ,t ,g)
+        `#s(query ,(pretty-term t) ,(pretty-goal g)))
+      (_ (if (or (disj? x) (conj? x) (constrain? x))
+           (pretty-goal x)
+           (pretty-term x))))))
+(define (pretty x) ((make-pretty) x))
