@@ -20,7 +20,7 @@
 
 (require "method.rkt" "stream.rkt" racket/function racket/match racket/vector)
 
-(struct query     (g var desc)     #:prefab #:name make-query
+(struct query     (term g)         #:prefab #:name make-query
                                    #:constructor-name make-query)
 (struct use       (proc args desc) #:prefab #:name make-use
                                    #:constructor-name make-use)
@@ -90,10 +90,12 @@
     ((_)           fail)
     ((_ g)         g)
     ((_ g0 gs ...) (disj g0 (disj* gs ...)))))
+(define-syntax let/fresh
+  (syntax-rules ()
+    ((_ (x ...) e ...) (let ((x (var/fresh 'x)) ...) e ...))))
 (define-syntax fresh
   (syntax-rules ()
-    ((_ (x ...) g0 gs ...)
-     (let ((x (var/fresh 'x)) ...) (conj* g0 gs ...)))))
+    ((_ (x ...) g0 gs ...) (let/fresh (x ...) (conj* g0 gs ...)))))
 (define-syntax conde
   (syntax-rules ()
     ((_ (g gs ...) (h hs ...) ...)
@@ -106,10 +108,9 @@
 (define-syntax query
   (syntax-rules ()
     ((_ (x ...) g0 gs ...)
-     (let ((initial-var (var/fresh #f)))
-       (make-query (fresh (x ...) (== (list x ...) initial-var) g0 gs ...)
-                   initial-var
-                   `((x ...) g0 gs ...))))))
+     (let/fresh (x ...) (make-query (list x ...) (conj* g0 gs ...))))
+    ((_ x       g0 gs ...)
+     (let/fresh (x)     (make-query x            (conj* g0 gs ...))))))
 (define-syntax run^
   (syntax-rules () ((_   body ...) (query->stream (query  body ...)))))
 (define-syntax run
@@ -120,7 +121,7 @@
 ;; TODO: move beyond DFS once other strategies are ready
 (define (query->stream q) ((query->dfs q) (state-empty)))
 (define (query->dfs q)
-  (match-define `#s(query ,g ,x ,desc) q)
+  (match-define `#s(query ,x ,g) q)
   (define (return st) (let ((result (pretty-term x)))
                         (state-undo! st)
                         (list result)))
@@ -256,8 +257,8 @@
         `(relate ,name . ,(map pretty-term args)))))
   (define (pretty-query q)
     (match q
-      (`#s(query ,g ,x (,params . ,_))
-        `(query ,params ,(pretty-term x) ,(pretty-goal g)))))
+      (`#s(query ,x ,g)
+        `(query ,(pretty-term x) ,(pretty-goal g)))))
   (define (return x) (state-undo! st) x)
   (method-lambda
     ((query q) (return (pretty-query q)))
