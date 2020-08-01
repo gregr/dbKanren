@@ -1,115 +1,10 @@
 #lang racket/base
-(provide
-  (struct-out make-query)
-  (struct-out make-use)
-  (struct-out disj)
-  (struct-out conj)
-  (struct-out constrain)
-  (struct-out var)
+(provide (all-from-out "mk/syntax.rkt")
+         dfs:walk* dfs:retrieve
+         run^ run run*)
+(require "mk/syntax.rkt" "stream.rkt"
+         racket/function (except-in racket/match ==) racket/vector)
 
-  make-relation relations relations-ref relations-set! relations-set*!
-  relation letrec-relations define-relation
-  conj* disj* fresh conde use query run^ run run*
-  == =/= absento symbolo numbero stringo
-  <=o +o *o string<=o string-appendo string-symbolo string-numbero
-  dfs:walk* dfs:retrieve
-
-  ground?
-  make-pretty pretty)
-
-(require "method.rkt" "stream.rkt" racket/function racket/match racket/vector)
-
-(struct query     (term g)         #:prefab #:name make-query
-                                   #:constructor-name make-query)
-(struct use       (proc args desc) #:prefab #:name make-use
-                                   #:constructor-name make-use)
-(struct disj      (g1 g2)          #:prefab)
-(struct conj      (g1 g2)          #:prefab)
-(struct constrain (op terms)       #:prefab)
-
-(define-syntax define-constraint
-  (syntax-rules ()
-    ((_ (op params ...)) (define (op params ...)
-                           (constrain 'op (list params ...))))))
-(define-constraint (==             t1 t2))
-(define-constraint (=/=            t1 t2))
-(define-constraint (absento        t))
-(define-constraint (symbolo        t))
-(define-constraint (numbero        t))
-(define-constraint (stringo        t))
-(define-constraint (<=o            t1 t2))
-(define-constraint (+o             t1 t2 t3))
-(define-constraint (*o             t1 t2 t3))
-(define-constraint (string<=o      t1 t2))
-(define-constraint (string-appendo t1 t2 t3))
-(define-constraint (string-symbolo t1 t2))
-(define-constraint (string-numbero t1 t2))
-(define (relate proc args) (constrain proc args))
-
-(define relation-registry          (make-weak-hasheq '()))
-(define (relations)                (hash->list relation-registry))
-(define (relations-ref   proc)     (hash-ref relation-registry proc))
-(define (relations-set!  proc k v) (relations-set*! proc `((,k . ,v))))
-(define (relations-set*! proc alist)
-  (hash-set! relation-registry proc
-             (foldl (lambda (kv acc) (hash-set acc (car kv) (cdr kv)))
-                    (relations-ref proc) alist)))
-(define (make-relation name attributes)
-  (define n ((make-syntax-introducer) (datum->syntax #f name)))
-  (define r (eval-syntax #`(letrec ((#,n (lambda args (relate #,n args))))
-                             #,n)))
-  (hash-set! relation-registry r (make-immutable-hash
-                                   `((name            . ,name)
-                                     (attribute-names . ,attributes))))
-  r)
-
-(define-syntax relation
-  (syntax-rules ()
-    ((_ name (param ...) g ...)
-     (let ((r (make-relation 'name '(param ...))))
-       (relations-set! r 'expand (lambda (param ...) (fresh () g ...)))
-       r))))
-(define-syntax letrec-relations
-  (syntax-rules ()
-    ((_ (((name param ...) g ...) ...) body ...)
-     (letrec ((name (relation name (param ...) g ...)) ...) body ...))))
-(define-syntax define-relation
-  (syntax-rules ()
-    ((_ (name param ...) g ...)
-     (define name (relation name (param ...) g ...)))))
-(define success (== #t #t))
-(define failure (== #f #t))
-(define-syntax conj*
-  (syntax-rules ()
-    ((_)           success)
-    ((_ g)         g)
-    ((_ g0 gs ...) (conj g0 (conj* gs ...)))))
-(define-syntax disj*
-  (syntax-rules ()
-    ((_)           failure)
-    ((_ g)         g)
-    ((_ g0 gs ...) (disj g0 (disj* gs ...)))))
-(define-syntax let/fresh
-  (syntax-rules ()
-    ((_ (x ...) e ...) (let ((x (var/fresh 'x)) ...) e ...))))
-(define-syntax fresh
-  (syntax-rules ()
-    ((_ (x ...) g0 gs ...) (let/fresh (x ...) (conj* g0 gs ...)))))
-(define-syntax conde
-  (syntax-rules ()
-    ((_ (g gs ...) (h hs ...) ...)
-     (disj* (conj* g gs ...) (conj* h hs ...) ...))))
-(define-syntax use
-  (syntax-rules ()
-    ((_ (x ...) body ...) (make-use (lambda (x ...) body ...)
-                                    (list x ...)
-                                    `((x ...) body ...)))))
-(define-syntax query
-  (syntax-rules ()
-    ((_ (x ...) g0 gs ...)
-     (let/fresh (x ...) (make-query (list x ...) (conj* g0 gs ...))))
-    ((_ x       g0 gs ...)
-     (let/fresh (x)     (make-query x            (conj* g0 gs ...))))))
 (define-syntax run^
   (syntax-rules () ((_   body ...) (dfs:query->stream (query  body ...)))))
 (define-syntax run
@@ -179,9 +74,7 @@
 ;(struct vspec (domain constraints) #:prefab)
 ;(define vtop (vspec #t '()))
 ;; TODO: register constrained/specified variables in a priority queue?
-
-(struct var (name (value #:mutable)) #:prefab)
-(define (var/fresh name) (var name (void)))  ;; TODO: use TOP instead of void
+;(define (var/fresh name) (var name (void)))  ;; TODO: use TOP instead of void
 (define (var-assign! st x t) (and (not (occurs? x t)) (state-assign! st x t)))
 (define (var-walk vr)
   (let ((val (var-value vr)))
@@ -223,38 +116,3 @@
           ((string? t1) (and (string? t2) (string=? t1 t2)))
           (else         #f))))
 ;; TODO: constraint satisfaction
-
-(define (ground? t)
-  (cond ((var?    t) #f)
-        ((pair?   t) (and (ground? (car t)) (ground? (cdr t))))
-        ((vector? t) (andmap ground? (vector->list t)))
-        ((use?    t) (andmap ground? (use-args t)))
-        (else        #t)))
-
-(define (make-pretty)
-  (define var=>id (make-hash))
-  (define (pretty-term t)
-    (cond ((pair? t)   (cons (pretty-term (car t)) (pretty-term (cdr t))))
-          ((vector? t) (vector-map pretty-term t))
-          ((var? t)    `#s(var ,(var-name t)
-                               ,(let ((id (hash-ref   var=>id t #f))
-                                      (c  (hash-count var=>id)))
-                                  (or id (begin (hash-set! var=>id t c) c)))))
-          ((use? t)    `#s(let ,(map list
-                                     (car (use-desc t))
-                                     (map pretty-term (use-args t)))
-                            ,@(cdr (use-desc t))))
-          (else        t)))
-  (define (pretty-goal g)
-    (match g
-      (`#s(disj ,g1 ,g2)         `#s(disj ,(pretty-goal g1) ,(pretty-goal g2)))
-      (`#s(conj ,g1 ,g2)         `#s(conj ,(pretty-goal g1) ,(pretty-goal g2)))
-      (`#s(constrain ,op ,terms) `(,op ,(map pretty-term terms)))))
-  (lambda (x)
-    (match x
-      (`#s(query ,t ,g)
-        `#s(query ,(pretty-term t) ,(pretty-goal g)))
-      (_ (if (or (disj? x) (conj? x) (constrain? x))
-           (pretty-goal x)
-           (pretty-term x))))))
-(define (pretty x) ((make-pretty) x))
