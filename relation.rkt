@@ -418,7 +418,7 @@
     r 'apply/dfs
     (lambda (k as)
       (lambda (st)
-        (define args (walk* as))
+        (define args (dfs:walk* as))
         (unless (= (length args) (length attribute-names))
           (error "invalid number of arguments:" attribute-names args))
         (define env (make-immutable-hash (map cons attribute-names args)))
@@ -437,7 +437,7 @@
                     (define result-stream
                       (loop primary-column-names primary-t env
                             (advance-tables env (hash) index-ts) '()))
-                    ((retrieve/dfs k result-stream ordered-args) st))))))
+                    ((dfs:retrieve result-stream ordered-args k) st))))))
   r)
 
 ;; TODO: mk constraint integration

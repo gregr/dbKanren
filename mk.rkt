@@ -12,7 +12,7 @@
   conj* disj* fresh conde use query run^ run run*
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
-  walk* retrieve/dfs
+  dfs:walk* dfs:retrieve
 
   ground?
   make-pretty pretty)
@@ -111,43 +111,43 @@
     ((_ x       g0 gs ...)
      (let/fresh (x)     (make-query x            (conj* g0 gs ...))))))
 (define-syntax run^
-  (syntax-rules () ((_   body ...) (query->stream (query  body ...)))))
+  (syntax-rules () ((_   body ...) (dfs:query->stream (query  body ...)))))
 (define-syntax run
-  (syntax-rules () ((_ n body ...) (s-take n      (run^   body ...)))))
+  (syntax-rules () ((_ n body ...) (s-take n          (run^   body ...)))))
 (define-syntax run*
-  (syntax-rules () ((_   body ...)                (run #f body ...))))
+  (syntax-rules () ((_   body ...)                    (run #f body ...))))
 
 ;; TODO: move beyond DFS once other strategies are ready
-(define (query->stream q) ((query->dfs q) (state-empty)))
-(define (query->dfs q)
+(define (dfs:query->stream q) ((dfs:query q) (state-empty)))
+(define (dfs:query q)
   (match-define `#s(query ,x ,g) q)
-  (define (return st) (let ((result (pretty (walk* x))))
+  (define (return st) (let ((result (pretty (dfs:walk* x))))
                         (state-undo! st)
                         (list result)))
-  (goal->dfs g return))
-(define (fail/dfs st) (state-undo! st) '())
-(define (mplus/dfs k1 k2) (lambda (st) (s-append (k1 (state-new st))
-                                                 (thunk (k2 st)))))
-(define (retrieve/dfs k s args)
+  (dfs:goal g return))
+(define (fail st) (state-undo! st) '())
+(define (mplus k1 k2) (lambda (st) (s-append (k1 (state-new st))
+                                             (thunk (k2 st)))))
+(define (dfs:retrieve s args k)
   (lambda (st) (let ((s (s-force s)))
-                 ((if (null? s) fail/dfs
-                    (mplus/dfs (==->dfs (car s) args k)
-                               (retrieve/dfs k (cdr s) args)))
+                 ((if (null? s) fail
+                    (mplus (dfs:==       (car s) args k)
+                           (dfs:retrieve (cdr s) args k)))
                   st))))
-(define (goal->dfs g k)
-  (define loop goal->dfs)
+(define (dfs:goal g k)
+  (define loop dfs:goal)
   (match g
     (`#s(conj ,g1 ,g2) (loop g1 (loop g2 k)))
-    (`#s(disj ,g1 ,g2) (mplus/dfs (loop g1 k) (loop g2 k)))
+    (`#s(disj ,g1 ,g2) (mplus (loop g1 k) (loop g2 k)))
     (`#s(constrain ,(? procedure? proc) ,args)
       (define r (relations-ref proc))
       (define apply/dfs (hash-ref r 'apply/dfs #f))
       (cond (apply/dfs (apply/dfs k args))
             (else (define ex (hash-ref r 'expand #f))
                   (unless ex (error "no interpretation for:" proc args))
-                  (lambda (st) ((loop (apply ex (walk* args)) k) st)))))
-    (`#s(constrain == (,t1 ,t2)) (==->dfs t1 t2 k))))
-(define ((==->dfs t1 t2 k) st) ((if (unify* st t1 t2) k fail/dfs) st))
+                  (lambda (st) ((loop (apply ex (dfs:walk* args)) k) st)))))
+    (`#s(constrain == (,t1 ,t2)) (dfs:== t1 t2 k))))
+(define ((dfs:== t1 t2 k) st) ((if (unify* st t1 t2) k fail) st))
 
 (struct state (assignments constraints) #:mutable)
 (define (state-empty)  (state '() '()))
@@ -191,11 +191,11 @@
           ((void? val) vr)
           (else        val))))
 (define (walk tm) (if (var? tm) (var-walk tm) tm))
-(define (walk* t)
+(define (dfs:walk* t)
   (let ((t (walk t)))
-    (cond ((pair? t)   (cons (walk* (car t)) (walk* (cdr t))))
-          ((vector? t) (vector-map walk* t))
-          ((use? t)    (apply (use-proc t) (walk* (use-args t))))
+    (cond ((pair? t)   (cons (dfs:walk* (car t)) (dfs:walk* (cdr t))))
+          ((vector? t) (vector-map dfs:walk* t))
+          ((use? t)    (apply (use-proc t) (dfs:walk* (use-args t))))
           (else        t))))
 (define (occurs? x t)
   (cond ((pair? t)   (or (occurs? x (walk (car t)))
@@ -204,7 +204,7 @@
                        (and (<= 0 i) (or (occurs? x (walk (vector-ref t i)))
                                          (loop (- i 1))))))
         (else        (eq? x t))))
-(define (unify* st t1 t2) (unify st (walk* t1) (walk* t2)))
+(define (unify* st t1 t2) (unify st (dfs:walk* t1) (dfs:walk* t2)))
 (define (unify st t1 t2)
   (let ((t1 (walk t1)) (t2 (walk t2)))
     (cond ((eqv? t1 t2) #t)
@@ -222,13 +222,14 @@
                                                 (loop (- i 1)))))))
           ((string? t1) (and (string? t2) (string=? t1 t2)))
           (else         #f))))
+;; TODO: constraint satisfaction
+
 (define (ground? t)
-  (cond ((var?    t)  #f)
+  (cond ((var?    t) #f)
         ((pair?   t) (and (ground? (car t)) (ground? (cdr t))))
         ((vector? t) (andmap ground? (vector->list t)))
         ((use?    t) (andmap ground? (use-args t)))
         (else        #t)))
-;; TODO: constraint satisfaction
 
 (define (make-pretty)
   (define var=>id (make-hash))
