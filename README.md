@@ -6,8 +6,6 @@ large-scale relations.
 
 ## TODO
 
-* move depth-first-search components to mk-dfs.rkt
-  * use some kind of `dfs:` naming convention?
 * revert to a purely functional mk interpretation with a complete search
   * safer interaction between concurrent evaluation/analysis of shared queries
   * redefine var as immutable syntax (should not include a mutable value)
