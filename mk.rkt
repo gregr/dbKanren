@@ -77,16 +77,16 @@
   (syntax-rules ()
     ((_ (name param ...) g ...)
      (define name (relation name (param ...) g ...)))))
-(define succeed (== #t #t))
-(define fail    (== #f #t))
+(define success (== #t #t))
+(define failure (== #f #t))
 (define-syntax conj*
   (syntax-rules ()
-    ((_)           succeed)
+    ((_)           success)
     ((_ g)         g)
     ((_ g0 gs ...) (conj g0 (conj* gs ...)))))
 (define-syntax disj*
   (syntax-rules ()
-    ((_)           fail)
+    ((_)           failure)
     ((_ g)         g)
     ((_ g0 gs ...) (disj g0 (disj* gs ...)))))
 (define-syntax let/fresh
