@@ -131,7 +131,7 @@
 (define (retrieve/dfs k s args)
   (lambda (st) (let ((s (s-force s)))
                  ((if (null? s) fail/dfs
-                    (mplus/dfs (goal->dfs (== (car s) args) k)
+                    (mplus/dfs (==->dfs (car s) args k)
                                (retrieve/dfs k (cdr s) args)))
                   st))))
 (define (goal->dfs g k)
@@ -146,8 +146,8 @@
             (else (define ex (hash-ref r 'expand #f))
                   (unless ex (error "no interpretation for:" proc args))
                   (lambda (st) ((loop (apply ex (walk* args)) k) st)))))
-    (`#s(constrain == (,t1 ,t2))
-      (lambda (st) ((if (unify* st t1 t2) k fail/dfs) st)))))
+    (`#s(constrain == (,t1 ,t2)) (==->dfs t1 t2 k))))
+(define ((==->dfs t1 t2 k) st) ((if (unify* st t1 t2) k fail/dfs) st))
 
 (struct state (assignments constraints) #:mutable)
 (define (state-empty)  (state '() '()))
