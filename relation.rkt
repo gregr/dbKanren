@@ -414,17 +414,20 @@
                                        (advance-tables env col=>ts//col ixts)
                                        acc))))))))))
   (define r (make-relation relation-name attribute-names))
-  (define (((retrieve->apply retrieve) k as) st)
+  ;; TODO: simplify this
+  (define (((retrieve->apply retrieve) as) st)
     (define args (naive:walk* st as))
     (unless (= (length args) (length attribute-names))
       (error "invalid number of arguments:" attribute-names args))
     (define env (make-immutable-hash (map cons attribute-names args)))
     (define (ref name) (hash-ref env name))
     (define key (and key-name (ref key-name)))
-    (cond ((and (integer? key) (<= 0 key) (< key (primary-t 'length)))
-           (== (vector->list (primary-t 'ref* key))
-               (map ref primary-column-names)))
-          ((and key-name (not (var? key))) (== #t #f))
+    (cond ;((and (integer? key) (<= 0 key) (< key (primary-t 'length)))
+          ; ;; TODO: this is wrong
+          ; (== (vector->list (primary-t 'ref* key))
+          ;     (map ref primary-column-names)))
+          ;;; TODO: this is wrong
+          ;((and key-name (not (var? key))) (== #t #f))
           (else (define ordered-attributes
                   (if key-name
                     (append primary-column-names (list key-name))
@@ -434,9 +437,12 @@
                 (define result-stream
                   (loop primary-column-names primary-t env
                         (advance-tables env (hash) index-ts) '()))
-                ((retrieve result-stream ordered-args k) st))))
+                ((retrieve result-stream ordered-args) st))))
   (relations-set! r 'apply/bis (retrieve->apply bis:retrieve))
-  (relations-set! r 'apply/dfs (retrieve->apply dfs:retrieve))
+  (relations-set! r 'apply/dfs
+                  (lambda (k as)
+                    ((retrieve->apply (lambda (s oargs)
+                                        (dfs:retrieve s oargs k))) as)))
   r)
 
 ;; TODO: mk constraint integration
