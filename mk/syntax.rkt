@@ -84,7 +84,7 @@
   (syntax-rules ()
     ((_)           success)
     ((_ g)         g)
-    ((_ g0 gs ...) (conj g0 (conj* gs ...)))))
+    ((_ gs ... gN) (conj (conj* gs ...) gN))))
 (define-syntax disj*
   (syntax-rules ()
     ((_)           failure)
