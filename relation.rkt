@@ -422,12 +422,10 @@
     (define env (make-immutable-hash (map cons attribute-names args)))
     (define (ref name) (hash-ref env name))
     (define key (and key-name (ref key-name)))
-    (cond ;((and (integer? key) (<= 0 key) (< key (primary-t 'length)))
-          ; ;; TODO: this is wrong
-          ; (== (vector->list (primary-t 'ref* key))
-          ;     (map ref primary-column-names)))
-          ;;; TODO: this is wrong
-          ;((and key-name (not (var? key))) (== #t #f))
+    (cond ((and (integer? key) (<= 0 key) (< key (primary-t 'length)))
+           ((retrieve (list (vector->list (primary-t 'ref* key)))
+                      (map ref primary-column-names)) st))
+          ((and key-name (not (var? key))) '())
           (else (define ordered-attributes
                   (if key-name
                     (append primary-column-names (list key-name))

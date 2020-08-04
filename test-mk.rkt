@@ -52,6 +52,23 @@
            ((== x 'g)))
     (tripleo i x y z))
   '((1 d e f) (2 g h i)))
+(test 'tripleo-filter-before-key
+  (run* (i x y z)
+    (conde ((== y 'e))
+           ((== x 'g))
+           ((== i 3))
+           ((== i 0)))
+    (tripleo i x y z))
+  '((1 d e f) (2 g h i) (0 a b c)))
+(test 'tripleo-filter-before-key-only
+  (run* (i x y z)
+    (conde ((== y 'e))
+           ((== x 'g))
+           ((== i 3))
+           ((== i 0)))
+    (tripleo i x y z)
+    (== i 0))
+  '((0 a b c)))
 (test 'tripleo-filter-after
   (run* (i x y z)
     (tripleo i x y z)
