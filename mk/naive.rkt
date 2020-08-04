@@ -1,8 +1,43 @@
 #lang racket/base
-(provide dfs:query->stream naive:walk* dfs:retrieve)
+(provide naive:walk*
+         bis:query->stream bis:retrieve
+         dfs:query->stream dfs:retrieve)
 (require "../stream.rkt" "syntax.rkt"
          (except-in racket/match ==)
          racket/function racket/vector)
+
+(define (bis:query->stream q) ((bis:query q) state-empty))
+(define (bis:query q)
+  (match-define `#s(query ,x ,g) q)
+  (define (return st) (list (pretty (naive:walk* st x))))
+  (bis:goal g return))
+(define ((bis:mplus k1 k2) st)
+  (let loop ((s1 (k1 st)) (s2 (thunk (k2 st))))
+    (cond ((null?      s1) (s2))
+          ((procedure? s1) (thunk (loop (s2) s1)))
+          (else (define d1  (cdr s1))
+                (define s1^ (if (procedure? d1) d1 (thunk d1)))
+                (cons (car s1) (thunk (loop (s2) s1^)))))))
+(define ((bis:retrieve s args k) st)
+  (let ((s (s-force s)))
+    (if (null? s) '() ((bis:mplus (k:==         (car s) args k)
+                                  (bis:retrieve (cdr s) args k))
+                       st))))
+(define (bis:goal g k)
+  (define loop bis:goal)
+  (match g
+    ;; TODO: bias the interleaving in the usual miniKanren way
+    (`#s(conj ,g1 ,g2) (loop g1 (loop g2 k)))
+    (`#s(disj ,g1 ,g2) (bis:mplus (loop g1 k) (loop g2 k)))
+    (`#s(constrain ,(? procedure? proc) ,args)
+      (define r (relations-ref proc))
+      (define apply/bis (hash-ref r 'apply/bis #f))
+      (cond (apply/bis (apply/bis k args))
+            (else (define ex (hash-ref r 'expand #f))
+                  (unless ex (error "no interpretation for:" proc args))
+                  (lambda (st) ((loop (apply ex (naive:walk* st args)) k)
+                                st)))))
+    (`#s(constrain == (,t1 ,t2)) (k:== t1 t2 k))))
 
 (define (dfs:query->stream q) ((dfs:query q) state-empty))
 (define (dfs:query q)
@@ -29,6 +64,7 @@
                   (lambda (st) ((loop (apply ex (naive:walk* st args)) k)
                                 st)))))
     (`#s(constrain == (,t1 ,t2)) (k:== t1 t2 k))))
+
 (define ((k:== t1 t2 k) st) (let ((st (unify st t1 t2))) (if st (k st) '())))
 
 (struct state (var=>cx))

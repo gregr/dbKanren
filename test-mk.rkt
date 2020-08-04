@@ -1,6 +1,6 @@
 #lang racket/base
 (require "mk.rkt" "relation.rkt" "stream.rkt" "table.rkt"
-         racket/function racket/pretty)
+         racket/function racket/pretty racket/set)
 (print-as-expression #f)
 (pretty-print-abbreviate-read-macros #f)
 
@@ -123,20 +123,22 @@
     (12 c d)))
 
 (test 'triple2o-filter
-  (run* (x y z)
-    (conde ((== y 'a) (== z 'c))
-           ((== y 'a) (== z 'd))
-           ((== x '8))
-           ((== y 'b) (== x '12))
-           ((== y 'b) (== z 'f) (== x '9))
-           ((== y 'b) (== z 'g) (== x '9))
-           ((== y 'c))
-           ((== y 'd)))
-    (triple2o x y z))
-  '((4 a c)
-    (5 a c)
-    (6 a c)
-    (8 b d)
-    (9 b f)
-    (11 c a)
-    (12 c d)))
+  (list->set
+    (run* (x y z)
+      (conde ((== y 'a) (== z 'c))
+             ((== y 'a) (== z 'd))
+             ((== x '8))
+             ((== y 'b) (== x '12))
+             ((== y 'b) (== z 'f) (== x '9))
+             ((== y 'b) (== z 'g) (== x '9))
+             ((== y 'c))
+             ((== y 'd)))
+      (triple2o x y z)))
+  (list->set
+    '((4 a c)
+      (5 a c)
+      (6 a c)
+      (8 b d)
+      (9 b f)
+      (11 c a)
+      (12 c d))))

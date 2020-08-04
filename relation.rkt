@@ -414,30 +414,29 @@
                                        (advance-tables env col=>ts//col ixts)
                                        acc))))))))))
   (define r (make-relation relation-name attribute-names))
-  (relations-set!
-    r 'apply/dfs
-    (lambda (k as)
-      (lambda (st)
-        (define args (naive:walk* st as))
-        (unless (= (length args) (length attribute-names))
-          (error "invalid number of arguments:" attribute-names args))
-        (define env (make-immutable-hash (map cons attribute-names args)))
-        (define (ref name) (hash-ref env name))
-        (define key (and key-name (ref key-name)))
-        (cond ((and (integer? key) (<= 0 key) (< key (primary-t 'length)))
-               (== (vector->list (primary-t 'ref* key))
-                   (map ref primary-column-names)))
-              ((and key-name (not (var? key))) (== #t #f))
-              (else (define ordered-attributes
-                      (if key-name
-                        (append primary-column-names (list key-name))
-                        primary-column-names))
-                    (define ordered-args
-                      (filter-not ground? (map ref ordered-attributes)))
-                    (define result-stream
-                      (loop primary-column-names primary-t env
-                            (advance-tables env (hash) index-ts) '()))
-                    ((dfs:retrieve result-stream ordered-args k) st))))))
+  (define (((retrieve->apply retrieve) k as) st)
+    (define args (naive:walk* st as))
+    (unless (= (length args) (length attribute-names))
+      (error "invalid number of arguments:" attribute-names args))
+    (define env (make-immutable-hash (map cons attribute-names args)))
+    (define (ref name) (hash-ref env name))
+    (define key (and key-name (ref key-name)))
+    (cond ((and (integer? key) (<= 0 key) (< key (primary-t 'length)))
+           (== (vector->list (primary-t 'ref* key))
+               (map ref primary-column-names)))
+          ((and key-name (not (var? key))) (== #t #f))
+          (else (define ordered-attributes
+                  (if key-name
+                    (append primary-column-names (list key-name))
+                    primary-column-names))
+                (define ordered-args
+                  (filter-not ground? (map ref ordered-attributes)))
+                (define result-stream
+                  (loop primary-column-names primary-t env
+                        (advance-tables env (hash) index-ts) '()))
+                ((retrieve result-stream ordered-args k) st))))
+  (relations-set! r 'apply/bis (retrieve->apply bis:retrieve))
+  (relations-set! r 'apply/dfs (retrieve->apply dfs:retrieve))
   r)
 
 ;; TODO: mk constraint integration
