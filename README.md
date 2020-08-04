@@ -6,8 +6,7 @@ large-scale relations.
 
 ## TODO
 
-* revert to a purely functional mk interpretation with a complete search
-  * safer interaction between concurrent evaluation/analysis of shared queries
+* reintroduce stream retrieval constraint for strategy-agnostic simplicity
 * domain constraints
   * a var's possible values are the intersection of one or more as bounded sets
     * disagreeing bounds are refined by incremental intersection

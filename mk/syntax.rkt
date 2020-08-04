@@ -46,6 +46,7 @@
 (define-constraint (string-symbolo t1 t2))
 (define-constraint (string-numbero t1 t2))
 (define (relate proc args) (constrain proc args))
+;; TODO: reintroduce stream retrieval constraint
 
 (define relation-registry          (make-weak-hasheq '()))
 (define (relations)                (hash->list relation-registry))
@@ -78,6 +79,7 @@
   (syntax-rules ()
     ((_ (name param ...) g ...)
      (define name (relation name (param ...) g ...)))))
+;; TODO: define-relation/stream
 (define success (== #t #t))
 (define failure (== #f #t))
 (define-syntax conj*

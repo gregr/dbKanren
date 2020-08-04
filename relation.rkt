@@ -414,7 +414,7 @@
                                        (advance-tables env col=>ts//col ixts)
                                        acc))))))))))
   (define r (make-relation relation-name attribute-names))
-  ;; TODO: simplify this
+  ;; TODO: simplify this using stream retrieval constraint
   (define (((retrieve->apply retrieve) as) st)
     (define args (naive:walk* st as))
     (unless (= (length args) (length attribute-names))
