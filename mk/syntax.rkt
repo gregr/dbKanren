@@ -1,10 +1,10 @@
 #lang racket/base
 (provide
   (struct-out make-query)
-  (struct-out make-use)
   (struct-out disj)
   (struct-out conj)
   (struct-out constrain)
+  (struct-out make-use)
   (struct-out var)
 
   make-relation relations relations-ref relations-set! relations-set*!
@@ -19,11 +19,14 @@
 
 (struct query     (term g)         #:prefab #:name make-query
                                    #:constructor-name make-query)
-(struct use       (proc args desc) #:prefab #:name make-use
-                                   #:constructor-name make-use)
+;; goals
 (struct disj      (g1 g2)          #:prefab)
 (struct conj      (g1 g2)          #:prefab)
 (struct constrain (op terms)       #:prefab)
+;; terms
+(struct use       (proc args desc) #:prefab #:name make-use
+                                   #:constructor-name make-use)
+(struct var       (name))
 
 (define-syntax define-constraint
   (syntax-rules ()
@@ -89,7 +92,7 @@
     ((_ g0 gs ...) (disj g0 (disj* gs ...)))))
 (define-syntax let/fresh
   (syntax-rules ()
-    ((_ (x ...) e ...) (let ((x (var/fresh 'x)) ...) e ...))))
+    ((_ (x ...) e ...) (let ((x (var 'x)) ...) e ...))))
 (define-syntax fresh
   (syntax-rules ()
     ((_ (x ...) g0 gs ...) (let/fresh (x ...) (conj* g0 gs ...)))))
@@ -108,11 +111,6 @@
      (let/fresh (x ...) (make-query (list x ...) (conj* g0 gs ...))))
     ((_ x       g0 gs ...)
      (let/fresh (x)     (make-query x            (conj* g0 gs ...))))))
-
-;; TODO: opaque immutable variable, no need for var/fresh
-;(struct var (name))
-(struct var (name (value #:mutable)))
-(define (var/fresh name) (var name (void)))  ;; TODO: use TOP instead of void
 
 (define (ground? t)
   (cond ((var?    t)  #f)
