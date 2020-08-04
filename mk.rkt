@@ -1,7 +1,7 @@
 #lang racket/base
-(provide (all-from-out "mk/syntax.rkt") (all-from-out "mk/dfs.rkt")
+(provide (all-from-out "mk/syntax.rkt") (all-from-out "mk/naive.rkt")
          run^ run run*)
-(require "mk/dfs.rkt" "mk/syntax.rkt" "stream.rkt")
+(require "mk/naive.rkt" "mk/syntax.rkt" "stream.rkt")
 
 ;; TODO: move beyond DFS once other strategies are ready
 (define-syntax run^
