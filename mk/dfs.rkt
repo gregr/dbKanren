@@ -4,22 +4,17 @@
          (except-in racket/match ==)
          racket/function racket/vector)
 
-(define (dfs:query->stream q) ((dfs:query q) (state-empty)))
+(define (dfs:query->stream q) ((dfs:query q) state-empty))
 (define (dfs:query q)
   (match-define `#s(query ,x ,g) q)
-  (define (return st) (let ((result (pretty (dfs:walk* x))))
-                        (state-undo! st)
-                        (list result)))
+  (define (return st) (list (pretty (dfs:walk* st x))))
   (dfs:goal g return))
-(define (fail st) (state-undo! st) '())
-(define (mplus k1 k2) (lambda (st) (s-append (k1 (state-new st))
-                                             (thunk (k2 st)))))
-(define (dfs:retrieve s args k)
-  (lambda (st) (let ((s (s-force s)))
-                 ((if (null? s) fail
-                    (mplus (dfs:==       (car s) args k)
-                           (dfs:retrieve (cdr s) args k)))
-                  st))))
+(define ((mplus k1 k2) st) (s-append (k1 st) (thunk (k2 st))))
+(define ((dfs:retrieve s args k) st)
+  (let ((s (s-force s)))
+    (if (null? s) '() ((mplus (dfs:==       (car s) args k)
+                              (dfs:retrieve (cdr s) args k))
+                       st))))
 (define (dfs:goal g k)
   (define loop dfs:goal)
   (match g
@@ -31,79 +26,66 @@
       (cond (apply/dfs (apply/dfs k args))
             (else (define ex (hash-ref r 'expand #f))
                   (unless ex (error "no interpretation for:" proc args))
-                  (lambda (st) ((loop (apply ex (dfs:walk* args)) k) st)))))
+                  (lambda (st) ((loop (apply ex (dfs:walk* st args)) k) st)))))
     (`#s(constrain == (,t1 ,t2)) (dfs:== t1 t2 k))))
-(define ((dfs:== t1 t2 k) st) ((if (unify* st t1 t2) k fail) st))
+(define ((dfs:== t1 t2 k) st) (let ((st (unify st t1 t2))) (if st (k st) '())))
 
-(struct state (assignments constraints) #:mutable)
-(define (state-empty)  (state '() '()))
-;; TODO: what should be preserved?  Should this link to the parent state?
-(define (state-new st) (state-empty))
-(define (state-assign! st x t)
-  (set-state-assignments! st (cons (cons x (var-value x))
-                                   (state-assignments st)))
-  (set-var-value! x t))
-(define (state-undo! st)
-  (set-state-assignments!
-    st (map (lambda (kv) (let* ((x (car kv)) (t (var-value x)))
-                           (set-var-value! x (cdr kv))
-                           (cons x t)))
-            (state-assignments st))))
-(define (state-redo! st) (state-undo! st))  ;; coincidentally, for now
+(struct state (var=>cx))
+(define state-empty (state (hash)))
+(define (state-var-assign st x t) (state (hash-set (state-var=>cx st) x t)))
+(define (state-var-ref    st x)   (hash-ref (state-var=>cx st) x (void)))
 
 ;; TODO: variable lattice attributes supporting general constraints
-#|
-* type domains: #t top, #f bottom, lattice vector for domain sums
-  * (), #t, #f domains need no representation beyond being top or bottom
-  * pair domains are all represented as concrete values
-    * though pairs may contain variables
-  * symbol, string, bytes, and vector domains are represented as discrete sets
-    * discrete sets are sorted lists of concrete values
-      * though vectors may contain variables
-  * number domains are represented as interval sets (ordered ranges)
-|#
+;* type domains: #t top, #f bottom, lattice vector for domain sums
+;  * (), #t, #f domains need no representation beyond being top or bottom
+;  * pair domains are all represented as concrete values
+;    * though pairs may contain variables
+;  * symbol, string, bytes, and vector domains are represented as discrete sets
+;    * discrete sets are sorted lists of concrete values
+;      * though vectors may contain variables
+;  * number domains are represented as interval sets (ordered ranges)
 ;(struct vspec (domain constraints) #:prefab)
 ;(define vtop (vspec #t '()))
 ;; TODO: register constrained/specified variables in a priority queue?
 ;(define (var/fresh name) (var name (void)))  ;; TODO: use TOP instead of void
-(define (var-assign! st x t) (and (not (occurs? x t)) (state-assign! st x t)))
-(define (var-walk vr)
-  (let ((val (var-value vr)))
-    (cond ((var?  val) (let ((val^ (var-walk val)))
-                         (unless (eq? val val^) (set-var-value! vr val^))
-                         val^))
-          ((void? val) vr)
-          (else        val))))
-(define (walk tm) (if (var? tm) (var-walk tm) tm))
-(define (dfs:walk* t)
-  (let ((t (walk t)))
-    (cond ((pair? t)   (cons (dfs:walk* (car t)) (dfs:walk* (cdr t))))
-          ((vector? t) (vector-map dfs:walk* t))
-          ((use? t)    (apply (use-proc t) (dfs:walk* (use-args t))))
+
+(define (var-assign st x t) (and (not (occurs? st x t))
+                                 (state-var-assign st x t)))
+(define (var-walk st x)
+  (define val (state-var-ref st x))
+  (cond ((var?  val) (var-walk st val))
+        ((void? val) x)
+        (else        val)))
+(define (walk st t)
+  (define (walk* t) (dfs:walk* st t))
+  (cond ((var? t) (var-walk st t))
+        ;; TODO: later, uses will be re-scheduled if args are not yet ground
+        ((use? t) (apply (use-proc t) (map walk* (use-args t))))
+        (else     t)))
+(define (dfs:walk* st t)
+  (let loop ((term t))
+    (define t (walk st term))
+    (cond ((pair?   t) (cons (loop (car t)) (loop (cdr t))))
+          ((vector? t) (vector-map loop t))
           (else        t))))
-(define (occurs? x t)
-  (cond ((pair? t)   (or (occurs? x (walk (car t)))
-                         (occurs? x (walk (cdr t)))))
-        ((vector? t) (let loop ((i (- (vector-length t) 1)))
-                       (and (<= 0 i) (or (occurs? x (walk (vector-ref t i)))
-                                         (loop (- i 1))))))
-        (else        (eq? x t))))
-(define (unify* st t1 t2) (unify st (dfs:walk* t1) (dfs:walk* t2)))
+(define (occurs? st x t)
+  (let oc? ((t t))
+    (cond ((pair?   t) (or (oc? (walk st (car t))) (oc? (walk st (cdr t)))))
+          ((vector? t) (let vloop ((i (- (vector-length t) 1)))
+                         (and (<= 0 i) (or (oc? (walk st (vector-ref t i)))
+                                           (vloop (- i 1))))))
+          (else        (eq? x t)))))
 (define (unify st t1 t2)
-  (let ((t1 (walk t1)) (t2 (walk t2)))
-    (cond ((eqv? t1 t2) #t)
-          ((var? t1)    (var-assign! st t1 t2))
-          ((var? t2)    (var-assign! st t2 t1))
-          ((pair? t1)   (and (pair? t2)
-                             (unify st (car t1) (car t2))
-                             (unify st (cdr t1) (cdr t2))))
-          ((vector? t1) (and (vector? t2)
-                             (= (vector-length t1) (vector-length t2))
-                             (let loop ((i (- (vector-length t1) 1)))
-                               (or (< i 0) (and (unify st
-                                                       (vector-ref t1 i)
-                                                       (vector-ref t2 i))
-                                                (loop (- i 1)))))))
-          ((string? t1) (and (string? t2) (string=? t1 t2)))
+  (let ((t1 (walk st t1)) (t2 (walk st t2)))
+    (cond ((eqv? t1 t2) st)
+          ((var?    t1) (var-assign st t1 t2))
+          ((var?    t2) (var-assign st t2 t1))
+          ((pair?   t1) (and (pair? t2)
+                             (let ((st (unify st (car t1) (car t2))))
+                               (and st (unify st (cdr t1) (cdr t2))))))
+          ((vector? t1) (and (vector? t2) (= (vector-length t1)
+                                             (vector-length t2))
+                             (unify st (vector->list t1) (vector->list t2))))
+          ((string? t1) (and (string? t2) (string=? t1 t2) st))
           (else         #f))))
 ;; TODO: constraint satisfaction

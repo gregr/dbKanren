@@ -111,7 +111,7 @@
 
 ;; TODO: opaque immutable variable, no need for var/fresh
 ;(struct var (name))
-(struct var (name (value #:mutable)) #:prefab)
+(struct var (name (value #:mutable)))
 (define (var/fresh name) (var name (void)))  ;; TODO: use TOP instead of void
 
 (define (ground? t)

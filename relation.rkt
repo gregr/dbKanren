@@ -418,7 +418,7 @@
     r 'apply/dfs
     (lambda (k as)
       (lambda (st)
-        (define args (dfs:walk* as))
+        (define args (dfs:walk* st as))
         (unless (= (length args) (length attribute-names))
           (error "invalid number of arguments:" attribute-names args))
         (define env (make-immutable-hash (map cons attribute-names args)))
