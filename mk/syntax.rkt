@@ -8,10 +8,12 @@
   (struct-out var)
 
   make-relation relations relations-ref relations-set! relations-set*!
-  relation letrec-relations define-relation
+  relation letrec-relation define-relation
+  relation/stream letrec-relation/stream define-relation/stream
   conj* disj* fresh conde use query
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
+  retrieve
 
   ground?
   make-pretty pretty)
@@ -45,6 +47,7 @@
 (define-constraint (string-appendo t1 t2 t3))
 (define-constraint (string-symbolo t1 t2))
 (define-constraint (string-numbero t1 t2))
+(define (retrieve stream args) (constrain `(retrieve ,stream) args))
 (define (relate proc args) (constrain proc args))
 ;; TODO: reintroduce stream retrieval constraint
 
@@ -71,14 +74,27 @@
      (let ((r (make-relation 'name '(param ...))))
        (relations-set! r 'expand (lambda (param ...) (fresh () g ...)))
        r))))
-(define-syntax letrec-relations
+(define-syntax relation/stream
+  (syntax-rules ()
+    ((_ name (param ...) stream)
+     (relation name (param ...) (retrieve stream param ...)))))
+(define-syntax letrec-relation
   (syntax-rules ()
     ((_ (((name param ...) g ...) ...) body ...)
      (letrec ((name (relation name (param ...) g ...)) ...) body ...))))
+(define-syntax letrec-relation/stream
+  (syntax-rules ()
+    ((_ (((name param ...) stream) ...) body ...)
+     (letrec ((name (relation/stream name (param ...) stream)) ...)
+       body ...))))
 (define-syntax define-relation
   (syntax-rules ()
     ((_ (name param ...) g ...)
      (define name (relation name (param ...) g ...)))))
+(define-syntax define-relation/stream
+  (syntax-rules ()
+    ((_ (name param ...) stream)
+     (define name (relation/stream name (param ...) stream)))))
 ;; TODO: define-relation/stream
 (define success (== #t #t))
 (define failure (== #f #t))

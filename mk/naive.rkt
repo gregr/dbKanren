@@ -39,8 +39,10 @@
                   (unless ex (error "no interpretation for:" proc args))
                   (lambda (st) ((bis:goal (apply ex (naive:walk* st args)))
                                 st)))))
-    (`#s(constrain == (,t1 ,t2))
-      (lambda (st) (let ((st (unify st t1 t2))) (if st (list st) '()))))))
+    (`#s(constrain (retrieve ,s) ,args)     (bis:retrieve s args))
+    (`#s(constrain ==            (,t1 ,t2)) (bis:== t1 t2))))
+(define ((bis:== t1 t2) st)
+  (let ((st (unify st t1 t2))) (if st (list st) '())))
 
 (define (dfs:query->stream q) ((dfs:query q) state-empty))
 (define (dfs:query q)
@@ -66,7 +68,8 @@
                   (unless ex (error "no interpretation for:" proc args))
                   (lambda (st) ((loop (apply ex (naive:walk* st args)) k)
                                 st)))))
-    (`#s(constrain == (,t1 ,t2)) (dfs:== t1 t2 k))))
+    (`#s(constrain (retrieve ,s) ,args)     (dfs:retrieve s args k))
+    (`#s(constrain ==            (,t1 ,t2)) (dfs:== t1 t2 k))))
 (define ((dfs:== t1 t2 k) st) (let ((st (unify st t1 t2))) (if st (k st) '())))
 
 (struct state (var=>cx))
