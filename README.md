@@ -6,7 +6,6 @@ large-scale relations.
 
 ## TODO
 
-* reintroduce stream retrieval constraint for strategy-agnostic simplicity
 * domain constraints
   * a var's possible values are the intersection of one or more as bounded sets
     * disagreeing bounds are refined by incremental intersection
