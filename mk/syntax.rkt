@@ -36,20 +36,27 @@
                            (constrain 'op (list params ...))))))
 (define-constraint (==             t1 t2))
 (define-constraint (=/=            t1 t2))
-(define-constraint (absento        t))
+;; TODO: with a better strategy, this can be implemented as a normal relation
+(define-constraint (absento        t1 t2))
+;; TODO: derive these from (define-constraint (typeo          type term))
+;; in fact, typeo itself can derive from uses of <=anyo and =/=
 (define-constraint (symbolo        t))
 (define-constraint (numbero        t))
 (define-constraint (stringo        t))
+(define-constraint (vectoro        t))
+;; TODO: derive these from (define-constraint (<=anyo         t1 t2))
 (define-constraint (<=o            t1 t2))
+(define-constraint (string<=o      t1 t2))
 (define-constraint (+o             t1 t2 t3))
 (define-constraint (*o             t1 t2 t3))
-(define-constraint (string<=o      t1 t2))
+;; TODO: can consider conversions between lists and strings/vectors
 (define-constraint (string-appendo t1 t2 t3))
+;; TODO: derive these from (define-constraint (casto          type1 type2 term))
 (define-constraint (string-symbolo t1 t2))
+;; TODO: probably omit this
 (define-constraint (string-numbero t1 t2))
 (define (retrieve stream args) (constrain `(retrieve ,stream) args))
 (define (relate proc args) (constrain proc args))
-;; TODO: reintroduce stream retrieval constraint
 
 (define relation-registry          (make-weak-hasheq '()))
 (define (relations)                (hash->list relation-registry))
@@ -95,7 +102,6 @@
   (syntax-rules ()
     ((_ (name param ...) stream)
      (define name (relation/stream name (param ...) stream)))))
-;; TODO: define-relation/stream
 (define success (== #t #t))
 (define failure (== #f #t))
 (define-syntax conj*

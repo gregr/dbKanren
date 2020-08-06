@@ -130,6 +130,10 @@ large-scale relations.
       * sorted-columns: C is nondecreasing when sorting by (A B C D)
         * implies sorted rows for (C A B D) appear in same order as (A B C D)
           * one index can support either ordering
+        * generalized: (sorted-columns (A B . C) (B . D) B) means:
+          * B is already nondecreasing
+          * C becomes nondecreasing once both A and B are chosen
+          * D becomes nondecreasing once B is chosen (regardless of A)
     * statistics (derived from table statistics)
 
 * low-level tables with optional keys/indices (not user-level)
