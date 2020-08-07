@@ -43,6 +43,7 @@
 (define-constraint (symbolo        t))
 (define-constraint (numbero        t))
 (define-constraint (stringo        t))
+(define-constraint (byteso         t))
 (define-constraint (vectoro        t))
 ;; TODO: derive these from (define-constraint (<=anyo         t1 t2))
 (define-constraint (<=o            t1 t2))

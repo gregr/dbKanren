@@ -136,5 +136,6 @@
                                              (vector-length t2))
                              (unify st (vector->list t1) (vector->list t2))))
           ((string? t1) (and (string? t2) (string=? t1 t2) st))
+          ((bytes?  t1) (and (bytes?  t2) (bytes=?  t1 t2) st))
           (else         #f))))
 ;; TODO: constraint satisfaction
