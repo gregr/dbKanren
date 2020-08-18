@@ -6,6 +6,10 @@ large-scale relations.
 
 ## TODO
 
+* replace `(use (ds ...) body ...)` with `(:== term (ds ...) body ...)`
+  * `use` term should be replaced with fresh var and treated as `==` constraint
+  * report error if dependencies are not ground before running body
+
 * domain constraints
   * a var's possible values are the intersection of one or more as bounded sets
     * disagreeing bounds are refined by incremental intersection
@@ -44,6 +48,21 @@ large-scale relations.
   * base-path for storage
   * mk search strategy
 
+* remaining loose ends necessary for full expressiveness
+  * fixed point computation
+  * strategy w/ flexible goal ordering
+  * these are defined in the "evaluation" section below
+
+* relation compilation to remove interpretive overhead
+  * mode analysis
+  * represent low-level operation representation depending on mode
+    * e.g., == can act like an assignment, or a type/equality test
+      * likewise for other constraint evaluations
+  * partial evaluation
+    * e.g., unify on partially-known term structures can be unrolled
+    * constraint evaluations can be pre-simplified and reordered
+  * code generation
+
 
 ### Data processing
 
@@ -62,7 +81,7 @@ large-scale relations.
 
 * high-level relation specification for transforming stream
   * high-level string transformation types: string, number, json, s-expression
-    * perform this with Racket computation via `use`
+    * perform this with Racket computation via `:==`
   * flattening of tuple/array (pair, vector) fields, increasing record arity
     * supports compact columnarization of scalar-only fields
   * generate helper relations for large or variable-length data columns
@@ -162,20 +181,21 @@ large-scale relations.
 
 * functional term sublanguage
   * atoms and constructors can be appear freely
-  * other computation appears under `use`
+  * other computation appears under `:==`
     * should be referentially transparent
     * e.g., subqueries used for aggregation, implicitly grouped by outer query
   * maybe indicate monotonicity for efficient incremental update
-    * by default, `use` will stratify based on dependencies
+    * by default, `:==` will stratify based on dependencies
 
 * relations
   * `(define-relation (name param ...) goal ...) => (define name (relation (param ...) goal ...))`
   * `(define-relation/data (name param ...) data-description)`
   * `(relation (param-name ...) goal ...)`
-  * `(use (relation-or-var-name ...) term-computation ...)`
+  * `(:== term (relation-or-var-name ...) term-computation ...)`
     * computed term that indicates its relation and logic variable dependencies
     * force vars to be grounded so that embedded Racket computation succeeds
     * force dependency on given relations to ensure stratification
+    * result is equated with left-hand term (first argument to `:==`)
   * local relation definitions to share work (cached results) during aggregation
     * `(let-relations (((name param ...) goal ...) ...) goal ...)`
   * usual mk operators for forming goals:
@@ -211,7 +231,7 @@ large-scale relations.
     * logic environments are introduced by query and relation
     * logic environments are extended by fresh
   * query and other term computation is performed in the context of Racket
-    * Racket environments are embedded in logic environments by `use`
+    * Racket environments are embedded in logic environments by `:==`
     * can only occur during forward/bottom-up computation (ground variables)
   * query evaluation
     * precompute relevant persistent/cached safe relations via forward-chaining
@@ -306,4 +326,4 @@ large-scale relations.
         * `(string-appendo needle t1 hay-s)`
       * multiple needles
         * `(conj (string-appendo n1 t1 hay-s) (string-appendo n2 t2 hay-s))`
-      * maybe best done explicitly as aggregation via `use`
+      * maybe best done explicitly as aggregation via `:==`
