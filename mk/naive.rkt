@@ -26,8 +26,9 @@
           ((procedure? s) (thunk (loop (s))))
           (else (bis:mplus ((bis:== (car s) args) st)
                            (thunk (loop (s-next (cdr s)))))))))
-(define ((bis:expand ex args) st)
+(define ((bis:apply/expand ex args) st)
   ((bis:goal (apply ex (naive:walk* st args))) st))
+(define ((bis:expand ex args) st) ((bis:goal (apply ex args)) st))
 (define (bis:goal g)
   (match g
     (`#s(conj ,g1 ,g2) (let ((k1 (bis:goal g1)) (k2 (bis:goal g2)))
@@ -37,11 +38,12 @@
     (`#s(==/use ,lhs ,args ,rhs ,desc) (bis:==/use lhs args rhs desc))
     (`#s(constrain ,(? procedure? proc) ,args)
       (define r (relations-ref proc))
-      (define apply/bis  (hash-ref r 'apply/bis    #f))
-      (define expand (or (hash-ref r 'apply/expand #f)   ; impure expansion
-                         (hash-ref r 'expand       #f))) ; pure expansion
-      (cond (apply/bis (apply/bis args))
-            (expand    (bis:expand expand args))
+      (define apply/bis    (hash-ref r 'apply/bis    #f))
+      (define apply/expand (hash-ref r 'apply/expand #f))  ; impure expansion
+      (define expand       (hash-ref r 'expand       #f))  ; pure expansion
+      (cond (apply/bis    (apply/bis args))
+            (apply/expand (bis:apply/expand apply/expand args))
+            (expand       (bis:expand       expand       args))
             (else (error "no interpretation for:" proc args))))
     (`#s(constrain (retrieve ,s) ,args)     (bis:retrieve s args))
     (`#s(constrain ==            (,t1 ,t2)) (bis:== t1 t2))))
@@ -64,8 +66,9 @@
           (else ((dfs:mplus (dfs:==       (car s) args k)
                             (dfs:retrieve (cdr s) args k))
                  st)))))
-(define ((dfs:expand ex args k) st)
+(define ((dfs:apply/expand ex args k) st)
   ((dfs:goal (apply ex (naive:walk* st args)) k) st))
+(define ((dfs:expand ex args k) st) ((dfs:goal (apply ex args) k) st))
 (define (dfs:goal g k)
   (define loop dfs:goal)
   (match g
@@ -75,10 +78,11 @@
     (`#s(constrain ,(? procedure? proc) ,args)
       (define r (relations-ref proc))
       (define apply/dfs  (hash-ref r 'apply/dfs    #f))
-      (define expand (or (hash-ref r 'apply/expand #f)   ; impure expansion
-                         (hash-ref r 'expand       #f))) ; pure expansion
-      (cond (apply/dfs (apply/dfs k args))
-            (expand    (dfs:expand expand args k))
+      (define apply/expand (hash-ref r 'apply/expand #f))  ; impure expansion
+      (define expand       (hash-ref r 'expand       #f))  ; pure expansion
+      (cond (apply/dfs    (apply/dfs k args))
+            (apply/expand (dfs:apply/expand apply/expand args k))
+            (expand       (dfs:expand       expand       args k))
             (else (error "no interpretation for:" proc args))))
     (`#s(constrain (retrieve ,s) ,args)     (dfs:retrieve s args k))
     (`#s(constrain ==            (,t1 ,t2)) (dfs:== t1 t2 k))))
