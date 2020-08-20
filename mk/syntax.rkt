@@ -4,13 +4,13 @@
   (struct-out disj)
   (struct-out conj)
   (struct-out constrain)
-  (struct-out make-use)
+  (struct-out ==/use)
   (struct-out var)
 
   make-relation relations relations-ref relations-set! relations-set*!
   relation letrec-relation define-relation
   relation/stream letrec-relation/stream define-relation/stream
-  conj* disj* fresh conde use query
+  conj* disj* fresh conde :== query
   == =/= absento symbolo numbero stringo
   <=o +o *o string<=o string-appendo string-symbolo string-numbero
   retrieve
@@ -19,15 +19,14 @@
   make-pretty pretty)
 (require racket/match racket/vector)
 
-(struct query     (term g)         #:prefab #:name make-query
-                                   #:constructor-name make-query)
+(struct query     (term g)                      #:prefab #:name make-query
+                                                #:constructor-name make-query)
 ;; goals
-(struct disj      (g1 g2)          #:prefab)
-(struct conj      (g1 g2)          #:prefab)
-(struct constrain (op terms)       #:prefab)
+(struct disj      (g1 g2)                       #:prefab)
+(struct conj      (g1 g2)                       #:prefab)
+(struct constrain (op terms)                    #:prefab)
+(struct ==/use    (lhs-term args rhs-proc desc) #:prefab)
 ;; terms
-(struct use       (proc args desc) #:prefab #:name make-use
-                                   #:constructor-name make-use)
 (struct var       (name))
 
 (define-syntax define-constraint
@@ -125,10 +124,9 @@
   (syntax-rules ()
     ((_ (g gs ...) (h hs ...) ...)
      (disj* (conj* g gs ...) (conj* h hs ...) ...))))
-(define-syntax use
+(define-syntax :==
   (syntax-rules ()
-    ((_ (x ...) body ...) (make-use (lambda (x ...) body ...)
-                                    (list x ...)
+    ((_ t (x ...) body ...) (==/use t (list x ...) (lambda (x ...) body ...)
                                     `((x ...) body ...)))))
 (define-syntax query
   (syntax-rules ()
@@ -141,7 +139,6 @@
   (cond ((var?    t)  #f)
         ((pair?   t) (and (ground? (car t)) (ground? (cdr t))))
         ((vector? t) (andmap ground? (vector->list t)))
-        ((use?    t) (andmap ground? (use-args t)))
         (else        #t)))
 
 (define (make-pretty)
@@ -153,21 +150,19 @@
                                ,(let ((id (hash-ref   var=>id t #f))
                                       (c  (hash-count var=>id)))
                                   (or id (begin (hash-set! var=>id t c) c)))))
-          ((use? t)    `#s(let ,(map list
-                                     (car (use-desc t))
-                                     (map pretty-term (use-args t)))
-                            ,@(cdr (use-desc t))))
           (else        t)))
   (define (pretty-goal g)
     (match g
       (`#s(disj ,g1 ,g2)         `#s(disj ,(pretty-goal g1) ,(pretty-goal g2)))
       (`#s(conj ,g1 ,g2)         `#s(conj ,(pretty-goal g1) ,(pretty-goal g2)))
-      (`#s(constrain ,op ,terms) `(,op ,(map pretty-term terms)))))
+      (`#s(constrain ,op ,terms) `(,op ,(map pretty-term terms)))
+      (`#s(==/use ,lhs ,args ,rhs ,desc)
+        `(:== ,lhs `#s(let ,(map list (car desc) (map pretty-term args))
+                        ,@(cdr desc))))))
   (lambda (x)
     (match x
       (`#s(query ,t ,g)
         `#s(query ,(pretty-term t) ,(pretty-goal g)))
       (_ (if (or (disj? x) (conj? x) (constrain? x))
-           (pretty-goal x)
-           (pretty-term x))))))
+           (pretty-goal x) (pretty-term x))))))
 (define (pretty x) ((make-pretty) x))

@@ -34,6 +34,7 @@
                          (lambda (st) (bis:bind (k1 st) k2))))
     (`#s(disj ,g1 ,g2) (let ((k1 (bis:goal g1)) (k2 (bis:goal g2)))
                          (lambda (st) (bis:mplus (k1 st) (thunk (k2 st))))))
+    (`#s(==/use ,lhs ,args ,rhs ,desc) (bis:==/use lhs args rhs desc))
     (`#s(constrain ,(? procedure? proc) ,args)
       (define r (relations-ref proc))
       (define apply/bis  (hash-ref r 'apply/bis    #f))
@@ -46,6 +47,9 @@
     (`#s(constrain ==            (,t1 ,t2)) (bis:== t1 t2))))
 (define ((bis:== t1 t2) st)
   (let ((st (unify st t1 t2))) (if st (list st) '())))
+(define ((bis:==/use lhs args rhs desc) st)
+  (define deps (map (naive:use desc st) args))
+  ((bis:== lhs (apply rhs deps)) st))
 
 (define (dfs:query->stream q) ((dfs:query q) state-empty))
 (define (dfs:query q)
@@ -67,6 +71,7 @@
   (match g
     (`#s(conj ,g1 ,g2) (loop g1 (loop g2 k)))
     (`#s(disj ,g1 ,g2) (dfs:mplus (loop g1 k) (loop g2 k)))
+    (`#s(==/use ,lhs ,args ,rhs ,desc) (dfs:==/use lhs args rhs desc k))
     (`#s(constrain ,(? procedure? proc) ,args)
       (define r (relations-ref proc))
       (define apply/dfs  (hash-ref r 'apply/dfs    #f))
@@ -78,6 +83,15 @@
     (`#s(constrain (retrieve ,s) ,args)     (dfs:retrieve s args k))
     (`#s(constrain ==            (,t1 ,t2)) (dfs:== t1 t2 k))))
 (define ((dfs:== t1 t2 k) st) (let ((st (unify st t1 t2))) (if st (k st) '())))
+(define ((dfs:==/use lhs args rhs desc k) st)
+  (define deps (map (naive:use desc st) args))
+  ((dfs:== lhs (apply rhs deps) k) st))
+
+(define ((naive:use desc st) arg)
+  (if (procedure? arg) arg
+    (let ((t (naive:walk* st arg)))
+      (unless (ground? t) (error ":== dependency is not ground:" t desc))
+      t)))
 
 (struct state (var=>cx))
 (define state-empty (state (hash)))
@@ -105,12 +119,7 @@
   (cond ((var?  val) (var-walk st val))
         ((void? val) x)
         (else        val)))
-(define (walk st t)
-  (define (walk* t) (naive:walk* st t))
-  (cond ((var? t) (var-walk st t))
-        ;; TODO: later, uses will be re-scheduled if args are not yet ground
-        ((use? t) (apply (use-proc t) (map walk* (use-args t))))
-        (else     t)))
+(define (walk st t) (if (var? t) (var-walk st t) t))
 (define (naive:walk* st t)
   (let loop ((term t))
     (define t (walk st term))
