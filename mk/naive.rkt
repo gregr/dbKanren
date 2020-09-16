@@ -77,7 +77,7 @@
     (`#s(==/use ,lhs ,args ,rhs ,desc) (dfs:==/use lhs args rhs desc k))
     (`#s(constrain ,(? procedure? proc) ,args)
       (define r (relations-ref proc))
-      (define apply/dfs  (hash-ref r 'apply/dfs    #f))
+      (define apply/dfs    (hash-ref r 'apply/dfs    #f))
       (define apply/expand (hash-ref r 'apply/expand #f))  ; impure expansion
       (define expand       (hash-ref r 'expand       #f))  ; pure expansion
       (cond (apply/dfs    (apply/dfs k args))
