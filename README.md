@@ -6,10 +6,6 @@ large-scale relations.
 
 ## TODO
 
-* replace `(use (ds ...) body ...)` with `(:== term (ds ...) body ...)`
-  * `use` term should be replaced with fresh var and treated as `==` constraint
-  * report error if dependencies are not ground before running body
-
 * domain constraints
   * a var's possible values are the intersection of one or more as bounded sets
     * disagreeing bounds are refined by incremental intersection
@@ -191,10 +187,9 @@ large-scale relations.
   * `(define-relation (name param ...) goal ...) => (define name (relation (param ...) goal ...))`
   * `(define-relation/data (name param ...) data-description)`
   * `(relation (param-name ...) goal ...)`
-  * `(:== term (relation-or-var-name ...) term-computation ...)`
-    * computed term that indicates its relation and logic variable dependencies
+  * `(:== term (var-name ...) term-computation ...)`
+    * computed term that indicates its logic variable dependencies
     * force vars to be grounded so that embedded Racket computation succeeds
-    * force dependency on given relations to ensure stratification
     * result is equated with left-hand term (first argument to `:==`)
   * local relation definitions to share work (cached results) during aggregation
     * `(let-relations (((name param ...) goal ...) ...) goal ...)`
