@@ -1,5 +1,11 @@
 #lang racket/base
-(provide term.min term.max interval.full (struct-out interval)
+(provide term.min term.max term.number.min term.number.max
+         term.symbol.min term.symbol.max term.string.min term.string.max
+         term.bytes.min term.bytes.max term.pair.min term.pair.max
+         term.vector.min term.vector.max
+         domain.any domain.null domain.number domain.symbol
+         domain.string domain.bytes domain.pair domain.vector domain.boolean
+         (struct-out interval)
          type->compare compare-any compare-null compare-boolean
          compare-nat compare-number
          compare-bytes compare-string compare-symbol
@@ -19,11 +25,41 @@
          suffix<string? suffix<=string?)
 (require racket/match racket/math)
 
-(define term.min '())
-(define term.max  #t)
+;; TODO: is this representation compatible with table intersections?
+;; define polymorphic intersection, likely by lifting to simple OO
 
+;; TODO: recognize and extract sparse endpoints of intervals
+;; e.g., `#(,(interval '(#f . #f) '#()))
+;;       ===
+;;       `#((#f . #t) (#t . ()) ,(interval '(#t . ()) '(#t . #f)) (#t . #f) (#t . #t))
+
+;; open intervals for describing infinite domains within the total order
 (struct interval (lb ub) #:prefab)
-(define interval.full (interval term.min term.max))
+
+(define term.min        '())
+(define term.max        #t)
+(define term.number.min term.min)
+(define term.number.max '||)
+(define term.symbol.min term.number.max)
+(define term.symbol.max "")
+(define term.string.min term.symbol.max)
+(define term.string.max #"")
+(define term.bytes.min  term.string.max)
+(define term.bytes.max  '(() . ()))
+(define term.pair.min   term.bytes.max)
+(define term.pair.max   '#())
+(define term.vector.min term.pair.max)
+(define term.vector.max #f)
+
+(define domain.any     `#(()       ,(interval '()        #t)))
+(define domain.null    `#(()))
+(define domain.number  `#(         ,(interval '()        '||)))
+(define domain.symbol  `#(||       ,(interval '||        "")))
+(define domain.string  `#(""       ,(interval ""         #"")))
+(define domain.bytes   `#(#""      ,(interval #""        '(() . ()))))
+(define domain.pair    `#((() .()) ,(interval '(() . ()) '#())))
+(define domain.vector  `#(#()      ,(interval '(#t . #t) #f)))
+(define domain.boolean `#(#f                             #t))
 
 (define ((compare-><?  compare) a b)      (eqv? (compare a b) -1))
 (define ((compare-><=? compare) a b) (not (eqv? (compare a b)  1)))
