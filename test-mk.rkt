@@ -15,12 +15,12 @@
              (printf "  EXPECTED:\n")
              (pretty-print expected)))))
 
-(define-relation (appendo xs ys xsys)
-  (conde ((== xs '()) (== ys xsys))
-         ((fresh (a d res)
-            (== `(,a . ,d)   xs)
-            (== `(,a . ,res) xsys)
-            (appendo d ys res)))))
+(test 'membero-forward
+  (run* () (membero 3 '(1 2 3 4 5)))
+  '(()))
+(test 'membero-backward
+  (run* x (membero x '(1 2 3 4 5)))
+  '(1 2 3 4 5))
 
 (test 'appendo-forward
   (run* (z) (appendo '(1 2 3) '(4 5) z))

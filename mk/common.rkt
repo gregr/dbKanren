@@ -2,9 +2,8 @@
 (provide booleano symbolo numbero stringo byteso vectoro integero
          not-pairo not-booleano not-symbolo not-numbero not-stringo
          not-byteso not-vectoro not-integero
-         vector==listo bytes==listo
-          <=o <o string<=o string<o
-         absento)
+         vector==listo bytes==listo <=o <o string<=o string<o absento
+         appendo membero)
 (require "../order.rkt" "syntax.rkt")
 
 (define-relation (booleano t) (conde ((== t #t)) ((== t #f))))
@@ -91,3 +90,16 @@
             (absento x d)))
          ((absent-vectoro x t 0))
          ((not-pairo t) (not-vectoro t))))
+
+(define-relation (appendo xs ys xsys)
+  (conde ((== xs '()) (== ys xsys))
+         ((fresh (a d res)
+            (== `(,a . ,d)   xs)
+            (== `(,a . ,res) xsys)
+            (appendo d ys res)))))
+
+(define-relation (membero x xs)
+  (fresh (a d)
+    (== xs `(,a . ,d))
+    (conde ((== x a))
+           ((membero x d)))))
