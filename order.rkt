@@ -40,15 +40,15 @@
 (define term.max        #t)
 (define term.number.min term.min)
 (define term.number.max '||)
-(define term.symbol.min term.number.max)
+(define term.symbol.min term.number.max)  ;; inclusive
 (define term.symbol.max "")
-(define term.string.min term.symbol.max)
+(define term.string.min term.symbol.max)  ;; inclusive
 (define term.string.max #"")
-(define term.bytes.min  term.string.max)
+(define term.bytes.min  term.string.max)  ;; inclusive
 (define term.bytes.max  '(() . ()))
-(define term.pair.min   term.bytes.max)
-(define term.pair.max   '#())
-(define term.vector.min term.pair.max)
+(define term.pair.min   term.bytes.max)   ;; inclusive
+(define term.pair.max   '(#t . #t))       ;; inclusive
+(define term.vector.min '#())             ;; inclusive
 (define term.vector.max #f)
 
 (define domain.any     `#(()       ,(interval '()        #t)))
@@ -57,8 +57,8 @@
 (define domain.symbol  `#(||       ,(interval '||        "")))
 (define domain.string  `#(""       ,(interval ""         #"")))
 (define domain.bytes   `#(#""      ,(interval #""        '(() . ()))))
-(define domain.pair    `#((() .()) ,(interval '(() . ()) '#())))
-(define domain.vector  `#(#()      ,(interval '(#t . #t) #f)))
+(define domain.pair    `#((() .()) ,(interval '(() . ()) '(#t . #t)) '(#t . #t)))
+(define domain.vector  `#(#()      ,(interval '#()       #f)))
 (define domain.boolean `#(#f                             #t))
 
 (define ((compare-><?  compare) a b)      (eqv? (compare a b) -1))
