@@ -5,6 +5,7 @@
          term.vector.min term.vector.max
          domain.any domain.null domain.number domain.symbol
          domain.string domain.bytes domain.pair domain.vector domain.boolean
+         bounds-adjacent?
          (struct-out interval)
          type->compare compare-any compare-null compare-boolean
          compare-nat compare-number
@@ -27,11 +28,6 @@
 
 ;; TODO: is this representation compatible with table intersections?
 ;; define polymorphic intersection, likely by lifting to simple OO
-
-;; TODO: recognize and extract sparse endpoints of intervals
-;; e.g., `#(,(interval '(#f . #f) '#()))
-;;       ===
-;;       `#((#f . #t) (#t . ()) ,(interval '(#t . ()) '(#t . #f)) (#t . #f) (#t . #t))
 
 ;; open intervals for describing infinite domains within the total order
 (struct interval (lb ub) #:prefab)
@@ -60,6 +56,41 @@
 (define domain.pair    `#((() .()) ,(interval '(() . ()) '(#t . #t)) '(#t . #t)))
 (define domain.vector  `#(#()      ,(interval '#()       #f)))
 (define domain.boolean `#(#f                             #t))
+
+(define (bounds-adjacent? x y)
+  (define (vector=/len? x y len)
+    (let loop ((i (- len 1)))
+      (or (< i 0)
+          (let ((xi (vector-ref x i)) (yi (vector-ref y i)))
+            (and (equal? xi yi) (loop (- i 1)))))))
+  (define (vector-adjacent/len? x y len)
+    (let loop ((i (- len 1)))
+      (and (<= 0 i)
+           (let ((xi (vector-ref x i)) (yi (vector-ref y i)))
+             (if (eq? yi '())
+               (and (eq? xi #t) (loop (- i 1)))
+               (and (bounds-adjacent? xi yi)
+                    (vector=/len? x y i)))))))
+  (define (vector-eq/len? v x len)
+    (let loop ((i (- len 1)))
+      (or (< i 0) (and (eq? (vector-ref x i) v) (loop (- i 1))))))
+  (match x
+    (#f         (eq?    y #t))
+    ('(#t . #t) (equal? y '#()))
+    (`(,xa . ,xd)
+      (match y
+        (`(,ya . ,yd) (or (and (equal? xa ya)
+                               (bounds-adjacent? xd yd))
+                          (and (eq? xd #t) (eq? yd '())
+                               (bounds-adjacent? xa ya))))
+        (_            #f)))
+    (_ (and (vector? x) (vector? y)
+            (let ((xlen (vector-length x)) (ylen (vector-length y)))
+              (and (not (= ylen 0))
+                   (or (and (= xlen ylen) (vector-adjacent/len? x y xlen))
+                       (and (= (+ xlen 1) ylen)
+                            (vector-eq/len? #t  x xlen)
+                            (vector-eq/len? '() y ylen)))))))))
 
 (define ((compare-><?  compare) a b)      (eqv? (compare a b) -1))
 (define ((compare-><=? compare) a b) (not (eqv? (compare a b)  1)))
