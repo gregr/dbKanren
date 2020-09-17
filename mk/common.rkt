@@ -1,12 +1,11 @@
 #lang racket/base
-(provide booleano symbolo numbero stringo byteso vectoro integero
-         not-pairo not-booleano not-symbolo not-numbero not-stringo
-         not-byteso not-vectoro not-integero
+(provide symbolo numbero stringo byteso pairo vectoro booleano integero
+         not-symbolo not-numbero not-stringo not-byteso
+         not-pairo not-vectoro not-booleano not-integero
          vector==listo bytes==listo <=o <o string<=o string<o absento
          appendo membero)
 (require "../order.rkt" "syntax.rkt")
 
-(define-relation (booleano t) (conde ((== t #t)) ((== t #f))))
 (define-relation (symbolo t)
   (any<=o term.symbol.min t) (any<=o t term.symbol.max)
   (=/= t term.symbol.max))
@@ -19,12 +18,13 @@
 (define-relation (byteso t)
   (any<=o term.bytes.min t) (any<=o t term.bytes.max)
   (=/= t term.bytes.max))
+(define-relation (pairo t) (fresh (a d) (== t `(,a . ,d))))
 (define-relation (vectoro t)
   (any<=o term.vector.min t) (any<=o t term.bytes.max)
   (=/= t term.vector.max))
+(define-relation (booleano t) (conde ((== t #t)) ((== t #f))))
 (define-relation (integero t) (flooro t t))
 
-(define-relation (not-booleano t) (=/= t #t) (=/= t #f))
 (define-relation (not-symbolo t)
   (conde ((any<=o t term.symbol.min) (=/= t term.symbol.min))
          ((any<=o term.symbol.max t))))
@@ -43,6 +43,7 @@
 (define-relation (not-vectoro t)
   (conde ((any<=o t term.vector.min) (=/= t term.vector.min))
          ((any<=o term.vector.max t))))
+(define-relation (not-booleano t) (=/= t #t) (=/= t #f))
 (define-relation (not-integero t) (fresh (x) (flooro t x) (=/= t x)))
 
 ;; TODO: /o, %o, quotiento, remaindero?
