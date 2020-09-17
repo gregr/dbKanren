@@ -11,7 +11,7 @@
   relation letrec-relation define-relation
   relation/stream letrec-relation/stream define-relation/stream
   conj* disj* fresh conde :== query
-  == =/= <=anyo flooro +o *o string==byteso symbol==stringo
+  == =/= any<=o flooro +o *o string==byteso symbol==stringo
   vector-lengtho vector-refo bytes-lengtho bytes-refo
   retrieve
 
@@ -35,7 +35,7 @@
                            (constrain 'op (list params ...))))))
 (define-constraint (==              t1 t2))
 (define-constraint (=/=             t1 t2))
-(define-constraint (<=anyo          t1 t2))
+(define-constraint (any<=o          t1 t2))
 (define-constraint (flooro          t1 t2))
 (define-constraint (+o              t1 t2 t3))
 (define-constraint (*o              t1 t2 t3))
