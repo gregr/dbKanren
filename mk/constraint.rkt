@@ -1,10 +1,10 @@
 #lang racket/base
 (provide
-  ;state.empty
-  ;walk
-  ;unify
+  state.empty
+  walk
+  unify
   )
-(require "../method.rkt" "../order.rkt")
+(require "syntax.rkt")
 
 ;; TODO:
 
@@ -282,3 +282,39 @@
 ;;(define (walk/cx st t) (if (var? t) (state-var-walk/cx st t) t))
 ;
 ;;; TODO: occurs check for =/= and vector-ref
+
+(struct state (var=>cx))
+(define hash.empty (hash))
+(define state.empty (state hash.empty))
+(define (state-var-assign st x t) (state (hash-set (state-var=>cx st) x t)))
+(define (state-var-ref    st x)   (hash-ref (state-var=>cx st) x (void)))
+
+(define (var-assign st x t) (and (not (occurs? st x t))
+                                 (state-var-assign st x t)))
+(define (var-walk st x)
+  (define val (state-var-ref st x))
+  (cond ((var?  val) (var-walk st val))
+        ((void? val) x)
+        (else        val)))
+(define (walk st t) (if (var? t) (var-walk st t) t))
+(define (occurs? st x t)
+  (let oc? ((t t))
+    (cond ((pair?   t) (or (oc? (walk st (car t))) (oc? (walk st (cdr t)))))
+          ((vector? t) (let vloop ((i (- (vector-length t) 1)))
+                         (and (<= 0 i) (or (oc? (walk st (vector-ref t i)))
+                                           (vloop (- i 1))))))
+          (else        (eq? x t)))))
+(define (unify st t1 t2)
+  (let ((t1 (walk st t1)) (t2 (walk st t2)))
+    (cond ((eqv? t1 t2) st)
+          ((var?    t1) (var-assign st t1 t2))
+          ((var?    t2) (var-assign st t2 t1))
+          ((pair?   t1) (and (pair? t2)
+                             (let ((st (unify st (car t1) (car t2))))
+                               (and st (unify st (cdr t1) (cdr t2))))))
+          ((vector? t1) (and (vector? t2) (= (vector-length t1)
+                                             (vector-length t2))
+                             (unify st (vector->list t1) (vector->list t2))))
+          ((string? t1) (and (string? t2) (string=? t1 t2) st))
+          ((bytes?  t1) (and (bytes?  t2) (bytes=?  t1 t2) st))
+          (else         #f))))
