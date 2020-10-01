@@ -45,6 +45,7 @@
 (define-constraint (bytes-refo      t i x))
 (define-constraint (symbol==stringo t1 t2))
 (define-constraint (string==byteso  t1 t2))  ;; as utf-8
+(define-constraint (functiono       t1 t2))  ;; uninterpreted functional dependency
 (define (retrieve stream args) (constrain `(retrieve ,stream) args))
 (define (relate proc args) (constrain proc args))
 
