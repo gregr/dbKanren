@@ -9,7 +9,7 @@
 (define (bis:query->stream q)
   (match-define `#s(query ,x ,g) q)
   (define (return st) (pretty (naive:walk* st x)))
-  (s-map return ((bis:goal g) state-empty)))
+  (s-map return ((bis:goal g) state.empty)))
 (define (bis:bind s k)
   (cond ((null?      s) '())
         ((procedure? s) (thunk (bis:bind (s) k)))
@@ -53,7 +53,7 @@
   (define deps (map (naive:use desc st) args))
   ((bis:== lhs (apply rhs deps)) st))
 
-(define (dfs:query->stream q) ((dfs:query q) state-empty))
+(define (dfs:query->stream q) ((dfs:query q) state.empty))
 (define (dfs:query q)
   (match-define `#s(query ,x ,g) q)
   (define (return st) (list (pretty (naive:walk* st x))))
@@ -97,24 +97,19 @@
       (unless (ground? t) (error ":== dependency is not ground:" t desc))
       t)))
 
+(define (naive:walk* st t)
+  (let loop ((term t))
+    (define t (walk st term))
+    (cond ((pair?   t) (cons (loop (car t)) (loop (cdr t))))
+          ((vector? t) (vector-map loop t))
+          (else        t))))
+
+;; TODO: move these strategy-agnostic components to constraint.rkt
 (struct state (var=>cx))
-(define state-empty (state (hash)))
+(define hash.empty (hash))
+(define state.empty (state hash.empty))
 (define (state-var-assign st x t) (state (hash-set (state-var=>cx st) x t)))
 (define (state-var-ref    st x)   (hash-ref (state-var=>cx st) x (void)))
-
-;; TODO: variable lattice attributes supporting general constraints
-;* type domains: #t top, #f bottom, lattice vector for domain sums
-;  * (), #t, #f domains need no representation beyond being top or bottom
-;  * pair domains are all represented as concrete values
-;    * though pairs may contain variables
-;  * symbol, string, bytes, and vector domains are represented as discrete sets
-;    * discrete sets are sorted lists of concrete values
-;      * though vectors may contain variables
-;  * number domains are represented as interval sets (ordered ranges)
-;(struct vspec (domain constraints) #:prefab)
-;(define vtop (vspec #t '()))
-;; TODO: register constrained/specified variables in a priority queue?
-;(define (var/fresh name) (var name (void)))  ;; TODO: use TOP instead of void
 
 (define (var-assign st x t) (and (not (occurs? st x t))
                                  (state-var-assign st x t)))
@@ -124,12 +119,6 @@
         ((void? val) x)
         (else        val)))
 (define (walk st t) (if (var? t) (var-walk st t) t))
-(define (naive:walk* st t)
-  (let loop ((term t))
-    (define t (walk st term))
-    (cond ((pair?   t) (cons (loop (car t)) (loop (cdr t))))
-          ((vector? t) (vector-map loop t))
-          (else        t))))
 (define (occurs? st x t)
   (let oc? ((t t))
     (cond ((pair?   t) (or (oc? (walk st (car t))) (oc? (walk st (cdr t)))))
@@ -151,4 +140,3 @@
           ((string? t1) (and (string? t2) (string=? t1 t2) st))
           ((bytes?  t1) (and (bytes?  t2) (bytes=?  t1 t2) st))
           (else         #f))))
-;; TODO: constraint satisfaction
