@@ -1,14 +1,12 @@
 #lang racket/base
-(provide naive:walk*
-         bis:query->stream bis:retrieve
+(provide bis:query->stream bis:retrieve
          dfs:query->stream dfs:retrieve)
 (require "../stream.rkt" "constraint.rkt" "syntax.rkt"
-         (except-in racket/match ==)
-         racket/function racket/vector)
+         (except-in racket/match ==) racket/function)
 
 (define (bis:query->stream q)
   (match-define `#s(query ,x ,g) q)
-  (define (return st) (pretty (naive:walk* st x)))
+  (define (return st) (reify st x))
   (s-map return ((bis:goal g) state.empty)))
 (define (bis:bind s k)
   (cond ((null?      s) '())
@@ -27,7 +25,7 @@
           (else (bis:mplus ((bis:== (car s) args) st)
                            (thunk (loop (s-next (cdr s)))))))))
 (define ((bis:apply/expand ex args) st)
-  ((bis:goal (apply ex (naive:walk* st args))) st))
+  ((bis:goal (apply ex (walk* st args))) st))
 (define ((bis:expand ex args) st) ((bis:goal (apply ex args)) st))
 (define (bis:goal g)
   (match g
@@ -59,7 +57,7 @@
 (define (dfs:query->stream q) ((dfs:query q) state.empty))
 (define (dfs:query q)
   (match-define `#s(query ,x ,g) q)
-  (define (return st) (list (pretty (naive:walk* st x))))
+  (define (return st) (list (reify st x)))
   (dfs:goal g return))
 (define ((dfs:mplus k1 k2) st) (s-append (k1 st) (thunk (k2 st))))
 (define ((dfs:retrieve s args k) st)
@@ -70,7 +68,7 @@
                             (dfs:retrieve (cdr s) args k))
                  st)))))
 (define ((dfs:apply/expand ex args k) st)
-  ((dfs:goal (apply ex (naive:walk* st args)) k) st))
+  ((dfs:goal (apply ex (walk* st args)) k) st))
 (define ((dfs:expand ex args k) st) ((dfs:goal (apply ex args) k) st))
 (define (dfs:goal g k)
   (define loop dfs:goal)
@@ -98,15 +96,8 @@
   (let ((st (disunify st t1 t2))) (if st (k st) '())))
 
 (define (naive:use lhs desc st args)
-  (let ((t (naive:walk* st args)))
+  (let ((t (walk* st args)))
     (unless (ground? t)
       (error ":== dependencies are not ground:"
-             (pretty (==/use (naive:walk* st lhs) t #t desc))))
+             (pretty (==/use (walk* st lhs) t #t desc))))
     t))
-
-(define (naive:walk* st t)
-  (let loop ((term t))
-    (define t (walk st term))
-    (cond ((pair?   t) (cons (loop (car t)) (loop (cdr t))))
-          ((vector? t) (vector-map loop t))
-          (else        t))))

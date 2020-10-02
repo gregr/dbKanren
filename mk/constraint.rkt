@@ -1,6 +1,6 @@
 #lang racket/base
-(provide state.empty walk unify disunify)
-(require "syntax.rkt")
+(provide state.empty walk* unify disunify reify)
+(require "syntax.rkt" racket/vector)
 
 ;; TODO:
 
@@ -297,6 +297,12 @@
               ((or (vcx? val) (mvcx? val)) x)
               (else                        val))))
     t))
+(define (walk* st t)
+  (let loop ((term t))
+    (define t (walk st term))
+    (cond ((pair?   t) (cons (loop (car t)) (loop (cdr t))))
+          ((vector? t) (vector-map loop t))
+          (else        t))))
 (define (occurs? st x t)
   (let oc? ((t t))
     (cond ((pair?   t) (or (oc? (walk st (car t))) (oc? (walk st (cdr t)))))
@@ -353,3 +359,5 @@
   (if (null? =/=**) st
     (let ((st (disunify* st (car =/=**))))
       (and st (disunify** st (cdr =/=**))))))
+
+(define (reify st t) (pretty (walk* st t)))
