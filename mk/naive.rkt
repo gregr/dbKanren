@@ -98,10 +98,9 @@
   (let ((st (disunify st t1 t2))) (if st (k st) '())))
 
 (define ((naive:use desc st) arg)
-  (if (procedure? arg) arg
-    (let ((t (naive:walk* st arg)))
-      (unless (ground? t) (error ":== dependency is not ground:" t desc))
-      t)))
+  (let ((t (naive:walk* st arg)))
+    (unless (ground? t) (error ":== dependency is not ground:" t desc))
+    t))
 
 (define (naive:walk* st t)
   (let loop ((term t))

@@ -29,8 +29,7 @@
 (test 'appendo.aggregate.1
   (run* (x y xsum)
     (appendo x y '(1 2 3 4 5))
-    (:== xsum
-         (x)
+    (:== xsum (x)
          (foldl + 0 x)))
   '((() (1 2 3 4 5)  0)
     ((1) (2 3 4 5)   1)
@@ -41,8 +40,7 @@
 (test 'appendo.aggregate.2
   (run* (x y xparts)
     (appendo x y '(1 2 3 4 5))
-    (:== xparts
-         (appendo x)
+    (:== xparts (x)
          (run* (a b) (appendo a b x))))
   '((() (1 2 3 4 5) ((() ())))
     ((1) (2 3 4 5)  ((() (1))
