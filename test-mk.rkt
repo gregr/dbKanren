@@ -6,26 +6,19 @@
 
 (define-syntax-rule (test name e expected)
   (begin (printf "Testing ~s:\n" name)
-         (pretty-print 'e)
          (let ((answer e))
            (unless (equal? answer expected)
+             (pretty-print 'e)
              (printf "FAILED ~s:\n" name)
              (printf "  ANSWER:\n")
              (pretty-print answer)
              (printf "  EXPECTED:\n")
              (pretty-print expected)))))
 
-(test 'membero-forward
-  (run* () (membero 3 '(1 2 3 4 5)))
-  '(()))
-(test 'membero-backward
-  (run* x (membero x '(1 2 3 4 5)))
-  '(1 2 3 4 5))
-
-(test 'appendo-forward
+(test 'appendo.forward
   (run* (z) (appendo '(1 2 3) '(4 5) z))
   '(((1 2 3 4 5))))
-(test 'appendo-backward
+(test 'appendo.backward
   (run* (x y) (appendo x y '(1 2 3 4 5)))
   '((() (1 2 3 4 5))
     ((1) (2 3 4 5))
@@ -33,7 +26,7 @@
     ((1 2 3) (4 5))
     ((1 2 3 4) (5))
     ((1 2 3 4 5) ())))
-(test 'appendo-aggregate-1
+(test 'appendo.aggregate.1
   (run* (x y xsum)
     (appendo x y '(1 2 3 4 5))
     (:== xsum
@@ -45,7 +38,7 @@
     ((1 2 3) (4 5)   6)
     ((1 2 3 4) (5)  10)
     ((1 2 3 4 5) () 15)))
-(test 'appendo-aggregate-2
+(test 'appendo.aggregate.2
   (run* (x y xparts)
     (appendo x y '(1 2 3 4 5))
     (:== xparts
@@ -82,16 +75,16 @@
                        #(d e f)
                        #(g h i)))))
 
-(test 'tripleo-all
+(test 'tripleo.all
   (run* (i x y z) (tripleo i x y z))
   '((0 a b c) (1 d e f) (2 g h i)))
-(test 'tripleo-filter-before
+(test 'tripleo.filter-before
   (run* (i x y z)
     (conde ((== y 'e))
            ((== x 'g)))
     (tripleo i x y z))
   '((1 d e f) (2 g h i)))
-(test 'tripleo-filter-before-key
+(test 'tripleo.filter-before.key
   (run* (i x y z)
     (conde ((== y 'e))
            ((== x 'g))
@@ -99,7 +92,7 @@
            ((== i 0)))
     (tripleo i x y z))
   '((1 d e f) (2 g h i) (0 a b c)))
-(test 'tripleo-filter-before-key-only
+(test 'tripleo.filter-before.key-only
   (run* (i x y z)
     (conde ((== y 'e))
            ((== x 'g))
@@ -108,7 +101,7 @@
     (tripleo i x y z)
     (== i 0))
   '((0 a b c)))
-(test 'tripleo-filter-after
+(test 'tripleo.filter-after
   (run* (i x y z)
     (tripleo i x y z)
     (conde ((== i 0))
@@ -162,7 +155,7 @@
                        #(c a 11)
                        #(c d 12)))))
 
-(test 'triple2o-all
+(test 'triple2o.all
   (run* (x y z) (triple2o x y z))
   '((0  a b)
     (1  a b)
@@ -178,7 +171,7 @@
     (11 c a)
     (12 c d)))
 
-(test 'triple2o-filter
+(test 'triple2o.filter
   (list->set
     (run* (x y z)
       (conde ((== y 'a) (== z 'c))
@@ -198,3 +191,178 @@
       (9 b f)
       (11 c a)
       (12 c d))))
+
+(test '=/=.atom.1
+  (run* (x) (=/= 1 x))
+  'TODO)
+(test '=/=.atom.2
+  (run* (x) (=/= x 2))
+  'TODO)
+
+(test '=/=.atom.==.1
+  (run* (x) (== x 1) (=/= x 1))
+  '())
+(test '=/=.atom.==.2
+  (run* (x) (=/= x 2) (== x 2))
+  '())
+(test '=/=.atom.==.3
+  (run* (x) (=/= x 3) (== x 'not-3))
+  '((not-3)))
+(test '=/=.atom.==.4
+  (run* (x) (== x 'not-4) (=/= x 4))
+  '((not-4)))
+
+(test '=/=.var.==.1
+  (run* (x)
+    (fresh (y)
+      (=/= x y)
+      (== x 1)
+      (== y 1)))
+  '())
+(test '=/=.var.==.2
+  (run* (x)
+    (fresh (y)
+      (== x 2)
+      (== y 2)
+      (=/= x y)))
+  '())
+(test '=/=.var.==.3
+  (run* (x)
+    (fresh (y)
+      (== x 3)
+      (=/= x y)
+      (== y 3)))
+  '())
+(test '=/=.var.==.4
+  (run* (x)
+    (fresh (y z)
+      (=/= x 4)
+      (== x y)
+      (== y z)
+      (== z 4)))
+  '())
+(test '=/=.var.==.5
+  (run* (x)
+    (fresh (y z)
+      (=/= x 5)
+      (== y z)
+      (== x y)
+      (== z 5)))
+  '())
+
+(test '=/=.pair.==.1
+  (run* (x)
+    (=/= x '(1 . 2))
+    (==  x '(1 . 2)))
+  '())
+(test '=/=.pair.==.2
+  (run* (x)
+    (fresh (y)
+      (=/= x `(1 . ,y))
+      (==  x `(1 . 2))
+      (==  y 2)))
+  '())
+(test '=/=.pair.==.3
+  (run* (x)
+    (fresh (y)
+      (==  x `(1 . 2))
+      (=/= x `(1 . ,y))
+      (==  y 2)))
+  '())
+(test '=/=.pair.==.4
+  (run* (x)
+    (fresh (y)
+      (==  x `(1 . 2))
+      (==  y 2)
+      (=/= x `(1 . ,y))))
+  '())
+(test '=/=.pair.==.5
+  (run* (x)
+    (fresh (y)
+      (=/= x `(1 . ,y))
+      (==  y 2)
+      (==  x `(1 . 2))))
+  '())
+(test '=/=.pair.==.6
+  (run* (x)
+    (fresh (y)
+      (=/= `(,x .  1) `(0 . ,y))
+      (==  `(,x . ,y) '(0 .  1))))
+  '())
+(test '=/=.pair.==.7
+  (run* (x)
+    (fresh (y)
+      (==  `(,x . ,y) '(0 .  1))
+      (=/= `(,x .  1) `(0 . ,y))))
+  '())
+
+(test '=/=.pair.=/=.1
+  (run* (x)
+    (=/= x '(1 . 2))
+    (==  x '(0 . 2)))
+  '(((0 . 2))))
+(test '=/=.pair.=/=.2
+  (run* (x)
+    (fresh (y)
+      (=/= x `(1 . ,y))
+      (==  x `(1 . 2))
+      (==  y 0)))
+  '(((1 . 2))))
+(test '=/=.pair.=/=.3
+  (run* (x)
+    (fresh (y)
+      (==  x `(1 . 2))
+      (=/= x `(1 . ,y))
+      (==  y 0)))
+  '(((1 . 2))))
+(test '=/=.pair.=/=.4
+  (run* (x)
+    (fresh (y)
+      (==  x `(1 . 2))
+      (==  y 0)
+      (=/= x `(1 . ,y))))
+  '(((1 . 2))))
+(test '=/=.pair.=/=.5
+  (run* (x)
+    (fresh (y)
+      (=/= x `(1 . ,y))
+      (==  y 0)
+      (==  x `(1 . 2))))
+  '(((1 . 2))))
+(test '=/=.pair.=/=.6
+  (run* (x)
+    (fresh (y)
+      (=/= `(,x .  1) `(0 . ,y))
+      (==  `(,x . ,y) '(0 .  2))))
+  '((0)))
+(test '=/=.pair.=/=.7
+  (run* (x)
+    (fresh (y)
+      (==  `(,x . ,y) '(0 .  2))
+      (=/= `(,x .  1) `(0 . ,y))))
+  '((0)))
+
+(test 'membero.forward
+  (run* () (membero 3 '(1 2 3 4 3 5)))
+  '(()))
+(test 'membero.backward
+  (run* x (membero x '(1 2 3 4 3 5)))
+  '(1 2 3 4 5))
+(test 'not-membero.forward
+  (run* () (not-membero 0 '(1 2 3 4 5)))
+  '(()))
+(test 'not-membero.backward
+  (run* x (not-membero x '(1 2 3 4 5)) (== x 0))
+  '(0))
+(test 'uniqueo.1
+  (run* () (uniqueo '(1 2 3 4 5)))
+  '(()))
+(test 'uniqueo.2
+  (run* () (uniqueo '(1 2 3 4 2)))
+  '())
+(test 'removeo.forward
+  (run* x (removeo '3 '(1 2 3 4 5) x))
+  '((1 2 4 5)))
+(test 'removeo.backward
+  (run* x (removeo x '(1 2 3 4 5) '(1 2 4 5)))
+  '(3))
