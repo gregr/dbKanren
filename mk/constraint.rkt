@@ -1,9 +1,5 @@
 #lang racket/base
-(provide
-  state.empty
-  walk
-  unify
-  )
+(provide state.empty walk unify disunify)
 (require "syntax.rkt")
 
 ;; TODO:
@@ -11,7 +7,7 @@
 ;; implementation phases:
 ;;   pre-minimal implementation:
 ;;     ==: values as constraints
-;;     =/=: =/=.ground, =/=.non-ground, =/=*, optional subsumption checking
+;;     =/=: =/=.atom, =/=.rhs, =/=*, optional subsumption checking
 ;;   minimal implementation must support:
 ;;     tables: ub, lb, lb-inclusive? ub-inclusive?, table-domains table-arcs
 ;;       also, subsumption and functional dependencies
@@ -276,8 +272,8 @@
 
 (define hash.empty (hash))
 
-(struct vcx ())
-(define vcx.empty (vcx))
+(struct vcx (=/=*))
+(define vcx.empty (vcx '()))
 
 (struct mvcx () #:mutable)
 
@@ -285,8 +281,13 @@
 (define state.empty (state hash.empty))
 (define (state-var=>cx-set st x t) (state (hash-set (state-var=>cx st) x t)))
 
-(define (var-assign st x t) (and (not (occurs? st x t))
-                                 (state-var=>cx-set st x t)))
+(define (assign st x t)
+  (define v=>cx (state-var=>cx st))
+  (and (not (occurs? st x t))
+       (let ((vcx.x              (hash-ref v=>cx x vcx.empty))
+             (vcx.t (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty))
+             (st    (state-var=>cx-set st x t)))
+         (disunify** st (append (vcx-=/=* vcx.t) (vcx-=/=* vcx.x))))))
 (define (walk st t)
   (if (var? t)
     (let ((v=>cx (state-var=>cx st)))
@@ -306,8 +307,8 @@
 (define (unify st t1 t2)
   (let ((t1 (walk st t1)) (t2 (walk st t2)))
     (cond ((eqv? t1 t2) st)
-          ((var?    t1) (var-assign st t1 t2))
-          ((var?    t2) (var-assign st t2 t1))
+          ((var?    t1) (assign st t1 t2))
+          ((var?    t2) (assign st t2 t1))
           ((pair?   t1) (and (pair? t2)
                              (let ((st (unify st (car t1) (car t2))))
                                (and st (unify st (cdr t1) (cdr t2))))))
@@ -317,3 +318,38 @@
           ((string? t1) (and (string? t2) (string=? t1 t2) st))
           ((bytes?  t1) (and (bytes?  t2) (bytes=?  t1 t2) st))
           (else         #f))))
+(define (disunify st t1 t2) (disunify* st (list (cons t1 t2))))
+(define (disunify* st =/=*)
+  (define (assign st ==* x t) (and (not (occurs? st x t))
+                                   (cons (state-var=>cx-set st x t)
+                                         (cons (cons x t) ==*))))
+  (define (unify st ==* t1 t2)
+    (let ((t1 (walk st t1)) (t2 (walk st t2)))
+      (cond ((eqv? t1 t2) (cons st ==*))
+            ((var?    t1) (assign st ==* t1 t2))
+            ((var?    t2) (assign st ==* t2 t1))
+            ((pair?   t1) (and (pair? t2)
+                               (let ((st+ (unify st ==* (car t1) (car t2))))
+                                 (and st+ (unify (car st+) (cdr st+)
+                                                 (cdr t1) (cdr t2))))))
+            ((vector? t1) (and (vector? t2) (= (vector-length t1)
+                                               (vector-length t2))
+                               (unify st ==*
+                                      (vector->list t1) (vector->list t2))))
+            ((string? t1) (and (string? t2) (string=? t1 t2) (cons st ==*)))
+            ((bytes?  t1) (and (bytes?  t2) (bytes=?  t1 t2) (cons st ==*)))
+            (else         #f))))
+  (let loop ((=/=* =/=*) (st st))
+    (and (pair? =/=*)
+         (let ((st+ (unify st '() (caar =/=*) (cdar =/=*))))
+           (cond ((not st+)         st)
+                 ((null? (cdr st+)) (loop (cdr =/=*) st))
+                 (else (let* ((=/=*  (append (cdr st+) (cdr =/=*)))
+                              (y     (caar =/=*))
+                              (vcx.y (hash-ref (state-var=>cx st) y vcx.empty))
+                              (vcx.y (vcx (cons =/=* (vcx-=/=* vcx.y)))))
+                         (state-var=>cx-set st y vcx.y))))))))
+(define (disunify** st =/=**)
+  (if (null? =/=**) st
+    (let ((st (disunify* st (car =/=**))))
+      (and st (disunify** st (cdr =/=**))))))
