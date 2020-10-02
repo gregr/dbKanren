@@ -3,7 +3,7 @@
          not-symbolo not-numbero not-stringo not-byteso
          not-pairo not-vectoro not-booleano not-integero
          vector==listo bytes==listo <=o <o string<=o string<o absento
-         appendo membero)
+         appendo removeo membero not-membero uniqueo)
 (require "../order.rkt" "syntax.rkt")
 
 (define-relation (symbolo t)
@@ -99,8 +99,33 @@
             (== `(,a . ,res) xsys)
             (appendo d ys res)))))
 
+(define-relation (removeo x xs ys)
+  (conde ((== xs '()) (== ys '()))
+         ((fresh (d)
+            (== `(,x . ,d) xs)
+            (removeo x d ys)))
+         ((fresh (a d res)
+            (== `(,a . ,d) xs)
+            (=/= x a)
+            (== `(,a . ,res) ys)
+            (removeo x d res)))))
+
 (define-relation (membero x xs)
   (fresh (a d)
     (== xs `(,a . ,d))
-    (conde ((== x a))
-           ((membero x d)))))
+    (conde ((==  x a))
+           ((=/= x a) (membero x d)))))
+
+(define-relation (not-membero x xs)
+  (conde ((== xs '()))
+         ((fresh (a d)
+            (== xs `(,a . ,d))
+            (=/= x a)
+            (not-membero x d)))))
+
+(define-relation (uniqueo xs)
+  (conde ((== xs '()))
+         ((fresh (a d)
+            (== `(,a . ,d) xs)
+            (not-membero a d)
+            (uniqueo d)))))
