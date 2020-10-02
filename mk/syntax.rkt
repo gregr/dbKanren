@@ -15,9 +15,9 @@
   vector-lengtho vector-refo bytes-lengtho bytes-refo
   retrieve
 
-  ground?
+  ground? term-vars
   make-pretty pretty)
-(require racket/match racket/vector)
+(require racket/match racket/set racket/vector)
 
 (struct query     (term g)                      #:prefab #:name make-query
                                                 #:constructor-name make-query)
@@ -126,8 +126,14 @@
     ((_ x       g0 gs ...)
      (let/fresh (x)     (make-query x            (conj* g0 gs ...))))))
 
+(define seteq.empty (seteq))
+(define (term-vars t)
+  (cond ((var?    t) (seteq t))
+        ((pair?   t) (set-union (term-vars (car t)) (term-vars (cdr t))))
+        ((vector? t) (apply set-union (map term-vars (vector->list t))))
+        (else        seteq.empty)))
 (define (ground? t)
-  (cond ((var?    t)  #f)
+  (cond ((var?    t) #f)
         ((pair?   t) (and (ground? (car t)) (ground? (cdr t))))
         ((vector? t) (andmap ground? (vector->list t)))
         (else        #t)))
