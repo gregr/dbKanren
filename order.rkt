@@ -7,12 +7,13 @@
          domain.string domain.bytes domain.pair domain.vector domain.boolean
          bounds-adjacent?
          (struct-out interval)
-         type->compare compare-any compare-null compare-boolean
+         type->compare compare-term compare-any compare-null compare-boolean
          compare-nat compare-number
          compare-bytes compare-string compare-symbol
          compare-pair compare-list compare-array compare-tuple
          compare-string/pos compare-suffix compare-suffix-string
          compare-><? compare-><=?
+         term<?    term<=?
          any<?     any<=?
          null<?    null<=?
          boolean<? boolean<=?
@@ -95,13 +96,7 @@
 (define ((compare-><?  compare) a b)      (eqv? (compare a b) -1))
 (define ((compare-><=? compare) a b) (not (eqv? (compare a b)  1)))
 
-(define (compare-any a b)
-  (let loop ((i 0))
-    (let ((type?        (vector-ref compares i))
-          (compare-type (vector-ref compares (+ i 1))))
-      (cond ((type? a) (if (type? b) (compare-type a b) -1))
-            ((type? b) 1)
-            (else      (loop (+ i 2)))))))
+(define (compare-any a b) (compare/compares compares.any a b))
 (define (any<?  a b)      (eqv? (compare-any a b) -1))
 (define (any<=? a b) (not (eqv? (compare-any a b)  1)))
 
@@ -227,14 +222,43 @@
 
 (define (exact-number? x) (and (number? x) (exact? x)))
 
-(define compares (vector null?         compare-null
-                         exact-number? compare-number
-                         symbol?       compare-symbol
-                         string?       compare-string
-                         bytes?        compare-bytes
-                         pair?         (compare-pair compare-any compare-any)
-                         vector?       (compare-array compare-any)
-                         boolean?      compare-boolean))
+(define (compare/compares compares a b)
+  (let loop ((i 0))
+    (let ((type?        (vector-ref compares i))
+          (compare-type (vector-ref compares (+ i 1))))
+      (cond ((type? a) (if (type? b) (compare-type a b) -1))
+            ((type? b) 1)
+            (else      (loop (+ i 2)))))))
+
+(define compares.any
+  (vector null?         compare-null
+          exact-number? compare-number
+          symbol?       compare-symbol
+          string?       compare-string
+          bytes?        compare-bytes
+          pair?         (compare-pair compare-any compare-any)
+          vector?       (compare-array compare-any)
+          boolean?      compare-boolean))
+
+(define (rvar? x) (match x (`#s(var ,_) #t) (_ #f)))
+(define (compare-rvar a b)
+  (match-define `#s(var ,id.a) a)
+  (match-define `#s(var ,id.b) b)
+  (compare-number id.a id.b))
+
+(define (compare-term a b) (compare/compares compares.term a b))
+(define (term<?  a b)      (eqv? (compare-term a b) -1))
+(define (term<=? a b) (not (eqv? (compare-term a b)  1)))
+(define compares.term
+  (vector rvar?         compare-rvar
+          null?         compare-null
+          exact-number? compare-number
+          symbol?       compare-symbol
+          string?       compare-string
+          bytes?        compare-bytes
+          pair?         (compare-pair compare-term compare-term)
+          vector?       (compare-array compare-term)
+          boolean?      compare-boolean))
 
 (define (type->compare type)
   (match type
