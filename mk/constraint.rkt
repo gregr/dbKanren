@@ -1,6 +1,7 @@
 #lang racket/base
 (provide state.empty walk* unify disunify reify)
-(require "syntax.rkt" racket/vector)
+(require "../order.rkt" "syntax.rkt"
+         (except-in racket/match ==) racket/list racket/set racket/vector)
 
 ;; TODO:
 
@@ -324,31 +325,30 @@
           ((string? t1) (and (string? t2) (string=? t1 t2) st))
           ((bytes?  t1) (and (bytes?  t2) (bytes=?  t1 t2) st))
           (else         #f))))
-(define (disunify st t1 t2) (disunify* st (list (cons t1 t2))))
+
+(define (assign/log st ==* x t) (and (not (occurs? st x t))
+                                     (cons (state-var=>cx-set st x t)
+                                           (cons (cons x t) ==*))))
+(define (unify/log st ==* t1 t2)
+  (let ((t1 (walk st t1)) (t2 (walk st t2)))
+    (cond ((eqv? t1 t2) (cons st ==*))
+          ((var?    t1) (assign/log st ==* t1 t2))
+          ((var?    t2) (assign/log st ==* t2 t1))
+          ((pair?   t1) (and (pair? t2)
+                             (let ((st+ (unify/log st ==* (car t1) (car t2))))
+                               (and st+ (unify/log (car st+) (cdr st+)
+                                                   (cdr t1) (cdr t2))))))
+          ((vector? t1) (and (vector? t2) (= (vector-length t1)
+                                             (vector-length t2))
+                             (unify/log st ==*
+                                        (vector->list t1) (vector->list t2))))
+          ((string? t1) (and (string? t2) (string=? t1 t2) (cons st ==*)))
+          ((bytes?  t1) (and (bytes?  t2) (bytes=?  t1 t2) (cons st ==*)))
+          (else         #f))))
 (define (disunify* st =/=*)
-  (define (assign st ==* x t) (and (not (occurs? st x t))
-                                   (cons (state-var=>cx-set st x t)
-                                         (cons (cons x t) ==*))))
-  (define (unify st ==* t1 t2)
-    (let ((t1 (walk st t1)) (t2 (walk st t2)))
-      (cond ((eqv? t1 t2) (cons st ==*))
-            ((var?    t1) (assign st ==* t1 t2))
-            ((var?    t2) (assign st ==* t2 t1))
-            ((pair?   t1) (and (pair? t2)
-                               (let ((st+ (unify st ==* (car t1) (car t2))))
-                                 (and st+ (unify (car st+) (cdr st+)
-                                                 (cdr t1) (cdr t2))))))
-            ((vector? t1) (and (vector? t2) (= (vector-length t1)
-                                               (vector-length t2))
-                               (unify st ==*
-                                      (vector->list t1) (vector->list t2))))
-            ((string? t1) (and (string? t2) (string=? t1 t2) (cons st ==*)))
-            ((bytes?  t1) (and (bytes?  t2) (bytes=?  t1 t2) (cons st ==*)))
-            (else         #f))))
-  (let loop ((=/=* =/=*) (st st))
   (let loop ((=/=* =/=*))
     (and (pair? =/=*)
-         (let ((st+ (unify st '() (caar =/=*) (cdar =/=*))))
+         (let ((st+ (unify/log st '() (caar =/=*) (cdar =/=*))))
            (cond ((not st+)         st)
                  ((null? (cdr st+)) (loop (cdr =/=*)))
                  (else (let* ((=/=*  (append (cdr st+) (cdr =/=*)))
@@ -360,5 +360,51 @@
   (if (null? =/=**) st
     (let ((st (disunify* st (car =/=**))))
       (and st (disunify** st (cdr =/=**))))))
+(define (disunify st t1 t2) (disunify* st (list (cons t1 t2))))
 
-(define (reify st t) (pretty (walk* st t)))
+(define (reify st term)
+  (define t.0 (walk* st term))
+  (define xs (term-vars t.0))
+  (define v=>cx (state-var=>cx st))
+  (define (v->=/=* x) (vcx-=/=* (hash-ref v=>cx x vcx.empty)))
+  (define =/=**.0 (append* (set-map xs v->=/=*)))
+  (define (disunify*/full =/=*)
+    (let loop ((=/=* =/=*) (=/=*.new '()))
+      (if (null? =/=*) =/=*.new
+        (let ((st+ (unify/log st '() (caar =/=*) (cdar =/=*))))
+          (and st+ (if (null? (cdr st+)) (loop (cdr =/=*) =/=*.new)
+                     (let ((=/=*.0 (cdr st+)))
+                       ;; irrelevant variables imply irrelevant constraints
+                       (and (set-empty? (set-subtract (term-vars =/=*.0) xs))
+                            (loop (cdr =/=*) (append =/=*.0 =/=*.new))))))))))
+  (define =/=**.1 (filter-not not (map disunify*/full =/=**.0)))
+  ;; pretty variables are comparable via term<?
+  (match-define `(,t . ,=/=**.2) (pretty `(,t.0 . ,=/=**.1)))
+  ;; normalize order of each =/= involving variables on both lhs and rhs
+  (define =/=**.3
+    (map (lambda (=/=*)
+           (map (lambda (=/=) (sort (list (car =/=) (cdr =/=)) term<?))
+                =/=*))
+         =/=**.2))
+  ;; eliminate subsumed =/=*s and sort final result
+  (define (set-count<? a b) (< (set-count a) (set-count b)))
+  (define =/=**
+    (sort (map (lambda (=/=*) (sort (set->list =/=*) term<?))
+               (foldl
+                 (lambda (=/=* =/=**)
+                   (let loop ((=/=** =/=**))
+                     (if (null? =/=**) (list =/=*)
+                       (let ((=/=*.0 (car =/=**)))
+                         (cond ((subset? =/=*.0 =/=*) =/=**)
+                               ((subset? =/=* =/=*.0) (loop (cdr =/=**)))
+                               (else (cons =/=*.0 (loop (cdr =/=**)))))))))
+                 '() (sort (map list->set =/=**.3) set-count<?)))
+          term<?))
+  ;; This whole sort-and-subset? process for subsumption is ad hoc and fragile.
+  ;; TODO: define general subsumption that works with other constraints.  Save
+  ;; multiple impossible variations of the current state, and check constraints
+  ;; against this impossible set.  Any that fail are subsumed.  Any that do not
+  ;; fail should be added to the impossibility set.  Make sure to order
+  ;; constraints such that later ones wouldn't subsume those already
+  ;; contributing to the impossible set.
+  (if (null? =/=**) t `#s(cx ,t (=/=** . ,=/=**))))
