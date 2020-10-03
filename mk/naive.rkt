@@ -49,8 +49,7 @@
 (define ((bis:== t1 t2) st)
   (let ((st (unify st t1 t2))) (if st (list st) '())))
 (define ((bis:==/use lhs args rhs desc) st)
-  (define deps (naive:use lhs desc st args))
-  ((bis:== lhs (apply rhs deps)) st))
+  ((bis:== lhs (naive:use lhs rhs desc st args)) st))
 (define ((bis:=/= t1 t2) st)
   (let ((st (disunify st t1 t2))) (if st (list st) '())))
 
@@ -90,14 +89,13 @@
     (`#s(constrain =/=           (,t1 ,t2)) (dfs:=/= t1 t2 k))))
 (define ((dfs:== t1 t2 k) st) (let ((st (unify st t1 t2))) (if st (k st) '())))
 (define ((dfs:==/use lhs args rhs desc k) st)
-  (define deps (naive:use lhs desc st args))
-  ((dfs:== lhs (apply rhs deps) k) st))
+  ((dfs:== lhs (naive:use lhs rhs desc st args) k) st))
 (define ((dfs:=/= t1 t2 k) st)
   (let ((st (disunify st t1 t2))) (if st (k st) '())))
 
-(define (naive:use lhs desc st args)
+(define (naive:use lhs rhs desc st args)
   (let ((t (walk* st args)))
     (unless (ground? t)
       (error ":== dependencies are not ground:"
-             (pretty (==/use (walk* st lhs) t #t desc))))
-    t))
+             (pretty (==/use (walk* st lhs) t rhs desc))))
+    (apply rhs t)))
