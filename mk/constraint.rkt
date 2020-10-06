@@ -127,9 +127,6 @@
 ;(struct watchers (high mid:== mid:lb mid:ub low))
 ;(define watchers.empty (watchers '() '() '() '() '()))
 ;
-;(struct bounds (lb lb-inclusive? ub ub-inclusive?))
-;(define bounds.any (bounds term.min #t term.max #t #f))
-;
 ;;; TODO:
 ;;; bounds -> bounds?
 ;(define (table-intersect/ub table ub inclusive?)
@@ -161,12 +158,6 @@
 ;
 ;(struct state (var=>cx store modified pending.high pending.low))  ;; TODO: when pending.high is empty, promote pending.low
 ;(define state.empty (state hash.empty hash.empty '() '()))
-;(define (state-store-ref st k _) (hash-ref (state-store st) k _))
-;(define (state-store-set st k v) (state (state-var=>cx st)
-;                                        (hash-set (state-store st) k v)
-;                                        (state-modified st)
-;                                        (state-pending-high st)
-;                                        (state-pending-low st)))
 ;(define (state-finish-propagation st)
 ;  (define v=>cx (foldl (lambda (v+mv v=>cx)
 ;                         (hash-set v=>cx (car v+mv) (mvcx->cx (cdr v+mv))))
@@ -271,16 +262,39 @@
 ;;; TODO: occurs check for =/= and vector-ref
 
 (define hasheq.empty (hash))
+(define seteq.empty  (set))
 
-(struct vcx (=/=*))
-(define vcx.empty (vcx '()))
-(define (vcx-=/=*-add x =/=*) (vcx (cons =/=* (vcx-=/=* x))))
+(struct bounds (lb lb-inclusive? ub ub-inclusive? cardinality))
+(define bounds.any (bounds term.min #t term.max #t #f))
+
+(struct vcx (bounds domain arc =/=*))
+(define vcx.empty (vcx bounds.any '() '() '()))
+(define (vcx-=/=*-add x =/=*) (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
+                                   (cons =/=* (vcx-=/=* x))))
 
 (struct mvcx () #:mutable)
 
-(struct state (var=>cx))
-(define state.empty (state hasheq.empty))
-(define (state-var=>cx-set st x t) (state (hash-set (state-var=>cx st) x t)))
+;; tables: any finite       relations where a row    *must* be chosen
+;; disjs:  any search-based relations where a branch *must* be chosen
+(struct state (var=>cx store tables disjs))
+(define state.empty (state hasheq.empty hasheq.empty seteq.empty seteq.empty))
+(define (state-var=>cx-set st x t) (state (hash-set (state-var=>cx st) x t)
+                                          (state-store  st)
+                                          (state-tables st)
+                                          (state-disjs  st)))
+(define (state-store-ref   st k _) (hash-ref (state-store st) k _))
+(define (state-store-set   st k v) (state (state-var=>cx st)
+                                          (hash-set (state-store st) k v)
+                                          (state-tables st)
+                                          (state-disjs  st)))
+(define (state-tables-add    st t) (state (state-var=>cx st)
+                                          (state-store st)
+                                          (set-add (state-tables st) t)
+                                          (state-disjs  st)))
+(define (state-tables-remove st t) (state (state-var=>cx st)
+                                          (state-store st)
+                                          (set-remove (state-tables st) t)
+                                          (state-disjs  st)))
 
 (define (assign st x t)
   (define v=>cx (state-var=>cx st))
