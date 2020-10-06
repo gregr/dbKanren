@@ -159,7 +159,6 @@
 ;    ;; TODO: assert cardinality=1 and watchers is empty
 ;    value))
 ;
-;(define hash.empty (hash))
 ;(struct state (var=>cx store modified pending.high pending.low))  ;; TODO: when pending.high is empty, promote pending.low
 ;(define state.empty (state hash.empty hash.empty '() '()))
 ;(define (state-store-ref st k _) (hash-ref (state-store st) k _))
@@ -271,15 +270,16 @@
 ;
 ;;; TODO: occurs check for =/= and vector-ref
 
-(define hash.empty (hash))
+(define hasheq.empty (hash))
 
 (struct vcx (=/=*))
 (define vcx.empty (vcx '()))
+(define (vcx-=/=*-add x =/=*) (vcx (cons =/=* (vcx-=/=* x))))
 
 (struct mvcx () #:mutable)
 
 (struct state (var=>cx))
-(define state.empty (state hash.empty))
+(define state.empty (state hasheq.empty))
 (define (state-var=>cx-set st x t) (state (hash-set (state-var=>cx st) x t)))
 
 (define (assign st x t)
@@ -354,7 +354,7 @@
                  (else (let* ((=/=*  (append (cdr st+) (cdr =/=*)))
                               (y     (caar =/=*))
                               (vcx.y (hash-ref (state-var=>cx st) y vcx.empty))
-                              (vcx.y (vcx (cons =/=* (vcx-=/=* vcx.y)))))
+                              (vcx.y (vcx-=/=*-add vcx.y =/=*)))
                          (state-var=>cx-set st y vcx.y))))))))
 (define (disunify** st =/=**)
   (if (null? =/=**) st
