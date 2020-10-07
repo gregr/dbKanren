@@ -1,6 +1,6 @@
 #lang racket/base
-(provide s-next s-force s-split s-take s-drop s-append s-filter s-map s-each
-         s-fold s-scan s-group s-memo s-enumerate s-dedup)
+(provide s-next s-force s-split s-take s-drop s-append s-append* s-filter s-map
+         s-each s-foldr s-fold s-scan s-group s-memo s-enumerate s-dedup)
 (require racket/function)
 
 (define (s-next  s) (if (procedure? s)          (s)  s))
@@ -21,6 +21,13 @@
 (define (s-drop n s)
   (if (= n 0) s (let ((s (s-force s)))
                   (if (null? s) '() (s-drop (- n 1) (cdr s))))))
+
+(define (s-foldr f acc s)
+  (cond ((null? s) acc)
+        ((pair? s) (f (car s) (s-foldr f acc (cdr s))))
+        (else      (thunk (s-foldr f acc (s))))))
+
+(define (s-append* ss) (s-foldr s-append '() ss))
 
 (define (s-append a b)
   (cond ((null? a) b)
