@@ -1,7 +1,8 @@
 #lang racket/base
-(provide state.empty walk* unify disunify reify)
+(provide state.empty walk* unify disunify state-enumerate reify)
 (require "../order.rkt" "syntax.rkt"
-         (except-in racket/match ==) racket/list racket/set racket/vector)
+         (except-in racket/match ==)
+         racket/function racket/list racket/set racket/vector)
 
 ;; TODO:
 
@@ -295,6 +296,18 @@
                                           (state-store st)
                                           (set-remove (state-tables st) t)
                                           (state-disjs  st)))
+;; TODO: state-satisfy should return these 3 things:
+;; * assignment chosen: for use in skipping this assignment (using a =/=*)
+;; * post-assignment state: for use as an answer
+;; * pre-assignment state: assignment search may have done some pruning
+(define (state-satisfy st) (values '((#t . #t)) st st))
+(define (state-enumerate term st)
+  ;; TODO: use term to determine which variables are important to enumerate
+  (define-values (==* st/==* st.pruned) (state-satisfy st))
+  (if st/==*
+    (cons st/==* (thunk (define st.next (disunify* st.pruned ==*))
+                        (if st.next (state-enumerate term st.next) '())))
+    '()))
 
 (define (assign st x t)
   (define v=>cx (state-var=>cx st))
