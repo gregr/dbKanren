@@ -254,6 +254,11 @@
 ;
 ;;; TODO: occurs check for =/= and vector-ref
 
+(define (foldl/and f acc xs)
+  (let loop ((acc acc) (xs xs))
+    (if (null? xs) acc
+      (and acc (loop (f (car xs) acc) (cdr xs))))))
+
 (define hasheq.empty (hash))
 (define seteq.empty  (set))
 
@@ -386,9 +391,7 @@
                               (vcx.y (vcx-=/=*-add vcx.y =/=*)))
                          (state-var=>cx-set st y vcx.y))))))))
 (define (disunify** st =/=**)
-  (if (null? =/=**) st
-    (let ((st (disunify* st (car =/=**))))
-      (and st (disunify** st (cdr =/=**))))))
+  (foldl/and (lambda (=/=* st) (disunify* st =/=*)) st =/=**))
 (define (disunify st t1 t2) (disunify* st (list (cons t1 t2))))
 
 (define (reify st term)
