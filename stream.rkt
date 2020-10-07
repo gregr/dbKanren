@@ -1,26 +1,21 @@
 #lang racket/base
 (provide s-next s-force s-split s-take s-drop s-append s-append* s-filter s-map
-         s-each s-foldr s-fold s-scan s-group s-memo s-enumerate s-dedup)
-(require racket/function)
+         s-each s-foldr s-foldl s-scan s-group s-memo s-enumerate s-dedup)
+(require racket/function racket/match)
 
 (define (s-next  s) (if (procedure? s)          (s)  s))
 (define (s-force s) (if (procedure? s) (s-force (s)) s))
 
 (define (s-split n s)
-  (let loop ((n n) (rxs '()) (s s))
-    (if (and n (= n 0)) (cons (reverse rxs) s)
-      (let ((s (s-force s)))
-        (if (null? s) (cons (reverse rxs) s)
-          (loop (and n (- n 1)) (cons (car s) rxs) (cdr s)))))))
+  (match-define (cons rxs s.remaining) (s-foldl n cons '() s))
+  (cons (reverse rxs) s.remaining))
 
 (define (s-take n s)
   (if (and n (= n 0)) '()
     (let ((s (s-force s)))
       (if (null? s) '() (cons (car s) (s-take (and n (- n 1)) (cdr s)))))))
 
-(define (s-drop n s)
-  (if (= n 0) s (let ((s (s-force s)))
-                  (if (null? s) '() (s-drop (- n 1) (cdr s))))))
+(define (s-drop n s) (cdr (s-foldl n (lambda (_ acc) #t) #t s)))
 
 (define (s-foldr f acc s)
   (cond ((null? s) acc)
@@ -28,21 +23,12 @@
         (else      (thunk (s-foldr f acc (s))))))
 
 (define (s-append* ss) (s-foldr s-append '() ss))
-
-(define (s-append a b)
-  (cond ((null? a) b)
-        ((pair? a) (cons (car a) (s-append (cdr a) b)))
-        (else      (thunk        (s-append     (a) b)))))
-
-(define (s-filter ? s)
-  (cond ((null? s)      '())
-        ((procedure? s) (thunk        (s-filter ?     (s))))
-        ((? (car s))    (cons (car s) (s-filter ? (cdr s))))
-        (else                         (s-filter ? (cdr s)))))
+(define (s-append a b) (s-foldr cons b a))
+(define (s-filter ? s) (s-foldr (lambda (x acc) (if (? x) (cons x acc) acc))
+                                '() s))
 
 (define (s-map f s . ss)
-  (cond ((null? s)      '())
-        ((procedure? s) (thunk (apply s-map f (s) ss)))
+  (cond ((null? s) '())
         ((pair? s) (let loop ((ss-pending ss) (rss '()))
                      (if (null? ss-pending)
                        (let ((ss (reverse rss)))
@@ -50,21 +36,22 @@
                                (apply s-map f (cdr s) (map cdr ss))))
                        (let next ((ss0 (car ss-pending)))
                          (if (procedure? ss0) (thunk (next (ss0)))
-                           (loop (cdr ss-pending) (cons ss0 rss)))))))))
+                           (loop (cdr ss-pending) (cons ss0 rss)))))))
+        (else      (thunk (apply s-map f (s) ss)))))
 
 (define (s-each p s) (let ((s (s-force s)))
                        (unless (null? s) (p (car s)) (s-each p (cdr s)))))
 
-(define (s-fold n s acc f)
+(define (s-foldl n f acc s)
   (if (and n (= n 0)) (cons acc s)
     (let ((s (s-force s)))
       (if (null? s) (list acc)
-        (s-fold (and n (- n 1)) (cdr s) (f (car s) acc) f)))))
+        (s-foldl (and n (- n 1)) f (f (car s) acc) (cdr s))))))
 
 (define (s-scan s acc f)
-  (cons acc (cond ((null? s)      '())
-                  ((pair? s)      (s-scan (cdr s) (f (car s) acc) f))
-                  ((procedure? s) (thunk (s-scan (s) acc f))))))
+  (cons acc (cond ((null? s) '())
+                  ((pair? s) (s-scan (cdr s) (f (car s) acc) f))
+                  (else      (thunk (s-scan (s) acc f))))))
 
 (define (s-group s ? @)
   (let ((@ (or @ (lambda (x) x))))
