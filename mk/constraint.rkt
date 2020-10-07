@@ -1,5 +1,5 @@
 #lang racket/base
-(provide state.empty walk* unify disunify state-enumerate reify)
+(provide state.empty walk* unify disunify use state-enumerate reify)
 (require "../order.rkt" "syntax.rkt"
          (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
@@ -265,23 +265,26 @@
 (struct bounds (lb lb-inclusive? ub ub-inclusive? cardinality))
 (define bounds.any (bounds term.min #t term.max #t #f))
 
-(struct vcx (bounds domain arc =/=*))
-(define vcx.empty (vcx bounds.any '() '() '()))
+(struct vcx (bounds domain arc =/=* ==/use))
+(define vcx.empty (vcx bounds.any '() '() '() '()))
 (define (vcx-=/=*-add x =/=*) (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
-                                   (cons =/=* (vcx-=/=* x))))
+                                   (cons =/=* (vcx-=/=* x)) (vcx-==/use x)))
+(define (vcx-==/use-add x u)  (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
+                                   (vcx-=/=* x) (cons u (vcx-==/use x))))
 
 (struct mvcx () #:mutable)
 
 ;; tables: any finite       relations where a row    *must* be chosen
 ;; disjs:  any search-based relations where a branch *must* be chosen
 ;; TODO: when pending.high is empty, promote pending.low
-(struct state (var=>cx store tables disjs pending.high pending.low))
+(struct state (var=>cx store tables disjs uses pending.high pending.low))
 (define state.empty (state hasheq.empty hasheq.empty seteq.empty seteq.empty
-                           '() '()))
+                           seteq.empty '() '()))
 (define (state-var=>cx-set st x t) (state (hash-set (state-var=>cx st) x t)
                                           (state-store  st)
                                           (state-tables st)
                                           (state-disjs  st)
+                                          (state-uses   st)
                                           (state-pending.high st)
                                           (state-pending.low  st)))
 (define (state-store-ref   st k _) (hash-ref (state-store st) k _))
@@ -289,20 +292,35 @@
                                           (hash-set (state-store st) k v)
                                           (state-tables st)
                                           (state-disjs  st)
+                                          (state-uses   st)
                                           (state-pending.high st)
                                           (state-pending.low  st)))
 (define (state-tables-add    st t) (state (state-var=>cx st)
                                           (state-store st)
                                           (set-add (state-tables st) t)
                                           (state-disjs  st)
+                                          (state-uses   st)
                                           (state-pending.high st)
                                           (state-pending.low  st)))
 (define (state-tables-remove st t) (state (state-var=>cx st)
                                           (state-store st)
                                           (set-remove (state-tables st) t)
                                           (state-disjs  st)
+                                          (state-uses   st)
                                           (state-pending.high st)
                                           (state-pending.low  st)))
+(define (state-uses-add      st u) (state (state-var=>cx st)
+                                          (state-store st)
+                                          (state-tables st)
+                                          (state-disjs  st)
+                                          (set-add (state-uses st) u)
+                                          (state-pending.high st)
+                                          (state-pending.low  st)))
+(define (state-uses-remove* st us)
+  (state (state-var=>cx st) (state-store st) (state-tables st)
+         (state-disjs st)
+         (foldl (lambda (u us) (set-remove us u)) (state-uses st) us)
+         (state-pending.high st) (state-pending.low st)))
 ;; TODO: state-satisfy should return these 3 things:
 ;; * assignment chosen: for use in skipping this assignment (using a =/=*)
 ;; * post-assignment state: for use as an answer
@@ -312,17 +330,46 @@
   ;; TODO: use term to determine which variables are important to enumerate
   (define-values (==* st/==* st.pruned) (state-satisfy st))
   (if st/==*
-    (cons st/==* (thunk (define st.next (disunify* st.pruned ==*))
-                        (if st.next (state-enumerate term st.next) '())))
+    (begin (state-uses-empty?! st/==*)
+           (cons st/==* (thunk
+                          (define st.next (disunify* st.pruned ==*))
+                          (if st.next (state-enumerate term st.next) '()))))
     '()))
+(define (state-uses-empty?! st)
+  (unless (set-empty? (state-uses st))
+    (match-define `#s(==/use ,l ,deps ,r ,desc) (set-first (state-uses st)))
+    (error ":== dependencies are not ground:"
+           (pretty (==/use (walk* st l) (walk* st deps) r desc)))))
 
 (define (assign st x t)
   (define v=>cx (state-var=>cx st))
   (and (not (occurs? st x t))
-       (let ((vcx.x              (hash-ref v=>cx x vcx.empty))
-             (vcx.t (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty))
-             (st    (state-var=>cx-set st x t)))
-         (disunify** st (append (vcx-=/=* vcx.t) (vcx-=/=* vcx.x))))))
+       (let* ((vcx.x                (hash-ref v=>cx x vcx.empty))
+              (vcx.t   (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty))
+              (st      (state-var=>cx-set st x t))
+              (=/=**   (append (vcx-=/=*   vcx.t) (vcx-=/=*   vcx.x)))
+              (==/use* (append (vcx-==/use vcx.t) (vcx-==/use vcx.x)))
+              (st      (state-uses-remove* st ==/use*))
+              (st      (use* st ==/use*)))
+         (and st (disunify** st =/=**)))))
+
+(define (use st u)
+  (match-define `#s(==/use ,lhs ,args ,rhs ,desc) u)
+  ;; TODO: performance
+  ;; * can interleave walk* and term-vars
+  ;; * can stop after finding just one var
+  (let* ((t  (walk* st args))
+         (xs (term-vars t)))
+    (if (set-empty? xs)
+      (unify st lhs (apply rhs t))
+      (let* ((y     (set-first xs))
+             (u     (==/use lhs t rhs desc))
+             (vcx.y (hash-ref (state-var=>cx st) y vcx.empty))
+             (vcx.y (vcx-==/use-add vcx.y u))
+             (st    (state-uses-add st u)))
+        (state-var=>cx-set st y vcx.y)))))
+(define (use* st ==/use*) (foldl/and (lambda (u st) (use st u)) st ==/use*))
+
 (define (walk st t)
   (if (var? t)
     (let ((v=>cx (state-var=>cx st)))
