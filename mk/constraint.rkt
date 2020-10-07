@@ -16,7 +16,7 @@
 ;;   extended implementations may support:
 ;;     recursions and disjunctions as constraints: can replace =/=*
 ;;       recursion approximations
-;;       watching 2 disjunction clauses
+;;       watching 2 disjunction branches
 ;;     one-var any<=o constraints (for constraining type): pair/vector sub-constraints
 ;;     general any<=o constraints: cycle checking, pair/vector decomposition into disjunction
 ;;   we can support the other constraints later
@@ -114,7 +114,7 @@
 ;;     while there are unresolved variables with possible assignments:
 ;;       choose variable with lowest assignment-set cardinality
 ;;       choose an assignment for the variable
-;;         may introduce/expand new constraints by stepping into a disj clause
+;;         may introduce/expand new constraints by stepping into a disj branch
 ;;       re-enter satisfiability loop with any new constraints
 ;;       if enumerating or loop fails, choose the next assignment
 ;;       if no more assignments are available, fail
@@ -124,9 +124,6 @@
 
 
 ;; initial implementation scratch notes:
-;
-;(struct watchers (high mid:== mid:lb mid:ub low))
-;(define watchers.empty (watchers '() '() '() '() '()))
 ;
 ;;; TODO:
 ;;; bounds -> bounds?
@@ -144,9 +141,6 @@
 ;  ;; if ub has changed, also activate ub watchers
 ;  )
 ;
-;(struct vcx (bounds cardinality watchers))
-;(define vcx.empty (vcx bounds.any #f watchers.empty))
-;
 ;(struct mvcx (pending? bounds.old bounds.new cardinality watchers) #:mutable)
 ;(define (vcx->mvcx vcx update)
 ;  (mvcx #t (vcx-bounds vcx) (update (vcx-bounds vcx))
@@ -157,8 +151,6 @@
 ;    ;; TODO: assert cardinality=1 and watchers is empty
 ;    value))
 ;
-;(struct state (var=>cx store modified pending.high pending.low))  ;; TODO: when pending.high is empty, promote pending.low
-;(define state.empty (state hash.empty hash.empty '() '()))
 ;(define (state-finish-propagation st)
 ;  (define v=>cx (foldl (lambda (v+mv v=>cx)
 ;                         (hash-set v=>cx (car v+mv) (mvcx->cx (cdr v+mv))))
