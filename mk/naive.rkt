@@ -4,10 +4,12 @@
 (require "../stream.rkt" "constraint.rkt" "syntax.rkt"
          (except-in racket/match ==) racket/function)
 
+(define ((enumerate-and-reify x) st)
+  (s-map (lambda (st) (reify st x)) (state-enumerate x st)))
+
 (define (bis:query->stream q)
   (match-define `#s(query ,x ,g) q)
-  (define (return st) (reify st x))
-  (s-map return ((bis:goal g) state.empty)))
+  (s-append* (s-map (enumerate-and-reify x) ((bis:goal g) state.empty))))
 (define (bis:bind s k)
   (cond ((null?      s) '())
         ((procedure? s) (thunk (bis:bind (s) k)))
@@ -56,8 +58,7 @@
 (define (dfs:query->stream q) ((dfs:query q) state.empty))
 (define (dfs:query q)
   (match-define `#s(query ,x ,g) q)
-  (define (return st) (list (reify st x)))
-  (dfs:goal g return))
+  (dfs:goal g (enumerate-and-reify x)))
 (define ((dfs:mplus k1 k2) st) (s-append (k1 st) (thunk (k2 st))))
 (define ((dfs:retrieve s args k) st)
   (let loop ((s (s-next s)))
