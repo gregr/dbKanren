@@ -277,25 +277,35 @@
 
 ;; tables: any finite       relations where a row    *must* be chosen
 ;; disjs:  any search-based relations where a branch *must* be chosen
-(struct state (var=>cx store tables disjs))
-(define state.empty (state hasheq.empty hasheq.empty seteq.empty seteq.empty))
+;; TODO: when pending.high is empty, promote pending.low
+(struct state (var=>cx store tables disjs pending.high pending.low))
+(define state.empty (state hasheq.empty hasheq.empty seteq.empty seteq.empty
+                           '() '()))
 (define (state-var=>cx-set st x t) (state (hash-set (state-var=>cx st) x t)
                                           (state-store  st)
                                           (state-tables st)
-                                          (state-disjs  st)))
+                                          (state-disjs  st)
+                                          (state-pending.high st)
+                                          (state-pending.low  st)))
 (define (state-store-ref   st k _) (hash-ref (state-store st) k _))
 (define (state-store-set   st k v) (state (state-var=>cx st)
                                           (hash-set (state-store st) k v)
                                           (state-tables st)
-                                          (state-disjs  st)))
+                                          (state-disjs  st)
+                                          (state-pending.high st)
+                                          (state-pending.low  st)))
 (define (state-tables-add    st t) (state (state-var=>cx st)
                                           (state-store st)
                                           (set-add (state-tables st) t)
-                                          (state-disjs  st)))
+                                          (state-disjs  st)
+                                          (state-pending.high st)
+                                          (state-pending.low  st)))
 (define (state-tables-remove st t) (state (state-var=>cx st)
                                           (state-store st)
                                           (set-remove (state-tables st) t)
-                                          (state-disjs  st)))
+                                          (state-disjs  st)
+                                          (state-pending.high st)
+                                          (state-pending.low  st)))
 ;; TODO: state-satisfy should return these 3 things:
 ;; * assignment chosen: for use in skipping this assignment (using a =/=*)
 ;; * post-assignment state: for use as an answer
