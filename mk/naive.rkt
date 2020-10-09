@@ -5,7 +5,7 @@
          (except-in racket/match ==) racket/function)
 
 (define ((enumerate-and-reify x) st)
-  (s-map (lambda (st) (reify st x)) (state-enumerate x st)))
+  (s-map (lambda (st) (reify st x)) (state-enumerate st x)))
 
 (define (bis:query->stream q)
   (match-define `#s(query ,x ,g) q)

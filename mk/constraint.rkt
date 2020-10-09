@@ -326,14 +326,21 @@
 ;; * post-assignment state: for use as an answer
 ;; * pre-assignment state: assignment search may have done some pruning
 (define (state-satisfy st) (values '((#t . #t)) st st))
-(define (state-enumerate term st)
+(define (state-enumerate st term)
   ;; TODO: use term to determine which variables are important to enumerate
   (define-values (==* st/==* st.pruned) (state-satisfy st))
   (if st/==*
     (begin (state-uses-empty?! st/==*)
            (cons st/==* (thunk
+                          ;; TODO: this is an inefficient enumeration strategy
+                          ;; since it rewinds all choices every step, which
+                          ;; does not make sense unless previous choices would
+                          ;; somehow change (under some heuristics they could,
+                          ;; due to introducing a new disequality, right?
+                          ;; though better strategies should account for this
+                          ;; via learned clauses and occasional restarts)
                           (define st.next (disunify* st.pruned ==*))
-                          (if st.next (state-enumerate term st.next) '()))))
+                          (if st.next (state-enumerate st.next term) '()))))
     '()))
 (define (state-uses-empty?! st)
   (unless (set-empty? (state-uses st))
