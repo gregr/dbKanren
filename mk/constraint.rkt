@@ -262,8 +262,8 @@
 (define hasheq.empty (hash))
 (define seteq.empty  (set))
 
-(struct bounds (lb lb-inclusive? ub ub-inclusive? cardinality))
-(define bounds.any (bounds term.min #t term.max #t #f))
+(struct bounds (lb lb-inclusive? ub ub-inclusive?))
+(define bounds.any (bounds term.min #t term.max #t))
 
 (struct vcx (bounds domain arc =/=* ==/use))
 (define vcx.empty (vcx bounds.any '() '() '() '()))
