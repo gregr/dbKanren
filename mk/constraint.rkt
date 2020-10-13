@@ -1,6 +1,6 @@
 #lang racket/base
 (provide state.empty walk* unify disunify use state-enumerate reify)
-(require "../order.rkt" "syntax.rkt"
+(require "../order.rkt" "../stream.rkt" "syntax.rkt"
          (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
 
@@ -321,32 +321,66 @@
          (state-disjs st)
          (foldl (lambda (u us) (set-remove us u)) (state-uses st) us)
          (state-pending.high st) (state-pending.low st)))
-;; TODO: state-satisfy should return these 3 things:
-;; * assignment chosen: for use in skipping this assignment (using a =/=*)
-;; * post-assignment state: for use as an answer
-;; * pre-assignment state: assignment search may have done some pruning
-(define (state-satisfy st) (values '((#t . #t)) st st))
-(define (state-enumerate st term)
-  ;; TODO: use term to determine which variables are important to enumerate
-  (define-values (==* st/==* st.pruned) (state-satisfy st))
-  (if st/==*
-    (begin (state-uses-empty?! st/==*)
-           (cons st/==* (thunk
-                          ;; TODO: this is an inefficient enumeration strategy
-                          ;; since it rewinds all choices every step, which
-                          ;; does not make sense unless previous choices would
-                          ;; somehow change (under some heuristics they could,
-                          ;; due to introducing a new disequality, right?
-                          ;; though better strategies should account for this
-                          ;; via learned clauses and occasional restarts)
-                          (define st.next (disunify* st.pruned ==*))
-                          (if st.next (state-enumerate st.next term) '()))))
-    '()))
 (define (state-uses-empty?! st)
   (unless (set-empty? (state-uses st))
     (match-define `#s(==/use ,l ,deps ,r ,desc) (set-first (state-uses st)))
     (error ":== dependencies are not ground:"
            (pretty (==/use (walk* st l) (walk* st deps) r desc)))))
+
+(define (state-choose st xs.observable)
+  (define x=>stats
+    (foldl
+      (lambda (t x=>stats)
+        (foldl (lambda (xstat x=>stats)
+                 (match-define (cons x cardinality.new) xstat)
+                 (hash-update x=>stats x
+                              (lambda (stats)
+                                (match-define (cons cardinality count) stats)
+                                (cons (if cardinality
+                                        (min cardinality.new cardinality)
+                                        cardinality.new)
+                                      (+ count 1)))
+                              '(#f . 0)))
+               x=>stats (t 'variables)))
+      hasheq.empty (set->list (state-tables st))))
+  ;; TODO: if we don't make subsequent use of sorted xccs, just use a linear
+  ;; scan to find x.best instead of sorting.
+  (define xccs
+    (sort (hash->list x=>stats)
+          (lambda (a b)
+            (match-define `(,x.a . (,card.a . ,count.a)) a)
+            (match-define `(,x.b . (,card.b . ,count.b)) b)
+            ;; Sort by increasing cardinality and decreasing count.
+            ;; Prefer members of xs.enum.
+            (or (< card.a card.b)
+                (and (= card.a card.b)
+                     (or (< count.b count.a)
+                         (and (= count.b count.a)
+                              (set-member? xs.observable x.a)
+                              (not (set-member? xs.observable x.b)))))))))
+  ;; TODO: also consider paths provided by available table indexes, maybe via
+  ;; prioritized topological sort of SCCs.
+  (define x.best (caar xccs))
+  ;; TODO: it might be better to loop the entire state-choose.  It may be
+  ;; unlikely, but pruning the domain of x.best could affect cardinalities
+  ;; and/or counts of other variables.
+  (let loop ((st st))
+    (define v=>cx (state-var=>cx st))
+    (define t (bounds-lb (vcx-bounds (hash-ref v=>cx x.best vcx.empty))))
+    (define st.new (assign st x.best t))
+    (define (s-rest)
+      (define st.skip (disunify st x.best t))
+      (if st.skip (loop st.skip) '()))
+    (if st.new (cons st.new s-rest) s-rest)))
+
+(define (state-enumerate st term)
+  (if (set-empty? (state-tables st)) (begin (state-uses-empty?! st) (list st))
+            ;; TODO: term-vars walk* efficiency
+    (let* ((xs.observable (set->list (term-vars (walk* st term))))
+           (sts.all (s-append*
+                      (s-map (lambda (st) (state-enumerate st xs.observable))
+                             (state-choose st xs.observable)))))
+      (if (null? xs.observable) (s-limit 1 sts.all) sts.all))))
 
 (define (assign st x t)
   (define v=>cx (state-var=>cx st))
