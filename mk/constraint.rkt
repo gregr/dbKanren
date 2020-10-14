@@ -276,7 +276,6 @@
 
 ;; tables: any finite       relations where a row    *must* be chosen
 ;; disjs:  any search-based relations where a branch *must* be chosen
-;; TODO: when pending.high is empty, promote pending.low
 (struct state (var=>cx store tables disjs uses pending.high pending.low))
 (define state.empty (state hasheq.empty hasheq.empty seteq.empty seteq.empty
                            seteq.empty '() '()))
@@ -327,6 +326,34 @@
     (error ":== dependencies are not ground:"
            (pretty (==/use (walk* st l) (walk* st deps) r desc)))))
 
+(define (state-pending-push-high st job)
+  (state (state-var=>cx st) (state-store st) (state-tables st) (state-disjs st)
+         (state-uses st) (cons job (state-pending.high st))
+         (state-pending.low st)))
+(define (state-pending-push-low st job)
+  (state (state-var=>cx st) (state-store st) (state-tables st) (state-disjs st)
+         (state-uses st) (state-pending.high st)
+         (cons job (state-pending.low st))))
+(define (state-pending-pop st)
+  (define (state/pending high low)
+    (state (state-var=>cx st) (state-store st) (state-tables st)
+           (state-disjs st) (state-uses st) high low))
+  (define pending (state-pending.high st))
+  (define pending.low (state-pending.low st))
+  (if (null? pending)
+    (if (null? pending.low) #f
+      (let ((pending (reverse pending.low)))
+        (cons (car pending) (state/pending (cdr pending) '()))))
+    (cons (car pending) (state/pending (cdr pending) pending.low))))
+(define (state-pending-run st)
+  (let loop ((st st))
+    (define job+st (state-pending-pop st))
+    (if job+st
+      (let ((st ((car job+st) (cdr job+st))))
+        (and st (state-pending-run st)))
+      ;; TODO: clean up before returning final state
+      st)))
+
 (define (state-choose st xs.observable)
   (define x=>stats
     (foldl
@@ -373,14 +400,18 @@
       (if st.skip (loop st.skip) '()))
     (if st.new (cons st.new s-rest) s-rest)))
 
-(define (state-enumerate st term)
-  (if (set-empty? (state-tables st)) (begin (state-uses-empty?! st) (list st))
-            ;; TODO: term-vars walk* efficiency
-    (let* ((xs.observable (set->list (term-vars (walk* st term))))
-           (sts.all (s-append*
-                      (s-map (lambda (st) (state-enumerate st xs.observable))
-                             (state-choose st xs.observable)))))
-      (if (null? xs.observable) (s-limit 1 sts.all) sts.all))))
+(define (state-enumerate st.0 term)
+  (define st (state-pending-run st.0))
+  (if st
+    (if (set-empty? (state-tables st))
+      (begin (state-uses-empty?! st) (list st))
+      ;; TODO: term-vars walk* efficiency
+      (let* ((xs.observable (set->list (term-vars (walk* st term))))
+             (sts.all (s-append*
+                        (s-map (lambda (st) (state-enumerate st xs.observable))
+                               (state-choose st xs.observable)))))
+        (if (null? xs.observable) (s-limit 1 sts.all) sts.all)))
+    '()))
 
 (define (assign st x t)
   (define v=>cx (state-var=>cx st))
