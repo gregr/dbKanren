@@ -273,6 +273,7 @@
 
 (struct vcx (bounds domain arc =/=* ==/use))
 (define vcx.empty (vcx bounds.any '() '() '() '()))
+(define (vcx-update x b ds as) (vcx b ds as (vcx-=/=* x) (vcx-==/use x)))
 (define (vcx-=/=*-clear x)    (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
                                    '() (vcx-==/use x)))
 (define (vcx-=/=*-add x =/=*) (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
@@ -325,10 +326,21 @@
          (state-uses st) (cons m (state-mvcxs st))
          (state-pending.high st) (state-pending.low st)))
 (define (state-mvcxs-clear st)
+  (define (save st cxs)
+    (let loop ((cxs cxs) (cxs.saved '()) (st st))
+      (if (null? cxs) (cons st cxs.saved)
+        (match-let* ((cx           (car cxs))
+                     ((cons st cx) (cx 'save st)))
+          (loop (cdr cxs) (cons cx cxs.saved) st)))))
   (let ((st (foldl (lambda (m st)
                      (define x (walk st (mvcx-var m)))
-                     ;; TODO: finalize any domain and arc cxs
-                     (if x (state-var=>cx-set st x (mvcx-vcx m)) st))
+                     (if x (match-let*
+                             ((xcx            (mvcx-vcx m))
+                              ((cons st dcxs) (save st (vcx-domain xcx)))
+                              ((cons st acxs) (save st (vcx-arc    xcx)))
+                              (xcx (vcx-update (vcx-bounds xcx) dcxs acxs)))
+                             (state-var=>cx-set st x xcx))
+                       st))
                    st (state-mvcxs st))))
     (state (state-var=>cx st) (state-store st) (state-tables st)
            (state-disjs st) (state-uses st) '()
@@ -426,8 +438,9 @@
          (st      (state-var=>cx-set st x t))
          (st      (state-uses-remove* st ==/use*))
          (st      (bounds-apply st (vcx-bounds vcx.x) t))
+         (st      (foldl/and (lambda (cx st) (cx 'assign st t))
+                             st (append (vcx-domain vcx.x) (vcx-arc vcx.x))))
          (st      (and st (disunify** st =/=**))))
-    ;; TODO: process vcx.x domain and arc
     (and st (use* st ==/use*))))
 
 (define (assign st x t)
