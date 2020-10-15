@@ -267,6 +267,8 @@
 
 (struct vcx (bounds domain arc =/=* ==/use))
 (define vcx.empty (vcx bounds.any '() '() '() '()))
+(define (vcx-=/=*-clear x)    (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
+                                   '() (vcx-==/use x)))
 (define (vcx-=/=*-add x =/=*) (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
                                    (cons =/=* (vcx-=/=* x)) (vcx-==/use x)))
 (define (vcx-==/use-add x u)  (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
@@ -416,9 +418,11 @@
   (and (not (occurs? st x t))
        (let* ((vcx.x                (hash-ref v=>cx x vcx.empty))
               (vcx.t   (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty))
+              (=/=**   (append (vcx-=/=* vcx.t) (vcx-=/=* vcx.x)))
+              (==/use* (vcx-==/use vcx.x))
+              (st      (if (eq? vcx.empty vcx.t) st
+                         (state-var=>cx-set st t (vcx-=/=*-clear vcx.t))))
               (st      (state-var=>cx-set st x t))
-              (=/=**   (append (vcx-=/=*   vcx.t) (vcx-=/=*   vcx.x)))
-              (==/use* (append (vcx-==/use vcx.t) (vcx-==/use vcx.x)))
               (st      (state-uses-remove* st ==/use*))
               (st      (use* st ==/use*)))
          (and st (disunify** st =/=**)))))
