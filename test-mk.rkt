@@ -284,6 +284,18 @@
       (== x y)
       (== z 5)))
   '())
+(test '=/=.var.==.6
+  (run* (x)
+    (fresh (y)
+      (=/= x y)
+      (== x y)))
+  '())
+(test '=/=.var.==.7
+  (run* (x)
+    (fresh (y)
+      (=/= x y)
+      (== y x)))
+  '())
 
 (test '=/=.pair.==.1
   (run* (x)
