@@ -321,6 +321,7 @@
 (define (state-mvcxs-clear st)
   (let ((st (foldl (lambda (m st)
                      (define x (walk st (mvcx-var m)))
+                     ;; TODO: finalize any domain and arc cxs
                      (if x (state-var=>cx-set st x (mvcx-vcx m)) st))
                    st (state-mvcxs st))))
     (state (state-var=>cx st) (state-store st) (state-tables st)
@@ -418,18 +419,27 @@
          (==/use* (vcx-==/use vcx.x))
          (st      (state-var=>cx-set st x t))
          (st      (state-uses-remove* st ==/use*))
-         (st      (use* st ==/use*)))
-    (and st (disunify** st =/=**))))
+         (st      (disunify** st =/=**)))
+    ;; TODO: test vcx.x bounds
+    ;; TODO: process vcx.x domain and arc
+    (and st (use* st ==/use*))))
 
 (define (assign st x t)
   (define v=>cx (state-var=>cx st))
+  (define (k x t vcx.x vcx.t)
+    (if (mvcx? vcx.t)
+      (let ((mvcx.t vcx.t) (vcx.t (mvcx-vcx vcx.t)))
+        (set-mvcx-vcx! mvcx.t (vcx-=/=*-clear vcx.t))
+        (assign/vcx st x t vcx.x (vcx-=/=* vcx.t)))
+      (let ((st (if (eq? vcx.empty vcx.t) st
+                  (state-var=>cx-set st t (vcx-=/=*-clear vcx.t)))))
+        (assign/vcx st x t vcx.x (vcx-=/=* vcx.t)))))
   (and (not (occurs? st x t))
-       (let* ((vcx.x                (hash-ref v=>cx x vcx.empty))
-              (vcx.t   (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty))
-              (=/=*.t  (vcx-=/=* vcx.t))
-              (st      (if (eq? vcx.empty vcx.t) st
-                         (state-var=>cx-set st t (vcx-=/=*-clear vcx.t)))))
-         (assign/vcx st x t vcx.x =/=*.t))))
+       (let ((vcx.x              (hash-ref v=>cx x vcx.empty))
+             (vcx.t (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty)))
+         (cond ((not (mvcx? vcx.x))           (k x t vcx.x vcx.t))
+               ((and (var? t) (vcx? vcx.t))   (k t x vcx.t vcx.x))
+               (else (set-mvcx-var! vcx.x #f) (k x t (mvcx-vcx vcx.x) vcx.t))))))
 
 (define (use st u)
   (match-define `#s(==/use ,lhs ,args ,rhs ,desc) u)
@@ -485,6 +495,7 @@
           ((bytes?  t1) (and (bytes?  t2) (bytes=?  t1 t2) st))
           (else         #f))))
 
+;; TODO: check vcx bounds?
 (define (assign/log st ==* x t) (and (not (occurs? st x t))
                                      (cons (state-var=>cx-set st x t)
                                            (cons (cons x t) ==*))))
