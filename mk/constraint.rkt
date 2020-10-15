@@ -264,6 +264,12 @@
 
 (struct bounds (lb lb-inclusive? ub ub-inclusive?))
 (define bounds.any (bounds term.min #t term.max #t))
+(define (bounds-apply st b t)
+  ;; TODO: t may not be ground, in which case we need to propagate constraints
+  ;(or (eq? b bounds.any)
+      ;(and ((if (bounds-lb-inclusive? b) any<=? any<?) (bounds-lb b) value)
+           ;((if (bounds-ub-inclusive? b) any<=? any<?) value (bounds-ub b))))
+  st)
 
 (struct vcx (bounds domain arc =/=* ==/use))
 (define vcx.empty (vcx bounds.any '() '() '() '()))
@@ -419,8 +425,8 @@
          (==/use* (vcx-==/use vcx.x))
          (st      (state-var=>cx-set st x t))
          (st      (state-uses-remove* st ==/use*))
-         (st      (disunify** st =/=**)))
-    ;; TODO: test vcx.x bounds
+         (st      (bounds-apply st (vcx-bounds vcx.x) t))
+         (st      (and st (disunify** st =/=**))))
     ;; TODO: process vcx.x domain and arc
     (and st (use* st ==/use*))))
 
@@ -495,10 +501,12 @@
           ((bytes?  t1) (and (bytes?  t2) (bytes=?  t1 t2) st))
           (else         #f))))
 
-;; TODO: check vcx bounds?
-(define (assign/log st ==* x t) (and (not (occurs? st x t))
-                                     (cons (state-var=>cx-set st x t)
-                                           (cons (cons x t) ==*))))
+(define (assign/log st ==* x t)
+  (and (not (occurs? st x t))
+       (let ((b (vcx-bounds (hash-ref (state-var=>cx st) x vcx.empty))))
+         (bounds-apply st b t))
+       (cons (state-var=>cx-set st x t)
+             (cons (cons x t) ==*))))
 (define (unify/log st ==* t1 t2)
   (let ((t1 (walk st t1)) (t2 (walk st t2)))
     (cond ((eqv? t1 t2) (cons st ==*))
