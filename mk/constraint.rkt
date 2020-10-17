@@ -208,14 +208,14 @@
   (define xcx (state-var=>cx-ref st x))
   (define vcx.old (if (vcx? xcx) xcx (mvcx-vcx xcx)))
   (define vcx.new (if updated-bounds?
-                    (vcx-update updated-bounds? (cons cx (vcx-domain vcx.old))
+                    (vcx-update xcx updated-bounds?
+                                (cons cx (vcx-domain vcx.old))
                                 (vcx-arc vcx.old))
                     (vcx-domain-add vcx.old cx)))
   (cond ((and (vcx? xcx) updated-bounds?) (state-schedule-mvcx-new
                                             st x vcx.new))
         (     (vcx? xcx)                  (state-var=>cx-set st x vcx.new))
-        (                updated-bounds?  (set-mvcx-vcx! xcx vcx.new)
-                                          (state-schedule-mvcx st xcx))
+        (                updated-bounds?  (state-schedule-mvcx st xcx vcx.new))
         (else                             (set-mvcx-vcx! xcx vcx.new) st)))
 
 (define (add-arc st cx x)
@@ -271,7 +271,8 @@
          (state-disjs st) (state-uses st) (cons m (state-mvcxs st))
          (cons (mvcx-update m) (state-pending.high st))
          (state-pending.low st)))
-(define (state-schedule-mvcx st m)
+(define (state-schedule-mvcx st m vcx.new)
+  (set-mvcx-vcx!      m vcx.new)
   (set-mvcx-pending?! m #t)
   (state (state-var=>cx st) (state-store st) (state-tables st)
          (state-disjs st) (state-uses st) (state-mvcxs st)
