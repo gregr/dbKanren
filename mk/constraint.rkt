@@ -207,7 +207,7 @@
 (define (constrain-domain st cx term)
   (define t (walk st term))
   (if (var? t)
-    (let ((xcx (hash-ref (state-var=>cx st) t vcx.empty)))
+    (let ((xcx (state-var=>cx-ref st t)))
       (if (vcx? xcx)
         (let* ((b.0 (vcx-bounds xcx)) (result (cx 'test st t b.0)))
           (and result
@@ -243,6 +243,7 @@
 (struct state (var=>cx store tables disjs uses mvcxs pending.high pending.low))
 (define state.empty (state hasheq.empty hasheq.empty seteq.empty seteq.empty
                            seteq.empty '() '() '()))
+(define (state-var=>cx-ref st x) (hash-ref (state-var=>cx st) x vcx.empty))
 (define (state-var=>cx-set st x t)
   (state (hash-set (state-var=>cx st) x t) (state-store st) (state-tables st)
          (state-disjs st) (state-uses st) (state-mvcxs st)
@@ -436,7 +437,7 @@
       (unify st lhs (apply rhs t))
       (let* ((y     (set-first xs))
              (u     (==/use lhs t rhs desc))
-             (vcx.y (hash-ref (state-var=>cx st) y vcx.empty))
+             (vcx.y (state-var=>cx-ref st y))
              (vcx.y (vcx-==/use-add vcx.y u))
              (st    (state-uses-add st u)))
         (state-var=>cx-set st y vcx.y)))))
@@ -481,7 +482,7 @@
 
 (define (assign/log st ==* x t)
   (and (not (occurs? st x t))
-       (let ((b (vcx-bounds (hash-ref (state-var=>cx st) x vcx.empty))))
+       (let ((b (vcx-bounds (state-var=>cx-ref st x))))
          (bounds-apply st b t))
        (cons (state-var=>cx-set st x t)
              (cons (cons x t) ==*))))
@@ -509,7 +510,7 @@
                  ((null? (cdr st+)) (loop (cdr =/=*)))
                  (else (let* ((=/=*  (append (cdr st+) (cdr =/=*)))
                               (y     (caar =/=*))
-                              (vcx.y (hash-ref (state-var=>cx st) y vcx.empty))
+                              (vcx.y (state-var=>cx-ref st y))
                               (vcx.y (vcx-=/=*-add vcx.y =/=*)))
                          (state-var=>cx-set st y vcx.y))))))))
 (define (disunify** st =/=**)
