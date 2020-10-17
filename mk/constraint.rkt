@@ -204,39 +204,25 @@
                 (assign st x value))
               (b (loop (cdr dcxs) (cons dcx dcxs.seen) b)))))))
 
-(define (constrain-domain st cx term)
-  (define t (walk st term))
-  (if (var? t)
-    (let ((xcx (state-var=>cx-ref st t)))
-      (if (vcx? xcx)
-        (let* ((b.0 (vcx-bounds xcx)) (result (cx 'test st t b.0)))
-          (and result
-               (match-let (((list st b cx) result))
-                 (cond ((eq? b.0 b)
-                        (state-var=>cx-set st t (vcx-domain-add xcx cx)))
-                       ((bounds? b)
-                        (state-schedule-mvcx-new
-                          st t (vcx-update b (cons cx (vcx-domain xcx))
-                                           (vcx-arc xcx))))
-                       (else (let ((st (cx 'assign st b)))
-                               (and st (assign st t b))))))))
-        (let* ((b.0 (vcx-bounds (mvcx-vcx xcx))) (result (cx 'test st t b.0)))
-          (and result
-               (match-let (((list st b cx) result))
-                 (cond ((eq? b.0 b)
-                        (define lcx (cx 'load st))
-                        (set-mvcx-vcx! xcx (vcx-domain-add (mvcx-vcx xcx) lcx))
-                        st)
-                       ((bounds? b)
-                        (define lcx (cx 'load st))
-                        (set-mvcx-vcx! xcx (vcx-update
-                                             b (cons lcx (vcx-domain xcx))
-                                             (vcx-arc xcx)))
-                        (if (mvcx-pending? xcx) (state-schedule-mvcx st xcx)
-                          st))
-                       (else (let ((st (cx 'assign st b)))
-                               (and st (assign st t b))))))))))
-    (cx 'assign st t)))
+(define (add-domain st cx x updated-bounds?)
+  (define xcx (state-var=>cx-ref st x))
+  (define vcx.old (if (vcx? xcx) xcx (mvcx-vcx xcx)))
+  (define vcx.new (if updated-bounds?
+                    (vcx-update updated-bounds? (cons cx (vcx-domain vcx.old))
+                                (vcx-arc vcx.old))
+                    (vcx-domain-add vcx.old cx)))
+  (cond ((and (vcx? xcx) updated-bounds?) (state-schedule-mvcx-new
+                                            st x vcx.new))
+        (     (vcx? xcx)                  (state-var=>cx-set st x vcx.new))
+        (                updated-bounds?  (set-mvcx-vcx! xcx vcx.new)
+                                          (state-schedule-mvcx st xcx))
+        (else                             (set-mvcx-vcx! xcx vcx.new) st)))
+
+(define (add-arc st cx x)
+  (define xcx (state-var=>cx-ref st x))
+  (define vcx.new (vcx-arc-add (if (vcx? xcx) xcx (mvcx-vcx xcx)) cx))
+  (cond ((vcx? xcx) (state-var=>cx-set st x vcx.new))
+        (else       (set-mvcx-vcx! xcx vcx.new) st)))
 
 ;; tables: any finite       relations where a row    *must* be chosen
 ;; disjs:  any search-based relations where a branch *must* be chosen
