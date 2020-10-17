@@ -241,16 +241,9 @@
               (b (loop (cdr dcxs) (cons dcx dcxs.seen) b)))))))
 
 (define (add-domain st cx x)
-  (define xcx (state-var=>cx-ref st x))
-  (define vcx.new (vcx-domain-add (if (vcx? xcx) xcx (mvcx-vcx xcx)) cx))
-  (cond ((vcx? xcx) (state-var=>cx-set st x vcx.new))
-        (else       (set-mvcx-vcx! xcx vcx.new) st)))
-
+  (state-update-vcx st x (lambda (vcx.old) (vcx-domain-add vcx.old cx))))
 (define (add-arc st cx x)
-  (define xcx (state-var=>cx-ref st x))
-  (define vcx.new (vcx-arc-add (if (vcx? xcx) xcx (mvcx-vcx xcx)) cx))
-  (cond ((vcx? xcx) (state-var=>cx-set st x vcx.new))
-        (else       (set-mvcx-vcx! xcx vcx.new) st)))
+  (state-update-vcx st x (lambda (vcx.old) (vcx-arc-add    vcx.old cx))))
 
 ;; tables: any finite       relations where a row    *must* be chosen
 ;; disjs:  any search-based relations where a branch *must* be chosen
@@ -290,6 +283,11 @@
     (error ":== dependencies are not ground:"
            (pretty (==/use (walk* st l) (walk* st deps) r desc)))))
 
+(define (state-update-vcx st x update)
+  (define xcx (state-var=>cx-ref st x))
+  (define vcx.new (update (if (vcx? xcx) xcx (mvcx-vcx xcx))))
+  (cond ((vcx? xcx) (state-var=>cx-set st x vcx.new))
+        (else       (set-mvcx-vcx! xcx vcx.new) st)))
 (define (state-schedule-mvcx-new st x xcx)
   (define (load cx) (cx 'load st))
   (define m (mvcx #t x (vcx-update (vcx-bounds xcx)
