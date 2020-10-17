@@ -240,19 +240,11 @@
                 (assign st x value))
               (b (loop (cdr dcxs) (cons dcx dcxs.seen) b)))))))
 
-(define (add-domain st cx x updated-bounds?)
+(define (add-domain st cx x)
   (define xcx (state-var=>cx-ref st x))
-  (define vcx.old (if (vcx? xcx) xcx (mvcx-vcx xcx)))
-  (define vcx.new (if updated-bounds?
-                    (vcx-update xcx updated-bounds?
-                                (cons cx (vcx-domain vcx.old))
-                                (vcx-arc vcx.old))
-                    (vcx-domain-add vcx.old cx)))
-  (cond ((and (vcx? xcx) updated-bounds?) (state-schedule-mvcx-new
-                                            st x vcx.new))
-        (     (vcx? xcx)                  (state-var=>cx-set st x vcx.new))
-        (                updated-bounds?  (state-schedule-mvcx st xcx vcx.new))
-        (else                             (set-mvcx-vcx! xcx vcx.new) st)))
+  (define vcx.new (vcx-domain-add (if (vcx? xcx) xcx (mvcx-vcx xcx)) cx))
+  (cond ((vcx? xcx) (state-var=>cx-set st x vcx.new))
+        (else       (set-mvcx-vcx! xcx vcx.new) st)))
 
 (define (add-arc st cx x)
   (define xcx (state-var=>cx-ref st x))
