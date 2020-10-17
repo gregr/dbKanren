@@ -163,6 +163,11 @@
 (struct vcx (bounds domain arc =/=* ==/use))
 (define vcx.empty (vcx bounds.any '() '() '() '()))
 (define (vcx-update x b ds as) (vcx b ds as (vcx-=/=* x) (vcx-==/use x)))
+(define (vcx-domain-add x cx) (vcx (vcx-bounds x) (cons cx (vcx-domain x))
+                                   (vcx-arc x) (vcx-=/=* x) (vcx-==/use x)))
+(define (vcx-arc-add    x cx) (vcx (vcx-bounds x) (vcx-domain x)
+                                   (cons cx (vcx-arc x)) (vcx-=/=* x)
+                                   (vcx-==/use x)))
 (define (vcx-=/=*-clear x)    (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
                                    '() (vcx-==/use x)))
 (define (vcx-=/=*-add x =/=*) (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
@@ -198,6 +203,40 @@
                                              (vcx-arc xcx)))
                 (assign st x value))
               (b (loop (cdr dcxs) (cons dcx dcxs.seen) b)))))))
+
+(define (constrain-domain st cx term)
+  (define t (walk st term))
+  (if (var? t)
+    (let ((xcx (hash-ref (state-var=>cx st) t vcx.empty)))
+      (if (vcx? xcx)
+        (let* ((b.0 (vcx-bounds xcx)) (result (cx 'test st t b.0)))
+          (and result
+               (match-let (((list st b cx) result))
+                 (cond ((eq? b.0 b)
+                        (state-var=>cx-set st t (vcx-domain-add xcx cx)))
+                       ((bounds? b)
+                        (state-schedule-mvcx-new
+                          st t (vcx-update b (cons cx (vcx-domain xcx))
+                                           (vcx-arc xcx))))
+                       (else (let ((st (cx 'assign st b)))
+                               (and st (assign st t b))))))))
+        (let* ((b.0 (vcx-bounds (mvcx-vcx xcx))) (result (cx 'test st t b.0)))
+          (and result
+               (match-let (((list st b cx) result))
+                 (cond ((eq? b.0 b)
+                        (define lcx (cx 'load st))
+                        (set-mvcx-vcx! xcx (vcx-domain-add (mvcx-vcx xcx) lcx))
+                        st)
+                       ((bounds? b)
+                        (define lcx (cx 'load st))
+                        (set-mvcx-vcx! xcx (vcx-update
+                                             b (cons lcx (vcx-domain xcx))
+                                             (vcx-arc xcx)))
+                        (if (mvcx-pending? xcx) (state-schedule-mvcx st xcx)
+                          st))
+                       (else (let ((st (cx 'assign st b)))
+                               (and st (assign st t b))))))))))
+    (cx 'assign st t)))
 
 ;; tables: any finite       relations where a row    *must* be chosen
 ;; disjs:  any search-based relations where a branch *must* be chosen
