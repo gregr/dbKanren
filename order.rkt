@@ -5,7 +5,7 @@
          term.vector.min term.vector.max
          domain.any domain.null domain.number domain.symbol
          domain.string domain.bytes domain.pair domain.vector domain.boolean
-         any-consecutive?
+         any-increment any-consecutive?
          (struct-out interval)
          type->compare compare-term compare-any compare-null compare-boolean
          compare-nat compare-number
@@ -58,40 +58,34 @@
 (define domain.vector  `#(#()      ,(interval '#()       #f)))
 (define domain.boolean `#(#f                             #t))
 
-(define (any-consecutive? x y)
-  (define (vector=/len? x y len)
-    (let loop ((i (- len 1)))
-      (or (< i 0)
-          (let ((xi (vector-ref x i)) (yi (vector-ref y i)))
-            (and (equal? xi yi) (loop (- i 1)))))))
-  (define (vector-adjacent/len? x y len)
-    (let loop ((i (- len 1)))
-      (and (<= 0 i)
-           (let ((xi (vector-ref x i)) (yi (vector-ref y i)))
-             (if (eq? yi '())
-               (and (eq? xi #t) (loop (- i 1)))
-               (and (any-consecutive? xi yi)
-                    (vector=/len? x y i)))))))
-  (define (vector-eq/len? v x len)
-    (let loop ((i (- len 1)))
-      (or (< i 0) (and (eq? (vector-ref x i) v) (loop (- i 1))))))
+(define (any-increment x)
+  (define (list-increment xs)
+    (define xs.new
+      (let loop ((xs xs))
+        (if (null? xs) '()
+          (let* ((a (car xs)) (d (cdr xs)) (d.new (loop (cdr xs))))
+            (cond ((and (pair? d.new) (eq? d d.new)) xs)
+                  ((or (null? d.new) (null? (car d.new)))
+                   (define a.new (if (eq? a #t) '() (any-increment a)))
+                   (if (eq? a a.new) xs (cons a.new d.new)))
+                  (else (cons a d.new)))))))
+    (cond ((null? xs.new)       '(()))
+          ((eq? xs xs.new)      xs)
+          ((null? (car xs.new)) (cons '() xs.new))
+          (else                 xs.new)))
   (match x
-    (#f         (eq?    y #t))
-    ('(#t . #t) (equal? y '#()))
-    (`(,xa . ,xd)
-      (match y
-        (`(,ya . ,yd) (or (and (equal? xa ya)
-                               (any-consecutive? xd yd))
-                          (and (eq? xd #t) (eq? yd '())
-                               (any-consecutive? xa ya))))
-        (_            #f)))
-    (_ (and (vector? x) (vector? y)
-            (let ((xlen (vector-length x)) (ylen (vector-length y)))
-              (and (not (= ylen 0))
-                   (or (and (= xlen ylen) (vector-adjacent/len? x y xlen))
-                       (and (= (+ xlen 1) ylen)
-                            (vector-eq/len? #t  x xlen)
-                            (vector-eq/len? '() y ylen)))))))))
+    (#f          #t)
+    ('(#t . #t)  '#())
+    (`(,a . #t)  (define a.new (any-increment a))
+                 (if (eq? a a.new) x `(,a.new . ())))
+    (`(,a . ,d)  (define d.new (any-increment d))
+                 (if (eq? d d.new) x `(,a . ,d.new)))
+    ((? vector?) (define xs (vector->list x))
+                 (define xs.new (list-increment xs))
+                 (if (eq? xs xs.new) x (list->vector xs.new)))
+    (_           x)))
+
+(define (any-consecutive? x y) (equal? (any-increment x) y))
 
 (define ((compare-><?  compare) a b)      (eqv? (compare a b) -1))
 (define ((compare-><=? compare) a b) (not (eqv? (compare a b)  1)))
