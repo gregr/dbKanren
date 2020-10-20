@@ -156,10 +156,12 @@
 (define (bounds-apply st b t)
   (if (eq? b bounds.any) st
     (let ((t (walk* st t)))
-      (cond ((ground? t) (and ((if (bounds-lb-inclusive? b) any<=? any<?)
-                               (bounds-lb b) t)
-                              ((if (bounds-ub-inclusive? b) any<=? any<?)
-                               t (bounds-ub b))
+      (define lb.b  (bounds-lb b))
+      (define ub.b  (bounds-ub b))
+      (define lbi.b (bounds-lb-inclusive? b))
+      (define ubi.b (bounds-ub-inclusive? b))
+      (cond ((ground? t) (and ((if lbi.b any<=? any<?) (bounds-lb b) t)
+                              ((if ubi.b any<=? any<?) t (bounds-ub b))
                               st))
             ;; TODO: apply bounds recursively if necessary
             ((pair? t) #f)
