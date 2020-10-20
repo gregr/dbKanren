@@ -5,7 +5,7 @@
          term.vector.min term.vector.max
          domain.any domain.null domain.number domain.symbol
          domain.string domain.bytes domain.pair domain.vector domain.boolean
-         bounds-adjacent?
+         any-consecutive?
          (struct-out interval)
          type->compare compare-term compare-any compare-null compare-boolean
          compare-nat compare-number
@@ -58,7 +58,7 @@
 (define domain.vector  `#(#()      ,(interval '#()       #f)))
 (define domain.boolean `#(#f                             #t))
 
-(define (bounds-adjacent? x y)
+(define (any-consecutive? x y)
   (define (vector=/len? x y len)
     (let loop ((i (- len 1)))
       (or (< i 0)
@@ -70,7 +70,7 @@
            (let ((xi (vector-ref x i)) (yi (vector-ref y i)))
              (if (eq? yi '())
                (and (eq? xi #t) (loop (- i 1)))
-               (and (bounds-adjacent? xi yi)
+               (and (any-consecutive? xi yi)
                     (vector=/len? x y i)))))))
   (define (vector-eq/len? v x len)
     (let loop ((i (- len 1)))
@@ -81,9 +81,9 @@
     (`(,xa . ,xd)
       (match y
         (`(,ya . ,yd) (or (and (equal? xa ya)
-                               (bounds-adjacent? xd yd))
+                               (any-consecutive? xd yd))
                           (and (eq? xd #t) (eq? yd '())
-                               (bounds-adjacent? xa ya))))
+                               (any-consecutive? xa ya))))
         (_            #f)))
     (_ (and (vector? x) (vector? y)
             (let ((xlen (vector-length x)) (ylen (vector-length y)))
