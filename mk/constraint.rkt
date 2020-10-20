@@ -496,8 +496,10 @@
 
 (define (assign/log st ==* x t)
   (and (not (occurs? st x t))
-       (let ((b (vcx-bounds (state-var=>cx-ref st x))))
-         (bounds-apply st b t))
+       (let ((xcx (state-var=>cx-ref st x)))
+         ;; TODO: this is only safe if we can guarantee that bounds-apply will
+         ;; not mutate any mvcxs
+         (or (not (vcx? xcx)) (bounds-apply st (vcx-bounds xcx) t)))
        (cons (state-var=>cx-set st x t)
              (cons (cons x t) ==*))))
 (define (unify/log st ==* t1 t2)
