@@ -286,19 +286,19 @@
   (define xcx (mvcx-vcx m))
   (define b.0 (vcx-bounds xcx))
   (set-mvcx-vcx! m (vcx-domain-clear xcx))
-  (let*/and ((st (foldl/and (lambda (cx st) (cx st)) st (vcx-domain xcx))))
+  (let*/and ((st (foldl/and cx-apply st (vcx-domain xcx))))
     (let* ((t   (walk st x))
            (xcx (if (var? t) (state-var->vcx st t) vcx.empty)))
       (cond ((not (var? t))             st)
             ;; TODO: the pending queue should manage pending status
             ((eq? (vcx-bounds xcx) b.0) (set-mvcx-pending?! m #f) st)
             (else (set-mvcx-vcx! m (vcx-arc-clear xcx))
-                  (let*/and ((st (foldl/and (lambda (cx st) (cx st))
-                                            st (vcx-arc xcx))))
+                  (let*/and ((st (foldl/and cx-apply st (vcx-arc xcx))))
                     ;; TODO: the pending queue should decide priority based
                     ;; on recency, to provide more fairness
                     (state-pending-push-low st (mvcx-update m))))))))
 
+(define (cx-apply cx st) (cx st))
 (define (add-domain st cx x)
   (state-update-vcx st x (lambda (vcx.old) (vcx-domain-add vcx.old cx))))
 (define (add-arc st cx x)
@@ -465,8 +465,8 @@
              (st      (state-var=>cx-set st x t))
              (st      (state-uses-remove* st ==/use*))
              (st      (bounds-apply st (vcx-bounds vcx.x) t))
-             (st      (foldl/and (lambda (cx st) (cx st)) st (vcx-domain vcx.x)))
-             (st      (foldl/and (lambda (cx st) (cx st)) st (vcx-arc    vcx.x)))
+             (st      (foldl/and cx-apply st (vcx-domain vcx.x)))
+             (st      (foldl/and cx-apply st (vcx-arc    vcx.x)))
              (st      (disunify** st =/=**)))
     (use* st ==/use*)))
 
