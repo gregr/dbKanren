@@ -203,9 +203,21 @@
                                        ;; an appropriate variable:
                                        ;; (add-arc st.new (cx-bounds b t) _)
                                        st)))))))))
-            ;; TODO: vector->list, compute appropriate lb/ub list bounds
-            ;; of the same length, then bounds-apply again
-            ((vector? t) #f)
+            ((vector? t)
+             (and (any<? lb term.vector.max)
+                  (any<=? term.vector.min ub)
+                  (let* ((len.t (vector-length t))
+                         (lb.t  (make-vector len.t term.min))
+                         (ub.t  (make-vector len.t term.max))
+                         (lb    (if (any<? lb lb.t) lb.t lb))
+                         (ub    (if (any<? ub.t ub) ub.t ub))
+                         (lbi   (if (eq? lb lb.t) lbi #t))
+                         (ubi   (if (eq? ub ub.t) ubi #t)))
+                    (if (and (equal? lb lb.t) (equal? ub ub.t) lbi ubi) st
+                      (and (any<=? lb ub.t) (any<=? lb.t ub)
+                           (bounds-apply st (bounds (vector->list lb) lbi
+                                                    (vector->list ub) ubi)
+                                         (vector->list t)))))))
             (else (define xcx     (state-var=>cx-ref st t))
                   (define vcx.old (if (vcx? xcx) xcx (mvcx-vcx xcx)))
                   (define b.0     (vcx-bounds vcx.old))
