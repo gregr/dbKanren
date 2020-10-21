@@ -284,18 +284,14 @@
 (define (var-update st x)
   (define xcx (state-var->vcx st x))
   (define b.0 (vcx-bounds xcx))
-  (let*/and ((st (state-vcx-set st x (vcx-domain-clear xcx)))
-             (st (foldl/and cx-apply st (vcx-domain xcx))))
+  (let*/and ((st (foldl/and cx-apply
+                            (state-vcx-set st x (vcx-domain-clear xcx))
+                            (vcx-domain xcx))))
     (let* ((t   (walk st x))
            (xcx (if (var? t) (state-var->vcx st t) vcx.empty)))
       (if (or (not (var? t)) (eq? (vcx-bounds xcx) b.0)) st
-        (let*/and ((st (state-vcx-set st x (vcx-arc-clear xcx)))
-                   (st (foldl/and cx-apply st (vcx-arc xcx))))
-          (let ((t (walk st t)))
-            (when (var? t)
-              ;; TODO: the pending queue should decide priority based
-              ;; on recency, to provide more fairness
-              (state-pending-push-low st t))))))))
+        (foldl/and cx-apply (state-vcx-set st t (vcx-arc-clear xcx))
+                   (vcx-arc xcx))))))
 
 (define (cx-apply cx st) (cx st))
 (define (add-domain st cx x)
