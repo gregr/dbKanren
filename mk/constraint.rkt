@@ -201,8 +201,6 @@
                       ;; performance implications.
                       (define b.a (make-bounds lb.a #t    ub.a #t))
                       (define b.d (make-bounds lb.d lbi.d ub.d ubi.d))
-                      ;; TODO: these are supposed to define the 'update method,
-                      ;; but that will change soon.
                       (define (cx.lb st)
                         (define (cx st)
                           (bounds-apply st (make-bounds lb.d lbi.d term.max #t)
@@ -261,12 +259,6 @@
                                     st t (vcx-bounds-set vcx.old b.new))))
                       st)))))))
 
-;; TODO: eliminate this
-(define (cx-bounds b t)
-  (method-lambda
-    ((assign st _) (bounds-apply st b t))
-    ((update st _) (bounds-apply st b t))))
-
 (struct vcx (bounds domain arc =/=* ==/use))
 (define vcx.empty (vcx bounds.any '() '() '() '()))
 (define (vcx-domain-clear x cx)
@@ -294,25 +286,18 @@
   (define xcx (mvcx-vcx m))
   (define b.0 (vcx-bounds xcx))
   (set-mvcx-vcx! m (vcx-domain-clear xcx))
-  (let loop ((dcxs (reverse (vcx-domain xcx))) (st st) (b b.0))
-    (cond ((null? dcxs)
-           (cond ((not (bounds? b)) st)
-                 ;; TODO: the pending queue should manage pending status
-                 ((eq? b b.0)       (set-mvcx-pending?! m #f) st)
-                 (else (define xcx (vcx-bounds-set (mvcx-vcx m) b))
-                       (set-mvcx-vcx! m (vcx-arc-clear xcx))
-                       (let loop ((acxs (vcx-arc xcx)) (st st))
-                         ;; TODO: the pending queue should decide priority
-                         ;; based on recency, to provide more fairness
-                         (if (null? acxs)
-                           (state-pending-push-low st (mvcx-update m))
-                           (let ((st ((car acxs) 'update st b)))
-                             (and st (loop (cdr acxs) st))))))))
-          (else (match ((car dcxs) 'update st b)
-                  (#f #f)
-                  ;; TODO: stop passing/returning bounds.  Let cxs access and
-                  ;; set bounds.  Just test eq? against b.0 at the end.
-                  ((cons st b) (loop (cdr dcxs) st b)))))))
+  (let*/and ((st (foldl/and (lambda (cx st) (cx st)) st (vcx-domain xcx))))
+    (let* ((t   (walk st x))
+           (xcx (if (var? t) (state-var->vcx st t) vcx.empty)))
+      (cond ((not (var? t))             st)
+            ;; TODO: the pending queue should manage pending status
+            ((eq? (vcx-bounds xcx) b.0) (set-mvcx-pending?! m #f) st)
+            (else (set-mvcx-vcx! m (vcx-arc-clear xcx))
+                  (let*/and ((st (foldl/and (lambda (cx st) (cx st))
+                                            st (vcx-arc xcx))))
+                    ;; TODO: the pending queue should decide priority based
+                    ;; on recency, to provide more fairness
+                    (state-pending-push-low st (mvcx-update m))))))))
 
 (define (add-domain st cx x)
   (state-update-vcx st x (lambda (vcx.old) (vcx-domain-add vcx.old cx))))
