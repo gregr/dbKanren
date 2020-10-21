@@ -147,6 +147,11 @@
   (let loop ((acc acc) (xs xs))
     (if (null? xs) acc
       (and acc (loop (f (car xs) acc) (cdr xs))))))
+(define-syntax let*/and
+  (syntax-rules ()
+    ((_ () body ...) (let () body ...))
+    ((_ ((lhs rhs) rest ...) body ...)
+     (let ((lhs rhs)) (and lhs (let*/and (rest ...) body ...))))))
 
 (define hasheq.empty (hash))
 (define seteq.empty  (set))
@@ -209,9 +214,8 @@
                                         t.d #f cx.rest.ub))
                         (bounds-apply st b.a t.a #f cx))
                       (if (equal? lb.a ub.a)
-                        (let ((st.new (unify st t.a lb.a)))
-                          (and st.new (bounds-apply st.new b.d t.d
-                                                    cx.rest.lb cx.rest.ub)))
+                        (let*/and ((st.new (unify st t.a lb.a)))
+                          (bounds-apply st.new b.d t.d cx.rest.lb cx.rest.ub))
                         (bounds-apply st b.a t.a cx.lb cx.ub))))))
             ((vector? t)
              (and (any<? lb term.vector.max)
@@ -408,8 +412,7 @@
   (let loop ((st st))
     (define job+st (state-pending-pop st))
     (if job+st
-      (let ((st ((car job+st) (cdr job+st))))
-        (and st (state-pending-run st)))
+      (let*/and ((st ((car job+st) (cdr job+st)))) (state-pending-run st))
       (state-mvcxs-clear st))))
 
 (define (state-choose st xs.observable)
@@ -472,15 +475,15 @@
     '()))
 
 (define (assign/vcx st x t vcx.x =/=*.t)
-  (let* ((=/=**   (append =/=*.t (vcx-=/=* vcx.x)))
-         (==/use* (vcx-==/use vcx.x))
-         (st      (state-var=>cx-set st x t))
-         (st      (state-uses-remove* st ==/use*))
-         (st      (bounds-apply st (vcx-bounds vcx.x) t))
-         (st      (foldl/and (lambda (cx st) (cx 'assign st t))
-                             st (append (vcx-domain vcx.x) (vcx-arc vcx.x))))
-         (st      (and st (disunify** st =/=**))))
-    (and st (use* st ==/use*))))
+  (let*/and ((=/=**   (append =/=*.t (vcx-=/=* vcx.x)))
+             (==/use* (vcx-==/use vcx.x))
+             (st      (state-var=>cx-set st x t))
+             (st      (state-uses-remove* st ==/use*))
+             (st      (bounds-apply st (vcx-bounds vcx.x) t))
+             (st      (foldl/and (lambda (cx st) (cx st)) st (vcx-domain vcx.x)))
+             (st      (foldl/and (lambda (cx st) (cx st)) st (vcx-arc    vcx.x)))
+             (st      (disunify** st =/=**)))
+    (use* st ==/use*)))
 
 (define (assign st x t)
   (define v=>cx (state-var=>cx st))
@@ -567,9 +570,10 @@
           ((var?    t1) (assign/log st ==* t1 t2))
           ((var?    t2) (assign/log st ==* t2 t1))
           ((pair?   t1) (and (pair? t2)
-                             (let ((st+ (unify/log st ==* (car t1) (car t2))))
-                               (and st+ (unify/log (car st+) (cdr st+)
-                                                   (cdr t1) (cdr t2))))))
+                             (let*/and ((st+ (unify/log
+                                               st ==* (car t1) (car t2))))
+                               (unify/log (car st+) (cdr st+)
+                                          (cdr t1) (cdr t2)))))
           ((vector? t1) (and (vector? t2) (= (vector-length t1)
                                              (vector-length t2))
                              (unify/log st ==*
@@ -601,12 +605,12 @@
   (define (disunify*/full =/=*)
     (let loop ((=/=* =/=*) (=/=*.new '()))
       (if (null? =/=*) =/=*.new
-        (let ((st+ (unify/log st '() (caar =/=*) (cdar =/=*))))
-          (and st+ (if (null? (cdr st+)) (loop (cdr =/=*) =/=*.new)
-                     (let ((=/=*.0 (cdr st+)))
-                       ;; irrelevant variables imply irrelevant constraints
-                       (and (set-empty? (set-subtract (term-vars =/=*.0) xs))
-                            (loop (cdr =/=*) (append =/=*.0 =/=*.new))))))))))
+        (let*/and ((st+ (unify/log st '() (caar =/=*) (cdar =/=*))))
+          (if (null? (cdr st+)) (loop (cdr =/=*) =/=*.new)
+            (let ((=/=*.0 (cdr st+)))
+              ;; irrelevant variables imply irrelevant constraints
+              (and (set-empty? (set-subtract (term-vars =/=*.0) xs))
+                   (loop (cdr =/=*) (append =/=*.0 =/=*.new)))))))))
   (define =/=**.1 (filter-not not (map disunify*/full =/=**.0)))
   ;; pretty variables are comparable via term<?
   (match-define `(,t . ,=/=**.2) (pretty `(,t.0 . ,=/=**.1)))
