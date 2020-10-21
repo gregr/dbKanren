@@ -151,8 +151,9 @@
 (define hasheq.empty (hash))
 (define seteq.empty  (set))
 
-;; TODO: drop inclusiveness, perform domain endpoint trimming instead
-;; trimming means explicitly testing an endpoint assignment
+;; TODO: drop inclusiveness, perform domain endpoint trimming instead.  Domain
+;; trimming means explicitly testing endpoint assignments, and narrowing the
+;; domain bounds when they fail.
 (struct bounds (lb lb-inclusive? ub ub-inclusive?))
 (define bounds.any (bounds term.min #t term.max #t))
 (define (make-bounds lb lbi ub ubi)
@@ -195,7 +196,8 @@
                       ;; performance implications.
                       (define b.a (make-bounds lb.a #t    ub.a #t))
                       (define b.d (make-bounds lb.d lbi.d ub.d ubi.d))
-                      ;; TODO: these are supposed to define the 'update method
+                      ;; TODO: these are supposed to define the 'update method,
+                      ;; but that will change soon.
                       (define (cx.lb st)
                         (define (cx st)
                           (bounds-apply st (make-bounds lb.d lbi.d term.max #t)
@@ -232,34 +234,34 @@
                   (define lb?     (any<? (bounds-lb b.0) (bounds-lb b)))
                   (define ub?     (any<? (bounds-ub b) (bounds-ub b.0)))
                   (define lbi?
-                    (or lb? (and (not (equal? (bounds-lb-inclusive? b)
-                                              (bounds-lb-inclusive? b.0)))
+                    (or lb? (and (bounds-lb-inclusive? b.0)
+                                 (not (bounds-lb-inclusive? b))
                                  (equal? (bounds-lb b.0) (bounds-lb b)))))
                   (define ubi?
-                    (or ub? (and (not (equal? (bounds-ub-inclusive? b)
-                                              (bounds-ub-inclusive? b.0)))
+                    (or ub? (and (bounds-ub-inclusive? b.0)
+                                 (not (bounds-ub-inclusive? b))
                                  (equal? (bounds-ub b.0) (bounds-ub b)))))
-                  (let* (;; TODO: is the lbi?/ubi? check really enough?
-                         (vcx.old (if (or lb? lbi?)
+                  (let* ((lbi^ (bounds-lb-inclusive? (if lbi? b b.0)))
+                         (ubi^ (bounds-ub-inclusive? (if ubi? b b.0)))
+                         (lb^  (bounds-lb            (if lb?  b b.0)))
+                         (ub^  (bounds-ub            (if ub?  b b.0)))
+                         (vcx.old (if (and cx.rest.lb (equal? lb lb^))
                                     (vcx-arc-add vcx.old cx.rest.lb) vcx.old))
-                         (vcx.old (if (or ub? ubi?)
+                         (vcx.old (if (and cx.rest.ub (equal? ub ub^))
                                     (vcx-arc-add vcx.old cx.rest.ub) vcx.old))
                          (st (state-update-vcx st t (lambda (_) vcx.old))))
                     (if (or lb? ub? lbi? ubi?)
-                      (let ((lbi (bounds-lb-inclusive? (if lbi? b b.0)))
-                            (ubi (bounds-ub-inclusive? (if ubi? b b.0)))
-                            (lb  (bounds-lb            (if lb?  b b.0)))
-                            (ub  (bounds-ub            (if ub?  b b.0))))
-                        (cond ((any<?  ub lb) #f)
-                              ((equal? ub lb) (and lbi ubi (assign st t lb)))
-                              (else
-                                (define b.new   (bounds lb lbi ub ubi))
-                                (define vcx.new (vcx-bounds-set vcx.old b.new))
-                                (if (vcx? xcx)
-                                  (state-schedule-mvcx-new st t vcx.new)
-                                  (state-schedule-mvcx st xcx vcx.new)))))
+                      (cond ((any<?  ub^ lb^) #f)
+                            ((equal? ub^ lb^) (and lbi^ ubi^ (unify st t lb^)))
+                            (else
+                              (define b.new   (bounds lb^ lbi^ ub^ ubi^))
+                              (define vcx.new (vcx-bounds-set vcx.old b.new))
+                              (if (vcx? xcx)
+                                (state-schedule-mvcx-new st t vcx.new)
+                                (state-schedule-mvcx st xcx vcx.new))))
                       st)))))))
 
+;; TODO: eliminate this
 (define (cx-bounds b t)
   (method-lambda
     ((load st)     (cx-bounds b t))
