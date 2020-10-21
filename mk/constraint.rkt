@@ -151,20 +151,25 @@
 (define hasheq.empty (hash))
 (define seteq.empty  (set))
 
+;; TODO: drop inclusiveness, perform domain endpoint trimming instead
+;; trimming means explicitly testing an endpoint assignment
 (struct bounds (lb lb-inclusive? ub ub-inclusive?))
 (define bounds.any (bounds term.min #t term.max #t))
-(define (bounds-apply st b t)
-  (if (eq? b bounds.any) st
-    (let ((t (walk* st t)))
+(define (make-bounds lb lbi ub ubi)
+  (if (and lbi ubi (eq? lb term.min) (eq? ub term.max))
+    bounds.any (bounds lb lbi ub ubi)))
+(define (bounds-apply st b t (cx.rest.lb #f) (cx.rest.ub #f))
+  (if (and (eq? b bounds.any) (not cx.rest.lb) (not cx.rest.ub)) st
+    (let loop ((b b) (t (walk* st t)))
       (define lb  (bounds-lb b))
       (define ub  (bounds-ub b))
       (define lbi (bounds-lb-inclusive? b))
       (define ubi (bounds-ub-inclusive? b))
-      (cond ((ground? t) (and ((if lbi any<=? any<?) lb t)
-                              ((if ubi any<=? any<?) t ub)
-                              ;; TODO: if there are trailing terms to bound,
-                              ;; bounds-apply them now
-                              st))
+      (cond ((ground? t)
+             (and ((if lbi any<=? any<?) lb t) ((if ubi any<=? any<?) t ub)
+                  (cond ((and cx.rest.lb (equal? lb t)) (cx.rest.lb st))
+                        ((and cx.rest.ub (equal? ub t)) (cx.rest.ub st))
+                        (else                           st))))
             ((pair? t)
              (and (any<=? lb term.pair.max)
                   (any<=? term.pair.min ub)
@@ -173,36 +178,39 @@
                            (or (any<? term.pair.max ub)
                                (and ubi (equal? ub term.pair.max))))
                     st
-                    (match-let (((cons a.t  d.t)  t)
-                                ((cons a.lb d.lb) (if (any<=? term.pair.min lb)
+                    (match-let (((cons t.a  t.d)  t)
+                                ((cons lb.a lb.d) (if (any<=? term.pair.min lb)
                                                     lb term.pair.min))
-                                ((cons a.ub d.ub) (if (any<=? ub term.pair.max)
+                                ((cons ub.a ub.d) (if (any<=? ub term.pair.max)
                                                     ub term.pair.max))
                                 (lbi.d (or lbi (any<? lb term.pair.min)))
                                 (ubi.d (or ubi (any<? term.pair.max ub))))
-                      (define b.a (if (and (eq? a.lb term.min)
-                                           (eq? a.ub term.max))
-                                    bounds.any (bounds a.lb #t a.ub #t)))
-                      (define b.d (if (and lbi.d ubi.d
-                                           (eq? d.lb term.min)
-                                           (eq? d.ub term.max))
-                                    bounds.any
-                                    (bounds d.lb lbi.d d.ub ubi.d)))
-                      (if (equal? a.lb a.ub)
-                        (let ((st.new (unify st a.t a.lb)))
-                          (and st.new (bounds-apply st.new b.d d.t)))
-                        (let ((st.new (bounds-apply st b.a a.t)))
-                          ;; TODO: we shouldn't need this if we pass trailing
-                          ;; terms-to-bound to (bounds-apply st b.a a.t)
-                          (and st.new
-                               (cond ((eq? st st.new) st)
-                                     ((ground? (walk* st.new a.t))
-                                      (bounds-apply st.new b.d d.t))
-                                     (else
-                                       ;; TODO: need to schedule a retry with
-                                       ;; an appropriate variable:
-                                       ;; (add-arc st.new (cx-bounds b t) _)
-                                       st)))))))))
+                      ;; Assuming #t for 'a' inclusiveness is safe, but isn't
+                      ;; really justified.  If 'd' is outside either of its
+                      ;; bounds, the corresponding bound of 'a' will not be
+                      ;; inclusive.  We could check this here, or just rely on
+                      ;; a later domain trimming pass to clean up after this
+                      ;; sloppiness.  On that note, domain trimming also makes
+                      ;; inclusiveness tracking unnecessary, aside from any
+                      ;; performance implications.
+                      (define b.a (make-bounds lb.a #t    ub.a #t))
+                      (define b.d (make-bounds lb.d lbi.d ub.d ubi.d))
+                      ;; TODO: these are supposed to define the 'update method
+                      (define (cx.lb st)
+                        (define (cx st)
+                          (bounds-apply st (make-bounds lb.d lbi.d term.max #t)
+                                        t.d cx.rest.lb #f))
+                        (bounds-apply st b.a t.a cx #f))
+                      (define (cx.ub st)
+                        (define (cx st)
+                          (bounds-apply st (make-bounds term.min #t ub.d ubi.d)
+                                        t.d #f cx.rest.ub))
+                        (bounds-apply st b.a t.a #f cx))
+                      (if (equal? lb.a ub.a)
+                        (let ((st.new (unify st t.a lb.a)))
+                          (and st.new (bounds-apply st.new b.d t.d
+                                                    cx.rest.lb cx.rest.ub)))
+                        (bounds-apply st b.a t.a cx.lb cx.ub))))))
             ((vector? t)
              (and (any<? lb term.vector.max)
                   (any<=? term.vector.min ub)
@@ -215,9 +223,9 @@
                          (ubi   (if (eq? ub ub.t) ubi #t)))
                     (if (and (equal? lb lb.t) (equal? ub ub.t) lbi ubi) st
                       (and (any<=? lb ub.t) (any<=? lb.t ub)
-                           (bounds-apply st (bounds (vector->list lb) lbi
-                                                    (vector->list ub) ubi)
-                                         (vector->list t)))))))
+                           (loop (bounds (vector->list lb) lbi
+                                         (vector->list ub) ubi)
+                                 (vector->list t)))))))
             (else (define xcx     (state-var=>cx-ref st t))
                   (define vcx.old (if (vcx? xcx) xcx (mvcx-vcx xcx)))
                   (define b.0     (vcx-bounds vcx.old))
@@ -231,20 +239,26 @@
                     (or ub? (and (not (equal? (bounds-ub-inclusive? b)
                                               (bounds-ub-inclusive? b.0)))
                                  (equal? (bounds-ub b.0) (bounds-ub b)))))
-                  (if (or lb? ub? lbi? ubi?)
-                    (let ((lbi (bounds-lb-inclusive? (if lbi? b b.0)))
-                          (ubi (bounds-ub-inclusive? (if ubi? b b.0)))
-                          (lb  (bounds-lb            (if lb?  b b.0)))
-                          (ub  (bounds-ub            (if ub?  b b.0))))
-                      (cond ((any<?  ub lb) #f)
-                            ((equal? ub lb) (and lbi ubi (assign st t lb)))
-                            (else
-                              (define b.new   (bounds lb lbi ub ubi))
-                              (define vcx.new (vcx-bounds-set vcx.old b.new))
-                              (if (vcx? xcx)
-                                (state-schedule-mvcx-new st t vcx.new)
-                                (state-schedule-mvcx st xcx vcx.new)))))
-                    st))))))
+                  (let* (;; TODO: is the lbi?/ubi? check really enough?
+                         (vcx.old (if (or lb? lbi?)
+                                    (vcx-arc-add vcx.old cx.rest.lb) vcx.old))
+                         (vcx.old (if (or ub? ubi?)
+                                    (vcx-arc-add vcx.old cx.rest.ub) vcx.old))
+                         (st (state-update-vcx st t (lambda (_) vcx.old))))
+                    (if (or lb? ub? lbi? ubi?)
+                      (let ((lbi (bounds-lb-inclusive? (if lbi? b b.0)))
+                            (ubi (bounds-ub-inclusive? (if ubi? b b.0)))
+                            (lb  (bounds-lb            (if lb?  b b.0)))
+                            (ub  (bounds-ub            (if ub?  b b.0))))
+                        (cond ((any<?  ub lb) #f)
+                              ((equal? ub lb) (and lbi ubi (assign st t lb)))
+                              (else
+                                (define b.new   (bounds lb lbi ub ubi))
+                                (define vcx.new (vcx-bounds-set vcx.old b.new))
+                                (if (vcx? xcx)
+                                  (state-schedule-mvcx-new st t vcx.new)
+                                  (state-schedule-mvcx st xcx vcx.new)))))
+                      st)))))))
 
 (define (cx-bounds b t)
   (method-lambda
