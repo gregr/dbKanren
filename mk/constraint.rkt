@@ -280,7 +280,6 @@
 (define (vcx-==/use-add x u)  (vcx (vcx-bounds x) (vcx-domain x) (vcx-arc x)
                                    (vcx-=/=* x) (cons u (vcx-==/use x))))
 
-(struct mvcx (pending? var vcx) #:mutable)
 (define (var-update st x)
   (define xcx (state-var=>cx-ref st x))
   (define b.0 (vcx-bounds xcx))
@@ -449,20 +448,12 @@
 
 (define (assign st x t)
   (define v=>cx (state-var=>cx st))
-  (define (k x t vcx.x vcx.t)
-    (if (mvcx? vcx.t)
-      (let ((mvcx.t vcx.t) (vcx.t (mvcx-vcx vcx.t)))
-        (set-mvcx-vcx! mvcx.t (vcx-=/=*-clear vcx.t))
-        (assign/vcx st x t vcx.x (vcx-=/=* vcx.t)))
-      (let ((st (if (eq? vcx.empty vcx.t) st
-                  (state-var=>cx-set st t (vcx-=/=*-clear vcx.t)))))
-        (assign/vcx st x t vcx.x (vcx-=/=* vcx.t)))))
   (and (not (occurs? st x t))
-       (let ((vcx.x              (hash-ref v=>cx x vcx.empty))
-             (vcx.t (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty)))
-         (cond ((not (mvcx? vcx.x))           (k x t vcx.x vcx.t))
-               ((and (var? t) (vcx? vcx.t))   (k t x vcx.t vcx.x))
-               (else (set-mvcx-var! vcx.x #f) (k x t (mvcx-vcx vcx.x) vcx.t))))))
+       (let* ((vcx.x              (hash-ref v=>cx x vcx.empty))
+              (vcx.t (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty))
+              (st (if (eq? vcx.empty vcx.t) st
+                    (state-var=>cx-set st t (vcx-=/=*-clear vcx.t)))))
+         (assign/vcx st x t vcx.x (vcx-=/=* vcx.t)))))
 
 (define (use st u)
   (match-define `#s(==/use ,lhs ,args ,rhs ,desc) u)
@@ -486,9 +477,9 @@
     (let ((v=>cx (state-var=>cx st)))
       (let loop ((x t))
         (define val (hash-ref v=>cx x vcx.empty))
-        (cond ((var? val)                  (loop val))
-              ((or (vcx? val) (mvcx? val)) x)
-              (else                        val))))
+        (cond ((var? val) (loop val))
+              ((vcx? val) x)
+              (else       val))))
     t))
 (define (walk* st t)
   (let loop ((term t))
@@ -520,12 +511,10 @@
 
 (define (assign/log st ==* x t)
   (and (not (occurs? st x t))
-       (let ((xcx (state-var=>cx-ref st x)))
-         ;; TODO: this is only safe if we can guarantee that bounds-apply will
-         ;; not mutate any mvcxs
-         (or (not (vcx? xcx)) (bounds-apply st (vcx-bounds xcx) t)))
-       (cons (state-var=>cx-set st x t)
-             (cons (cons x t) ==*))))
+       (let*/and ((st (bounds-apply st (vcx-bounds (state-var=>cx-ref st x))
+                                    t)))
+         (cons (state-var=>cx-set st x t)
+               (cons (cons x t) ==*)))))
 (define (unify/log st ==* t1 t2)
   (let ((t1 (walk st t1)) (t2 (walk st t2)))
     (cond ((eqv? t1 t2) (cons st ==*))
