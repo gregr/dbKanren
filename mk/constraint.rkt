@@ -294,9 +294,11 @@
             ((eq? (vcx-bounds xcx) b.0) (set-mvcx-pending?! m #f) st)
             (else (set-mvcx-vcx! m (vcx-arc-clear xcx))
                   (let*/and ((st (foldl/and cx-apply st (vcx-arc xcx))))
-                    ;; TODO: the pending queue should decide priority based
-                    ;; on recency, to provide more fairness
-                    (state-pending-push-low st (mvcx-update m))))))))
+                    (let ((t (walk st t)))
+                      (when (var? t)
+                        ;; TODO: the pending queue should decide priority based
+                        ;; on recency, to provide more fairness
+                        (state-pending-push-low st t)))))))))
 
 (define (cx-apply cx st) (cx st))
 (define (add-domain st cx x)
@@ -358,12 +360,11 @@
   (define m (mvcx #t x xcx))
   (state (hash-set (state-var=>cx st) x m) (state-store st) (state-tables st)
          (state-disjs st) (state-uses st) (cons m (state-mvcxs st))
-         (cons (mvcx-update m) (state-pending.high st))
-         (state-pending.low st)))
+         (cons x (state-pending.high st)) (state-pending.low st)))
 (define (state-schedule-mvcx st m vcx.new)
   (set-mvcx-vcx! m vcx.new)
   (cond ((mvcx-pending? m) (set-mvcx-pending?! m #t)
-                           (state-pending-push-high st (mvcx-update m)))
+                           (state-pending-push-high st (mvcx-var m)))
         (else st)))
 (define (state-mvcxs-clear st)
   (let ((st (foldl (lambda (m st) (if (not (mvcx-var m)) st
@@ -374,14 +375,14 @@
     (state (state-var=>cx st) (state-store st) (state-tables st)
            (state-disjs st) (state-uses st) '() '() '())))
 
-(define (state-pending-push-high st job)
+(define (state-pending-push-high st x)
   (state (state-var=>cx st) (state-store st) (state-tables st) (state-disjs st)
          (state-uses st) (state-mvcxs st)
-         (cons job (state-pending.high st)) (state-pending.low st)))
-(define (state-pending-push-low st job)
+         (cons x (state-pending.high st)) (state-pending.low st)))
+(define (state-pending-push-low st x)
   (state (state-var=>cx st) (state-store st) (state-tables st) (state-disjs st)
          (state-uses st) (state-mvcxs st)
-         (state-pending.high st) (cons job (state-pending.low st))))
+         (state-pending.high st) (cons x (state-pending.low st))))
 (define (state-pending-pop st)
   (define (state/pending high low)
     (state (state-var=>cx st) (state-store st) (state-tables st)
@@ -394,11 +395,13 @@
         (cons (car pending) (state/pending (cdr pending) '()))))
     (cons (car pending) (state/pending (cdr pending) pending.low))))
 (define (state-pending-run st)
-  (let loop ((st st))
-    (define job+st (state-pending-pop st))
-    (if job+st
-      (let*/and ((st ((car job+st) (cdr job+st)))) (state-pending-run st))
-      (state-mvcxs-clear st))))
+  (match (state-pending-pop st)
+    (#f (state-mvcxs-clear st))
+    ((cons x st)
+     (define t (walk st x))
+     (let*/and ((st (if (var? t) ((mvcx-update (state-var=>cx-ref st t)) st)
+                      st)))
+       (state-pending-run st)))))
 
 (define (state-choose st xs.observable)
   (define x=>stats
