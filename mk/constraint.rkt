@@ -250,7 +250,7 @@
                                     (vcx-arc-add vcx.old cx.rest.lb) vcx.old))
                          (vcx.old (if (and cx.rest.ub (equal? ub ub^))
                                     (vcx-arc-add vcx.old cx.rest.ub) vcx.old))
-                         (st (state-update-vcx st t (lambda (_) vcx.old))))
+                         (st (state-vcx-set st t vcx.old)))
                     (if (or lb? ub? lbi? ubi?)
                       (cond ((any<?  ub^ lb^) #f)
                             ((equal? ub^ lb^) (and lbi^ ubi^ (unify st t lb^)))
@@ -302,9 +302,9 @@
 
 (define (cx-apply cx st) (cx st))
 (define (add-domain st cx x)
-  (state-update-vcx st x (lambda (vcx.old) (vcx-domain-add vcx.old cx))))
+  (state-vcx-update st x (lambda (vcx.old) (vcx-domain-add vcx.old cx))))
 (define (add-arc st cx x)
-  (state-update-vcx st x (lambda (vcx.old) (vcx-arc-add    vcx.old cx))))
+  (state-vcx-update st x (lambda (vcx.old) (vcx-arc-add    vcx.old cx))))
 
 (struct queue (mvcxs high low))
 (define queue.empty (queue '() '() '()))
@@ -343,11 +343,12 @@
     (error ":== dependencies are not ground:"
            (pretty (==/use (walk* st l) (walk* st deps) r desc)))))
 
-(define (state-update-vcx st x update)
+(define (state-vcx-set st x vcx.new)
   (define xcx (state-var=>cx-ref st x))
-  (define vcx.new (update (if (vcx? xcx) xcx (mvcx-vcx xcx))))
   (cond ((vcx? xcx) (state-var=>cx-set st x vcx.new))
         (else       (set-mvcx-vcx! xcx vcx.new) st)))
+(define (state-vcx-update st x update)
+  (state-vcx-set st x (update (state-var->vcx st x))))
 (define (state-schedule-update st x vcx.new)
   (define xcx (state-var=>cx-ref st x))
   (if (vcx? xcx)
