@@ -1,6 +1,6 @@
 #lang racket/base
 (provide state.empty walk* unify disunify use state-enumerate reify)
-(require "../order.rkt" "../stream.rkt" "syntax.rkt"
+(require "../method.rkt" "../order.rkt" "../stream.rkt" "syntax.rkt"
          (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
 
@@ -156,16 +156,55 @@
 (define (bounds-apply st b t)
   (if (eq? b bounds.any) st
     (let ((t (walk* st t)))
-      (define lb.b  (bounds-lb b))
-      (define ub.b  (bounds-ub b))
-      (define lbi.b (bounds-lb-inclusive? b))
-      (define ubi.b (bounds-ub-inclusive? b))
-      (cond ((ground? t) (and ((if lbi.b any<=? any<?) (bounds-lb b) t)
-                              ((if ubi.b any<=? any<?) t (bounds-ub b))
+      (define lb  (bounds-lb b))
+      (define ub  (bounds-ub b))
+      (define lbi (bounds-lb-inclusive? b))
+      (define ubi (bounds-ub-inclusive? b))
+      (cond ((ground? t) (and ((if lbi any<=? any<?) lb t)
+                              ((if ubi any<=? any<?) t ub)
+                              ;; TODO: if there are trailing terms to bound,
+                              ;; bounds-apply them now
                               st))
-            ;; TODO: apply bounds recursively if necessary
-            ((pair? t) #f)
-            ;; TODO: apply bounds recursively if necessary
+            ((pair? t)
+             (and (any<=? lb term.pair.max)
+                  (any<=? term.pair.min ub)
+                  (if (and (or (any<? lb term.pair.min)
+                               (and lbi (equal? lb term.pair.min)))
+                           (or (any<? term.pair.max ub)
+                               (and ubi (equal? ub term.pair.max))))
+                    st
+                    (match-let (((cons a.t  d.t)  t)
+                                ((cons a.lb d.lb) (if (any<=? term.pair.min lb)
+                                                    lb term.pair.min))
+                                ((cons a.ub d.ub) (if (any<=? ub term.pair.max)
+                                                    ub term.pair.max))
+                                (lbi.d (or lbi (any<? lb term.pair.min)))
+                                (ubi.d (or ubi (any<? term.pair.max ub))))
+                      (define b.a (if (and (eq? a.lb term.min)
+                                           (eq? a.ub term.max))
+                                    bounds.any (bounds a.lb #t a.ub #t)))
+                      (define b.d (if (and lbi.d ubi.d
+                                           (eq? d.lb term.min)
+                                           (eq? d.ub term.max))
+                                    bounds.any
+                                    (bounds d.lb lbi.d d.ub ubi.d)))
+                      (if (equal? a.lb a.ub)
+                        (let ((st.new (unify st a.t a.lb)))
+                          (and st.new (bounds-apply st.new b.d d.t)))
+                        (let ((st.new (bounds-apply st b.a a.t)))
+                          ;; TODO: we shouldn't need this if we pass trailing
+                          ;; terms-to-bound to (bounds-apply st b.a a.t)
+                          (and st.new
+                               (cond ((eq? st st.new) st)
+                                     ((ground? (walk* st.new a.t))
+                                      (bounds-apply st.new b.d d.t))
+                                     (else
+                                       ;; TODO: need to schedule a retry with
+                                       ;; an appropriate variable:
+                                       ;; (add-arc st.new (cx-bounds b t) _)
+                                       st)))))))))
+            ;; TODO: vector->list, compute appropriate lb/ub list bounds
+            ;; of the same length, then bounds-apply again
             ((vector? t) #f)
             (else (define xcx     (state-var=>cx-ref st t))
                   (define vcx.old (if (vcx? xcx) xcx (mvcx-vcx xcx)))
@@ -194,6 +233,20 @@
                                 (state-schedule-mvcx-new st t vcx.new)
                                 (state-schedule-mvcx st xcx vcx.new)))))
                     st))))))
+
+(define (cx-bounds b t)
+  (method-lambda
+    ((load st)     (cx-bounds b t))
+    ((save st)     (cons st (cx-bounds b t)))
+    ((assign st _) (bounds-apply st b t))
+    ;; TODO: this is bad because we expect update to not change the list of arc
+    ;; constraints, yet bounds-apply may do exactly that.  Let's just move to
+    ;; a simpler notion of constraint update and propagation by removing some
+    ;; of these state transitions, and probably also removing mvcxs.
+    ((update st b) (define st.new (bounds-apply st b t))
+                   (and st.new (if (eq? st st.new)
+                                 `(succeed . ,st)
+                                 `(continue . ,st.new))))))
 
 (struct vcx (bounds domain arc =/=* ==/use))
 (define vcx.empty (vcx bounds.any '() '() '() '()))
