@@ -281,24 +281,21 @@
                                    (vcx-=/=* x) (cons u (vcx-==/use x))))
 
 (struct mvcx (pending? var vcx) #:mutable)
-(define ((mvcx-update m) st)
-  (define x   (mvcx-var m))
-  (define xcx (mvcx-vcx m))
+(define (var-update st x)
+  (define xcx (state-var->vcx st x))
   (define b.0 (vcx-bounds xcx))
-  (set-mvcx-vcx! m (vcx-domain-clear xcx))
-  (let*/and ((st (foldl/and cx-apply st (vcx-domain xcx))))
+  (let*/and ((st (state-vcx-set st x (vcx-domain-clear xcx)))
+             (st (foldl/and cx-apply st (vcx-domain xcx))))
     (let* ((t   (walk st x))
            (xcx (if (var? t) (state-var->vcx st t) vcx.empty)))
-      (cond ((not (var? t))             st)
-            ;; TODO: the pending queue should manage pending status
-            ((eq? (vcx-bounds xcx) b.0) (set-mvcx-pending?! m #f) st)
-            (else (set-mvcx-vcx! m (vcx-arc-clear xcx))
-                  (let*/and ((st (foldl/and cx-apply st (vcx-arc xcx))))
-                    (let ((t (walk st t)))
-                      (when (var? t)
-                        ;; TODO: the pending queue should decide priority based
-                        ;; on recency, to provide more fairness
-                        (state-pending-push-low st t)))))))))
+      (if (or (not (var? t)) (eq? (vcx-bounds xcx) b.0)) st
+        (let*/and ((st (state-vcx-set st x (vcx-arc-clear xcx)))
+                   (st (foldl/and cx-apply st (vcx-arc xcx))))
+          (let ((t (walk st t)))
+            (when (var? t)
+              ;; TODO: the pending queue should decide priority based
+              ;; on recency, to provide more fairness
+              (state-pending-push-low st t))))))))
 
 (define (cx-apply cx st) (cx st))
 (define (add-domain st cx x)
@@ -399,12 +396,13 @@
     (cons (car pending) (state/pending (cdr pending) pending.low))))
 (define (state-pending-run st)
   (match (state-pending-pop st)
-    (#f (state-pending-clear st))
-    ((cons x st)
-     (define t (walk st x))
-     (let*/and ((st (if (var? t) ((mvcx-update (state-var=>cx-ref st t)) st)
-                      st)))
-       (state-pending-run st)))))
+    (#f          (state-pending-clear st))
+    ((cons x st) (define t (walk st x))
+                 (when (var? t)
+                   (define m (state-var=>cx-ref st t))
+                   (when (mvcx? m) (set-mvcx-pending?! m #f)))
+                 (let*/and ((st (if (var? t) (var-update st t) st)))
+                   (state-pending-run st)))))
 
 (define (state-choose st xs.observable)
   (define x=>stats
