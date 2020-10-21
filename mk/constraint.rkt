@@ -230,7 +230,7 @@
                            (loop (bounds (vector->list lb) lbi
                                          (vector->list ub) ubi)
                                  (vector->list t)))))))
-            (else (define vcx.old (state-var->vcx st t))
+            (else (define vcx.old (state-var=>cx-ref st t))
                   (define b.0     (vcx-bounds vcx.old))
                   (define lb?     (any<? (bounds-lb b.0) (bounds-lb b)))
                   (define ub?     (any<? (bounds-ub b) (bounds-ub b.0)))
@@ -250,7 +250,7 @@
                                     (vcx-arc-add vcx.old cx.rest.lb) vcx.old))
                          (vcx.old (if (and cx.rest.ub (equal? ub ub^))
                                     (vcx-arc-add vcx.old cx.rest.ub) vcx.old))
-                         (st (state-vcx-set st t vcx.old)))
+                         (st (state-var=>cx-set st t vcx.old)))
                     (if (or lb? ub? lbi? ubi?)
                       (cond ((any<?  ub^ lb^) #f)
                             ((equal? ub^ lb^) (and lbi^ ubi^ (unify st t lb^)))
@@ -282,15 +282,15 @@
 
 (struct mvcx (pending? var vcx) #:mutable)
 (define (var-update st x)
-  (define xcx (state-var->vcx st x))
+  (define xcx (state-var=>cx-ref st x))
   (define b.0 (vcx-bounds xcx))
   (let*/and ((st (foldl/and cx-apply
-                            (state-vcx-set st x (vcx-domain-clear xcx))
+                            (state-var=>cx-set st x (vcx-domain-clear xcx))
                             (vcx-domain xcx))))
     (let* ((t   (walk st x))
-           (xcx (if (var? t) (state-var->vcx st t) vcx.empty)))
+           (xcx (if (var? t) (state-var=>cx-ref st t) vcx.empty)))
       (if (or (not (var? t)) (eq? (vcx-bounds xcx) b.0)) st
-        (foldl/and cx-apply (state-vcx-set st t (vcx-arc-clear xcx))
+        (foldl/and cx-apply (state-var=>cx-set st t (vcx-arc-clear xcx))
                    (vcx-arc xcx))))))
 
 (define (cx-apply cx st) (cx st))
@@ -310,8 +310,6 @@
 (define (state-var=>cx-set st x t)
   (state (hash-set (state-var=>cx st) x t) (state-store st) (state-tables st)
          (state-disjs st) (state-uses st) (state-pending st)))
-(define (state-var->vcx st x) (let ((xcx (state-var=>cx-ref st x)))
-                                (if (vcx? xcx) xcx (mvcx-vcx xcx))))
 (define (state-store-ref st k _) (hash-ref (state-store st) k _))
 (define (state-store-set st k v)
   (state (state-var=>cx st) (hash-set (state-store st) k v) (state-tables st)
@@ -336,12 +334,8 @@
     (error ":== dependencies are not ground:"
            (pretty (==/use (walk* st l) (walk* st deps) r desc)))))
 
-(define (state-vcx-set st x vcx.new)
-  (define xcx (state-var=>cx-ref st x))
-  (cond ((vcx? xcx) (state-var=>cx-set st x vcx.new))
-        (else       (set-mvcx-vcx! xcx vcx.new) st)))
 (define (state-vcx-update st x update)
-  (state-vcx-set st x (update (state-var->vcx st x))))
+  (state-var=>cx-set st x (update (state-var=>cx-ref st x))))
 ;; TODO: the pending queue should decide priority based
 ;; on recency, to provide more fairness
 (define (state-schedule st x)
@@ -349,7 +343,7 @@
   (unless (or (member x (queue-high q)) (member x (queue-low q)))
     (state-pending-push-low st x)))
 (define (state-schedule-update st x vcx.new)
-  (state-schedule (state-vcx-set st x vcx.new) x))
+  (state-schedule (state-var=>cx-set st x vcx.new) x))
 
 (define (state-pending-push-high st x)
   (let* ((q (state-pending st))
