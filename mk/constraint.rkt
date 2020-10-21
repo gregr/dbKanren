@@ -292,22 +292,23 @@
   (set-mvcx-vcx! m (vcx-domain-clear xcx))
   (let loop ((dcxs (reverse (vcx-domain xcx))) (st st) (b b.0))
     (cond ((null? dcxs)
-           (if (eq? b b.0) (begin (set-mvcx-pending?! m #f) st)
-             (let ((xcx (vcx-bounds-set (mvcx-vcx m) b)))
-               (set-mvcx-vcx! m (vcx-arc-clear xcx))
-               (let loop ((acxs (vcx-arc xcx)) (st st))
-                 (if (null? acxs) (state-pending-push-low st (mvcx-update m))
-                   (let ((st ((car acxs) 'update st b)))
-                     (and st (loop (cdr acxs) st))))))))
+           (cond ((not (bounds? b)) st)
+                 ;; TODO: the pending queue should manage pending status
+                 ((eq? b b.0)       (set-mvcx-pending?! m #f) st)
+                 (else (define xcx (vcx-bounds-set (mvcx-vcx m) b))
+                       (set-mvcx-vcx! m (vcx-arc-clear xcx))
+                       (let loop ((acxs (vcx-arc xcx)) (st st))
+                         ;; TODO: the pending queue should decide priority
+                         ;; based on recency, to provide more fairness
+                         (if (null? acxs)
+                           (state-pending-push-low st (mvcx-update m))
+                           (let ((st ((car acxs) 'update st b)))
+                             (and st (loop (cdr acxs) st))))))))
           (else (match ((car dcxs) 'update st b)
                   (#f #f)
-                  ((cons st b)
-                   (if (bounds? b) (loop (cdr dcxs) st b)
-                     (let* ((xcx (mvcx-vcx m))
-                            (dcxs (append dcxs (vcx-domain xcx)))
-                            (acxs (vcx-arc xcx)))
-                       (set-mvcx-vcx! m (vcx-update xcx bounds.any dcxs acxs))
-                       (assign st x b)))))))))
+                  ;; TODO: stop passing/returning bounds.  Let cxs access and
+                  ;; set bounds.  Just test eq? against b.0 at the end.
+                  ((cons st b) (loop (cdr dcxs) st b)))))))
 
 (define (add-domain st cx x)
   (state-update-vcx st x (lambda (vcx.old) (vcx-domain-add vcx.old cx))))
