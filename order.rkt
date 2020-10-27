@@ -5,7 +5,7 @@
          term.vector.min term.vector.max
          domain.any domain.null domain.number domain.symbol
          domain.string domain.bytes domain.pair domain.vector domain.boolean
-         any-increment any-consecutive?
+         any-increment any-decrement
          (struct-out interval)
          type->compare compare-term compare-any compare-null compare-boolean
          compare-nat compare-number
@@ -85,7 +85,31 @@
                  (if (eq? xs xs.new) x (list->vector xs.new)))
     (_           x)))
 
-(define (any-consecutive? x y) (equal? (any-increment x) y))
+(define (any-decrement x)
+  (define (list-decrement xs)
+    (define xs.new
+      (let loop ((xs xs))
+        (if (null? xs) '()
+          (let* ((a (car xs)) (d (cdr xs)) (d.new (loop (cdr xs))))
+            (cond ((and (pair? d.new) (eq? d d.new)) xs)
+                  ((andmap (lambda (x) (eq? x #t)) d.new)
+                   (define a.new (if (eq? a '()) #t (any-decrement a)))
+                   (if (eq? a a.new) xs (cons a.new d.new)))
+                  (else (cons a d.new)))))))
+    (cond ((eq? xs xs.new)                         xs)
+          ((andmap (lambda (x) (eq? x #t)) xs.new) (cdr xs.new))
+          (else                                    xs.new)))
+  (match x
+    (#t          #f)
+    ('#()        '(#t . #t))
+    (`(,a . ())  (define a.new (any-decrement a))
+                 (if (eq? a a.new) x `(,a.new . #t)))
+    (`(,a . ,d)  (define d.new (any-decrement d))
+                 (if (eq? d d.new) x `(,a . ,d.new)))
+    ((? vector?) (define xs (vector->list x))
+                 (define xs.new (list-decrement xs))
+                 (if (eq? xs xs.new) x (list->vector xs.new)))
+    (_           x)))
 
 (define ((compare-><?  compare) a b)      (eqv? (compare a b) -1))
 (define ((compare-><=? compare) a b) (not (eqv? (compare a b)  1)))
