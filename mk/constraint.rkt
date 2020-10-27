@@ -567,17 +567,35 @@
          (let ((st+ (unify/log st '() (caar =/=*) (cdar =/=*))))
            (cond ((not st+)         st)
                  ((null? (cdr st+)) (loop (cdr =/=*)))
-                 (else (let* ((=/=*  (append (cdr st+) (cdr =/=*)))
-                              (y     (caar =/=*))
-                              ;; TODO: check whether =/=* is just a
-                              ;; (=/= y value) where value is y's lb or ub,
-                              ;; allowing us to set inclusive to #f
-                              ;; TODO: if trimming causes bounds to shrink to a
-                              ;; single value, assign it.
-                              (vcx.y (state-var=>cx-ref st y))
-                              ;; TODO: no need to add =/=* if we successfully trim
-                              (vcx.y (vcx-=/=*-add vcx.y =/=*)))
-                         (state-var=>cx-set st y vcx.y))))))))
+                 (else (define =/=*.new (append (cdr st+) (cdr =/=*)))
+                       (define y        (caar =/=*.new))
+                       (define vcx.y    (state-var=>cx-ref st y))
+                       (define (bounds-set b)
+                         (if (equal? (bounds-lb b) (bounds-ub b))
+                           (assign st y (bounds-lb b))
+                           (state-var=>cx-set st y (vcx-bounds-set vcx.y b))))
+                       (define (add-=/=*)
+                         (state-var=>cx-set
+                           st y (vcx-=/=*-add vcx.y =/=*.new)))
+                       (match =/=*.new
+                         (`((,_ . ,(? ground? value)))
+                           (define b   (vcx-bounds vcx.y))
+                           (define lb  (bounds-lb b))
+                           (define ub  (bounds-ub b))
+                           (define lbi (bounds-lb-inclusive? b))
+                           (define ubi (bounds-ub-inclusive? b))
+                           (cond ((and lbi (equal? value lb))
+                                  (define lb.inc (any-increment lb))
+                                  (bounds-set (if (eq? lb lb.inc)
+                                                (bounds lb #f ub ubi)
+                                                (bounds lb.inc #t ub ubi))))
+                                 ((and ubi (equal? value ub))
+                                  (define ub.dec (any-decrement ub))
+                                  (bounds-set (if (eq? ub ub.dec)
+                                                (bounds lb lbi ub #f)
+                                                (bounds lb lbi ub.dec #t))))
+                                 (else (add-=/=*))))
+                         (_ (add-=/=*)))))))))
 (define (disunify** st =/=**)
   (foldl/and (lambda (=/=* st) (disunify* st =/=*)) st =/=**))
 (define (disunify st t1 t2) (disunify* st (list (cons t1 t2))))
