@@ -8,20 +8,33 @@ large-scale relations.
 
 * domain constraints
   * a var's possible values are the intersection of one or more as bounded sets
+    implied by table constraints (finite row mappings)
     * disagreeing bounds are refined by incremental intersection
-  * continuous/discrete sets
-    * discrete values from a finite relation
-    * mix of discrete and continuous ranges of values for an infinite relation
-    * ordered, disjoint, singletons and open intervals
-      * usual total order
-    * define intersection involving intervals
-    * complement, join (least ub), meet (greatest lb)
-  * disequality constraints punch holes in continuous ranges
+  * disequality constraints invalidate inclusiveness of matching bounds
+    * properly 2-watch `=/=*` constraints to make sure inclusiveness trimming
+      opportunities are not missed
+      * possibly also switch to eager disunify processing
   * description metadata
     * for subsumption and/or simplification with other constraints
 
+* performance bug: current column guessing order is stupid in that it is not
+  informed by the cardinality estimates provided by indexes, blindly following
+  primary table order
+  * example
+    * primary: (id subject object)
+    * index:   (object subject)
+    * Given object, apply/expand procedure will guess id next instead of subject,
+      due to following the primary ordering blindly.  This is obviously
+      suboptimal since index lower/upper offsets will be tighter than primary's,
+      leaving fewer subjects to guess.
+
 * materialized-relation
   * tables as independent helper relations providing constraints
+
+* maybe remove mandatory names for program-defined relations?
+  * anonymous relations `(relation ...)` just provide a blank name by default
+  * can `set-relation-name!` to provide a name if desired
+  * materialized relations can default to using the name stored on disk
 
 * define tables that use column-oriented layout
 
@@ -198,7 +211,7 @@ large-scale relations.
     * `(r arg+ ...)` where `r` is a relation and `arg+ ...` are terms
   * if `r` is a relation:
     * `(r arg+ ...)` relates `arg+ ...` by `r`
-    * `(r)` accesses a metaprogramming control structure
+    * `(relations-ref r)` accesses a metaprogramming control structure
       * configure persistence, representation, uniqueness and type constraints
       * indicate evaluation preferences or hints, such as indexing
       * dynamically disable/enable
@@ -215,7 +228,6 @@ large-scale relations.
 * misc conveniences
   * `apply` to supply a single argument/variable to an n-ary relation
   * underscore "don't care" logic variables
-  * query results as lazy stream to enable non-materializing aggregation
   * tuple-column/record-field keywords
     * optional keyword argument calling convention for relations
     * optional keyword projection of query results

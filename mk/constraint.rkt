@@ -156,9 +156,42 @@
 (define hasheq.empty (hash))
 (define seteq.empty  (set))
 
-;; TODO: drop inclusiveness, perform domain endpoint trimming instead.  Domain
-;; trimming means explicitly testing endpoint assignments, and narrowing the
-;; domain bounds when they fail.
+;; TODO: domain trimming means explicitly testing endpoint assignments, and
+;; narrowing the domain bounds when they fail (setting inclusiveness to #f,
+;; or incrementing if possible).  Domain trimming should actually be
+;; unnecessary given "branchless" disjunctions (those which can be tested for
+;; satisfiability without branching search).  This is because =/= constraints
+;; can be given the responsibility of invalidating inclusiveness.  Once such a
+;; constraint simplifies to a single (=/= var value) where the value is lb or
+;; ub of the var, the corresponding inclusiveness is set to #f.  And this
+;; simplification will occur while satisfying branchless disjunctions.  For
+;; now, even though we don't have branchless disjunctions yet and could miss
+;; some invalidation opportunities by doing so, we'll still leave =/= with the
+;; responsibility of invalidating inclusiveness.  This is fine because missing
+;; important invalidations shouldn't be common, and when it happens it will
+;; only impact performance, not soundness.  Soundness is still preserved by the
+;; explicit grounding of variables by state-choose.
+
+;; TODO: once branchless disjunctions are supported, var-update should process
+;; them after updating domain cxs, but before arc cxs.  The reason for this
+;; order is that domain cxs are likely the most constraining on a var's domain,
+;; and branchless disjunctions that are registered to watch a var are next in
+;; order of likeliness.  Arc cxs are intended to use the watched var's updated
+;; bounds to constrain other vars, not to constrain the watched var itself.
+
+;; TODO: replace bounds-apply with combinations of simpler constraints.
+;; applying (bounds lb lbi ub ubi) to X can be decomposed in this way:
+;; (conj* (<=o lb X) (<=o X ub)
+;;        (if lbi succeed (=/= lb X))
+;;        (if ubi succeed (=/= ub X)))
+;; and (<=o (cons lb.A lb.D) (cons t.A t.D)) can be decomposed as:
+;; (conj* (<=o lb.A t.A)
+;;        (disj* (=/= lb.A t.A)
+;;               (<=o lb.D t.D)))
+;; likewise for upper bounds
+;; Also, vector comparisons can be converted to analogous list comparisons, as
+;; currently done by bounds-apply.
+
 (struct bounds (lb lb-inclusive? ub ub-inclusive?))
 (define bounds.any (bounds term.min #t term.max #t))
 (define (make-bounds lb lbi ub ubi)
@@ -536,7 +569,13 @@
                  ((null? (cdr st+)) (loop (cdr =/=*)))
                  (else (let* ((=/=*  (append (cdr st+) (cdr =/=*)))
                               (y     (caar =/=*))
+                              ;; TODO: check whether =/=* is just a
+                              ;; (=/= y value) where value is y's lb or ub,
+                              ;; allowing us to set inclusive to #f
+                              ;; TODO: if trimming causes bounds to shrink to a
+                              ;; single value, assign it.
                               (vcx.y (state-var=>cx-ref st y))
+                              ;; TODO: no need to add =/=* if we successfully trim
                               (vcx.y (vcx-=/=*-add vcx.y =/=*)))
                          (state-var=>cx-set st y vcx.y))))))))
 (define (disunify** st =/=**)
