@@ -179,6 +179,21 @@
 ;; order of likeliness.  Arc cxs are intended to use the watched var's updated
 ;; bounds to constrain other vars, not to constrain the watched var itself.
 
+;; TODO: when (bounds lb #t ub #t) describes a finite domain, introduce a
+;; corresponding disjunction.  E.g., (bounds '(#t . #f) #t '#(()) #t)
+;; describes the finite domain containing these 4 values:
+;;   (#t . #f) (#t . #t) #() #(())
+;; so if the bounds applies to the variable x, then introduce:
+;;   (disj* (== x '(#t . #f)) (== x '(#t . #t)) (== x '#()) (== x '#(())))
+;; This will be important for soundness once general any<=o constraints are
+;; supported.  E.g., recognizing unsatisfiable disequality cliques.
+;; This disjunction is analogous to a unary table constraint.  An alternative
+;; to introducing an explicit disjunction is to have a set of variables that
+;; are marked as having a finite domain, and have state-choose include these
+;; in its working set.  Another way is to simply introduce the unary table
+;; constraint.  We would also want to track that such a finite domain has
+;; already been added for a variable, to prevent repeated introductions.
+
 ;; TODO: replace bounds-apply with combinations of simpler constraints.
 ;; applying (bounds lb lbi ub ubi) to X can be decomposed in this way:
 ;; (conj* (<=o lb X) (<=o X ub)
