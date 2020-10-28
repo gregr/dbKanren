@@ -572,9 +572,8 @@
                        (define vcx.y    (state-var=>cx-ref st y))
                        (define (bounds-set b)
                          (if (equal? (bounds-lb b) (bounds-ub b))
-                           (and (bounds-lb-inclusive? b)
-                                (bounds-ub-inclusive? b)
-                                (assign st y (bounds-lb b)))
+                           ;; we know both lbi and ubi are #t in this case
+                           (assign st y (bounds-lb b))
                            (state-var=>cx-set st y (vcx-bounds-set vcx.y b))))
                        (define (add-=/=*)
                          (state-var=>cx-set
