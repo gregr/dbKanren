@@ -300,11 +300,8 @@
                                     (vcx-arc-add vcx.old cx.rest.ub) vcx.old))
                          (st (state-var=>cx-set st t vcx.old)))
                     (if (or lb? ub? lbi? ubi?)
-                      (cond ((any<?  ub^ lb^) #f)
-                            ((equal? ub^ lb^) (and lbi^ ubi^ (unify st t lb^)))
-                            (else (define b.new (bounds lb^ lbi^ ub^ ubi^))
-                                  (state-schedule-update
-                                    st t (vcx-bounds-set vcx.old b.new))))
+                      (state-vcx-update-bounds st t vcx.old
+                                               (bounds lb^ lbi^ ub^ ubi^))
                       st)))))))
 
 (struct vcx (bounds domain arc =/=* ==/use))
@@ -389,6 +386,12 @@
     (state-pending-push st x)))
 (define (state-schedule-update st x vcx.new)
   (state-schedule (state-var=>cx-set st x vcx.new) x))
+(define (state-vcx-update-bounds st x vcx.old b.new)
+  (match-define (bounds lb lbi ub ubi) b.new)
+  (cond ((any<?  ub lb) #f)
+        ((equal? ub lb) (and lbi ubi (assign st x lb)))
+        (else (state-schedule-update
+                st x (vcx-bounds-set vcx.old b.new)))))
 
 (define (state-pending-push st x)
   (let* ((q      (state-pending st))
@@ -585,12 +588,6 @@
                  (else (define =/=*.new (append (cdr st+) (cdr =/=*)))
                        (define y        (caar =/=*.new))
                        (define vcx.y    (state-var=>cx-ref st y))
-                       (define (bounds-set b)
-                         (if (equal? (bounds-lb b) (bounds-ub b))
-                           ;; we know both lbi and ubi are #t in this case
-                           (assign st y (bounds-lb b))
-                           (state-schedule-update st y
-                                                  (vcx-bounds-set vcx.y b))))
                        (define (add-=/=*)
                          (state-var=>cx-set
                            st y (vcx-=/=*-add vcx.y =/=*.new)))
@@ -603,14 +600,16 @@
                            (define ubi (bounds-ub-inclusive? b))
                            (cond ((and lbi (equal? value lb))
                                   (define lb.inc (any-increment lb))
-                                  (bounds-set (if (eq? lb lb.inc)
-                                                (bounds lb #f ub ubi)
-                                                (bounds lb.inc #t ub ubi))))
+                                  (state-vcx-update-bounds
+                                    st y vcx.y (if (eq? lb lb.inc)
+                                                 (bounds lb     #f ub ubi)
+                                                 (bounds lb.inc #t ub ubi))))
                                  ((and ubi (equal? value ub))
                                   (define ub.dec (any-decrement ub))
-                                  (bounds-set (if (eq? ub ub.dec)
-                                                (bounds lb lbi ub #f)
-                                                (bounds lb lbi ub.dec #t))))
+                                  (state-vcx-update-bounds
+                                    st y vcx.y (if (eq? ub ub.dec)
+                                                 (bounds lb lbi ub     #f)
+                                                 (bounds lb lbi ub.dec #t))))
                                  (else (add-=/=*))))
                          (_ (add-=/=*)))))))))
 (define (disunify** st =/=**)
