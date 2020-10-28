@@ -1,5 +1,5 @@
 #lang racket/base
-(require "mk.rkt" "relation.rkt" "stream.rkt" "table.rkt"
+(require "../mk.rkt" "../relation.rkt" "../stream.rkt" "../table.rkt"
          racket/function racket/pretty racket/set)
 (print-as-expression #f)
 (pretty-print-abbreviate-read-macros #f)
