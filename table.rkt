@@ -33,6 +33,48 @@
   (call/files (list fin ...) (list fout ...)
               (lambda (in ... out ...) body ...)))
 
+;; TODO: multiple accessible columns, and order of revealing, expressed by dependency chains
+;; TODO: table/indexes
+;; TODO: support multiple sorted columns
+;;       (wait until column-oriented tables are implemented for simplicity)
+
+(define (table/vref vref key-col cols types mask start end)
+  (define (ref i)          (vector-ref (vref i) mask))
+  (define compare          (and (pair? types) (type->compare (car types))))
+  (define <?               (and compare (compare-><?  compare)))
+  (define <=?              (and compare (compare-><=? compare)))
+  (define ((make-i<  v) i) (<?  (ref i) v))
+  (define ((make-i<= v) i) (<=? (ref i) v))
+  (define ((make-i>  v) i) (<?  v (ref i)))
+  (define ((make-i>= v) i) (<=? v (ref i)))
+  (define (trim start end) (table/vref vref key-col cols types mask start end))
+  (define (skip<= v)       (bisect-next start end (make-i<= v)))
+  (define (skip<  v)       (bisect-next start end (make-i<  v)))
+  (method-lambda
+    ((columns)       (cons key-col (s-take 1 cols)))
+    ((types)         (cons 'nat    (s-take 1 types)))
+    ((max-count col) (- end start))
+    ((min col)       (if (equal? key-col col) start (ref start)))
+    ((max col)       (if (equal? key-col col) end   (ref (- end 1))))
+    ((>  col v) (trim (if (equal? key-col col) (min (max start (+ v 1)) end)
+                        (skip<= v))
+                      end))
+    ((>= col v) (trim (if (equal? key-col col) (min (max start    v   ) end)
+                        (skip<  v))
+                      end))
+    ((<  col v) (trim start
+                      (if (equal? key-col col) (min (max start (- v 1)) end)
+                        (bisect-prev start end (make-i>= v)))))
+    ((<= col v) (trim start
+                      (if (equal? key-col col) (min (max start    v   ) end)
+                        (bisect-prev start end (make-i>  v)))))
+    ((=  col v) (if (equal? col key-col)
+                  (trim v (if (and (<= start v) (< v end)) (+ v 1) v))
+                  (let* ((start.new (skip< v))
+                         (end.new   (bisect-next start.new end (make-i<= v))))
+                    (table/vref vref key-col (cdr cols) (cdr types) (+ mask 1)
+                                start.new end.new))))))
+
 (define (table vref cols types mask start end)
   (define (ref i j) (vector-ref  (vref i) (+ mask j)))
   (define (ref* i)  (vector-copy (vref i)    mask))
@@ -191,7 +233,11 @@
                     (cond ((= o 0)                      (+ i 1))
                           ((and (< next end) (i< next)) (loop next o))
                           (else                         (loop i    o)))))))))
-;; TODO: bisect-prev
+
+;; TODO:
+(define (bisect-prev start end i>)
+  (error "bisect-prev not implemented yet:" start end i>))
+
 
 (define (table-project t v) (((t 'drop< v) 'take<= v) 'mask 1))
 
