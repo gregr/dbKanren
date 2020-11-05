@@ -318,14 +318,15 @@
   (unless (vector? source) (error "invalid source vector:" kwargs source))
   (when sort? (vector-table-sort! primary-column-types source))
   (define primary-v (if dedup? (vector-dedup source) source))
-  (define primary-t (table/vector primary-column-names primary-column-types
-                                  primary-v))
+  (define primary-t (table/vector primary-key-name primary-column-names
+                                  primary-column-types primary-v))
   (define index-ts
     (let* ((ss.sources (generate-temporaries primary-source-names))
            (name=>ss (make-immutable-hash
                        (map cons primary-source-names ss.sources)))
            (name->ss (lambda (n) (hash-ref name=>ss n))))
       (map (lambda (info)
+             (define key-name       (alist-ref info 'key-name #f))
              (define sorted-columns (alist-ref info 'sorted-columns '()))
              (define column-names   (alist-ref info 'column-names))
              (define column-types   (map name->type column-names))
@@ -349,7 +350,8 @@
                                    (vector #,@ss.columns))))
                            (vector-map transform primary-v))))
              (vector-table-sort! column-types index-src)
-             (table/vector column-names column-types (vector-dedup index-src)))
+             (table/vector key-name column-names column-types
+                           (vector-dedup index-src)))
            (hash-ref info 'index-tables '()))))
   (relation/tables name attribute-names primary-key-name primary-t index-ts))
 
