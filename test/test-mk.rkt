@@ -1,6 +1,6 @@
 #lang racket/base
 (require "../mk.rkt" "../relation.rkt" "../stream.rkt" "../table.rkt"
-         racket/function racket/pretty racket/set)
+         racket/function racket/list racket/pretty racket/set)
 (print-as-expression #f)
 (pretty-print-abbreviate-read-macros #f)
 
@@ -442,3 +442,164 @@
 (test 'removeo.backward
   (run* x (removeo x '(1 2 3 4 5) '(1 2 4 5)))
   '(3))
+
+
+;; More table testing
+
+(define intersected-vectors
+  (list (vector
+          #(-1 0 no)
+          #(-1 1 no)
+          #(-1 2 no)
+          #(-1 3 no)
+          #(-1 4 no)
+          #(-1 5 no)
+          #(-1 6 no)
+          #(-1 7 no)
+          #(-1 8 no)
+          #(-1 9 no)
+
+          #(1 1 a0)
+          #(1 2 b0)
+          #(1 5 c0)
+          #(3 4 d0)
+          #(3 8 e0)
+          #(3 8 e0.1)
+          #(3 8 e0.2)
+
+          #(4 0 no)
+          #(4 1 no)
+          #(4 2 no)
+          #(4 3 no)
+          #(4 4 no)
+          #(4 5 no)
+          #(4 6 no)
+          #(4 7 no)
+          #(4 8 no)
+          #(4 9 no)
+
+          #(6 0 f0)
+          #(6 3 g0)
+          #(6 5 h0)
+          #(7 0 i0)
+          #(7 2 j0)
+          #(7 4 k0)
+          #(7 6 l0)
+          #(7 8 m0)
+          #(7 9 n0)
+          #(9 1 0)
+          #(9 1 o0)
+          #(9 2 p0)
+          #(9 5 q0))
+        (vector
+          #(-1 0 no)
+          #(-1 1 no)
+          #(-1 2 no)
+          #(-1 3 no)
+          #(-1 4 no)
+          #(-1 5 no)
+          #(-1 6 no)
+          #(-1 7 no)
+          #(-1 8 no)
+          #(-1 9 no)
+
+          #(1 1 a1)
+          #(1 2 b1)
+          #(2 5 c1)  ; 0
+          #(2 4 d1)  ; 0
+          #(3 8 e1)
+          #(3 8 e1.1)
+          #(6 0 f1)
+          #(6 3 g1)
+          #(6 5 h1)
+          #(7 0 i1)
+          #(7 3 j1)  ; 1
+          #(7 4 k1)
+          #(7 6 l1)
+          #(8 8 m1)  ; 0
+          #(8 9 n1)  ; 0
+          #(9 1 o1)
+          #(9 1 o1.1)
+          #(9 4 p1)  ; 1
+          #(9 5 q1))
+        (vector
+          ;#(-1 0 no)
+          ;#(-1 1 no)
+          ;#(-1 2 no)
+          ;#(-1 3 no)
+          ;#(-1 4 no)
+          ;#(-1 5 no)
+          ;#(-1 6 no)
+          ;#(-1 7 no)
+          ;#(-1 8 no)
+          ;#(-1 9 no)
+
+          #(0 1 a2)  ; 0
+          #(1 3 b2)  ; 1
+          #(1 5 c2)  ; 1
+          #(2 4 d2)
+          #(3 8 e2)
+          #(5 0 f2)  ; 0
+          #(6 3 g2)
+          #(6 5 h2)
+          #(7 0 i2)
+          #(7 3 j2)
+          #(7 4 k2)
+          #(7 4 k2.1)
+          #(7 6 l2)
+          #(8 8 m2)
+          #(8 9 n2)
+          #(9 1 o2)
+          #(9 4 p2)
+          #(9 5 q2)
+
+          #(10 1 no)
+          #(10 0 no)
+          #(10 2 no)
+          #(10 3 no)
+          #(10 4 no)
+          #(10 5 no)
+          #(10 6 no)
+          #(10 7 no)
+          #(10 8 no)
+          #(10 9 no)
+          )))
+
+(define intersected-tables
+  (map (lambda (i v)
+         (materialized-relation
+           `((relation-name
+               . ,(string->symbol (format "intersected-table.~v" i)))
+             (attribute-names i n m x)
+             (primary-table (key-name . i)
+                            (column-names n m x))
+             (source . ,v))))
+       (range (length intersected-vectors))
+       intersected-vectors))
+
+(test 'table-ref
+  (map (lambda (R) (run* (n m x) (R 0 n m x))) intersected-tables)
+  '(((-1 0 no)) ((-1 0 no)) ((0 1 a2))))
+
+(test 'table-intersection
+  (run* (n m a b c)
+    (foldl (lambda (g0 g) (fresh () g g0)) (== #t #t)
+           (map (lambda (v R) (fresh (i) (R i n m v))) (list a b c)
+                intersected-tables)))
+  '((3 8 e0   e1   e2)
+    (3 8 e0   e1.1 e2)
+    (3 8 e0.1 e1   e2)
+    (3 8 e0.1 e1.1 e2)
+    (3 8 e0.2 e1   e2)
+    (3 8 e0.2 e1.1 e2)
+    (6 3 g0   g1   g2)
+    (6 5 h0   h1   h2)
+    (7 0 i0   i1   i2)
+    (7 4 k0   k1   k2)
+    (7 4 k0   k1   k2.1)
+    (7 6 l0   l1   l2)
+    (9 1 0    o1   o2)
+    (9 1 0    o1.1 o2)
+    (9 1 o0   o1   o2)
+    (9 1 o0   o1.1 o2)
+    (9 5 q0   q1   q2)))
