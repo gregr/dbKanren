@@ -3,7 +3,7 @@
          vector-table? vector-table-sort! vector-dedup
          table/metadata table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets sorter tabulator encoder
-         table-project table-intersect-start table-cross table-join
+         table-project table-intersect-start
          value-table-file-name offset-table-file-name
          call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
@@ -259,30 +259,6 @@
            (let* ((t ((car ts) 'drop< max)) (new (next t)))
              (and new (loop (car new) (cdr ts) (cons (cons (car new) t)
                                                      finished))))))))
-
-;; TODO: this may only be useful as an example.
-(define (table-cross ts)
-  (foldl (lambda (t suffixes)
-           (append* (map (lambda (row)
-                           (map (lambda (suffix) (append row suffix))
-                                suffixes))
-                         (s-take #f (t 'stream)))))
-         '(()) (reverse ts)))
-
-;; TODO: this may only be useful as an example.
-(define (table-join ts prefix-size)
-  (let outer-loop ((psize prefix-size) (ts ts))
-    (if (= psize 0) (table-cross ts)
-      (let inner-loop ((ts ts))
-        (let ((v+ts (table-intersect-start ts)))
-          (cond ((not v+ts) '())
-                (else (define v  (car v+ts))
-                      (define ts (cdr v+ts))
-                      (define (current t) ((t 'take<= v) 'mask 1))
-                      (define (next    t) (t 'drop<= v))
-                      (append (map (lambda (row) (cons v row))
-                                   (outer-loop (- psize 1) (map current ts)))
-                              (inner-loop (map next ts))))))))))
 
 (define (value-table-file-name  prefix) (string-append prefix ".value.table"))
 (define (offset-table-file-name prefix) (string-append prefix ".offset.table"))
