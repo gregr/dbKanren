@@ -1,6 +1,5 @@
 #lang racket/base
-(provide bisect bisect-next
-         vector-table? vector-table-sort! vector-dedup
+(provide vector-table? vector-table-sort! vector-dedup
          table/metadata table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets sorter tabulator encoder
          table-project table-intersect-start
@@ -299,18 +298,23 @@
   (define i (- start 1))
   (let loop ((offset 1))
     (define next (+ i offset))
-    (cond ((and (< next end) (i< next))
-           (loop (arithmetic-shift offset 1)))
+    (cond ((and (< next end) (i< next)) (loop (arithmetic-shift offset 1)))
           (else (let loop ((i i) (o offset))
                   (let* ((o (arithmetic-shift o -1)) (next (+ i o)))
                     (cond ((= o 0)                      (+ i 1))
                           ((and (< next end) (i< next)) (loop next o))
                           (else                         (loop i    o)))))))))
 
-;; TODO:
 (define (bisect-prev start end i>)
-  (error "bisect-prev not implemented yet:" start end i>))
-
+  (define i end)
+  (let loop ((offset 1))
+    (define next (- i offset))
+    (cond ((and (>= next start) (i> next)) (loop (arithmetic-shift offset 1)))
+          (else (let loop ((i i) (o offset))
+                  (let* ((o (arithmetic-shift o -1)) (n (- i o)))
+                    (cond ((= o 0)                   i)
+                          ((and (>= n start) (i> n)) (loop n o))
+                          (else                      (loop i o)))))))))
 
 (define (table-project t v) (((t 'drop< v) 'take<= v) 'mask 1))
 
