@@ -34,7 +34,6 @@
               (lambda (in ... out ...) body ...)))
 
 ;; TODO: multiple accessible columns, and order of revealing, expressed by dependency chains
-;; TODO: table/indexes
 ;; TODO: support multiple sorted columns
 ;;       (wait until column-oriented tables are implemented for simplicity)
 
@@ -74,6 +73,56 @@
                          (end.new   (bisect-next start.new end (make-i<= v))))
                     (table/vref vref key-col (cdr cols) (cdr types) (+ mask 1)
                                 start.new end.new))))))
+
+;(define (table/indexes ts)
+;  (define (col=>tids-add col=>tids tid t)
+;    (foldl (lambda (col col=>tids)
+;             ;; TODO: smart subsumption
+;             (hash-update col=>tids col
+;                          (lambda (tids) (remove-duplicates (cons tid tids)))
+;                          '()))
+;           col=>tids (t 'columns.fast)))
+;  (define idts (map cons (range (length ts)) ts))
+;  (let loop ((env    (hash))
+;             (tid=>t (make-immutable-hash idts))
+;             (col=>tids (foldl (lambda (idt col=>tids)
+;                                 (match-define (cons tid t) idt)
+;                                 (col=>tids-add col=>tids tid t))
+;                               (hash) idts)))
+;    (define (assign col v)
+;      (define col=>tids+tid=>t
+;        (foldl/and (lambda (tid col=>tids+tid=>t)
+;                     (match-define (cons col=>tids tid=>t) col=>tids+tid=>t)
+;                     (define t ((hash-ref tid=>t tid) '= col v))
+;                     (and t (cons (col=>tids-add col=>tids tid t)
+;                                  (hash-set tid=>t tid t))))
+;                   (cons (hash-remove col=>tids col) tid=>t)
+;                   (hash-ref col=>tids col '())))
+;      (and col=>tids+tid=>t
+;           (loop (hash-set env col v)
+;                 (cdr col=>tids+tid=>t)
+;                 (car col=>tids+tid=>t))))
+;    (method-lambda
+;      ((columns.bound) (hash-keys env))
+;      ((columns.fast)  (hash-keys col=>tids))
+;      ((columns)       (remove-duplicates
+;                         (append* (map (lambda (t) (t 'columns))
+;                                       (hash-values tid=>t)))))
+;      ((max-count col) )
+;      ((min col) )
+;      ((max col) )
+;      ;; TODO: avoid pathalogical (linear) "joining" behavior.
+;      ;; Instead, take one step, and cooperatively compute fixed point
+;      ;; alongside external constraints.  How do we indicate that the bounding
+;      ;; is incomplete?  How do we resume?  This seems ugly.  Maybe this entire
+;      ;; table/indexes idea is a bad.  We should just work with individual
+;      ;; table constraints for each index, and teach them about smart
+;      ;; subsumption.
+;      ((>  col v) )
+;      ((>= col v) )
+;      ((<  col v) )
+;      ((<= col v) )
+;      ((=  col v) (assign col v)))))
 
 (define (table vref cols types mask start end)
   (define (ref i j) (vector-ref  (vref i) (+ mask j)))
