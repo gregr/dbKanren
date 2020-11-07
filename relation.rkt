@@ -65,14 +65,14 @@
 (define (degree-domain      d) (vector-ref d 2))
 (define (degree-range       d) (vector-ref d 3))
 
-(define (materialized-relation kwargs)
+(define (materialization kwargs)
   (define directory-path? (alist-ref kwargs 'path   #f))
   (define source?         (alist-ref kwargs 'source #f))
-  (cond (directory-path? (materialized-relation/path directory-path? kwargs))
-        (source?         (materialized-relation/source source? kwargs))
+  (cond (directory-path? (materialization/path   directory-path? kwargs))
+        (source?         (materialization/source source?         kwargs))
         (else (error "missing relation path or source:" kwargs))))
 
-(define (materialized-relation/path directory-path kwargs)
+(define (materialization/path directory-path kwargs)
   (define name           (alist-ref kwargs 'relation-name))
   (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
   (define dpath (if #f (path->string (build-path "TODO: configurable base"
@@ -93,9 +93,9 @@
   (define index-ts
     (map (lambda (info) (table/metadata retrieval-type dpath info))
          (hash-ref info 'index-tables '())))
-  (relation/tables name attribute-names primary-key-name primary-t index-ts))
+  (list name attribute-names primary-key-name primary-t index-ts))
 
-(define (materialized-relation/source source kwargs)
+(define (materialization/source source kwargs)
   (define name   (alist-ref kwargs 'relation-name))
   (define sort?  (alist-ref kwargs 'sort?  #t))
   (define dedup? (alist-ref kwargs 'dedup? #t))
@@ -159,6 +159,11 @@
              (table/vector key-name column-names column-types
                            (vector-dedup index-src)))
            (hash-ref info 'index-tables '()))))
+  (list name attribute-names primary-key-name primary-t index-ts))
+
+(define (materialized-relation kwargs)
+  (match-define (list name attribute-names primary-key-name primary-t index-ts)
+    (materialization kwargs))
   (relation/tables name attribute-names primary-key-name primary-t index-ts))
 
 (define-syntax define-materialized-relation
