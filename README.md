@@ -6,6 +6,17 @@ large-scale relations.
 
 ## TODO
 
+* test table/vref by rewriting materialized-relation loop to use it
+
+* `expand` a materialized relation into uses of its constituent table relations
+  * which means we need each table to be an independent `relation`
+    * applying `relation` produces one or more domain cxs w/ arc cx follow ups
+      * requires definition of `apply/bis` and `apply/dfs`
+    * eventually, make sure relation metadata contains information for analysis
+      * e.g., degree constraints, fast column ordering, subsumption tag/rules
+  * move constraint-management code from relation.rkt to constraint.rkt
+    * should be able to delete relation.rkt
+
 * domain constraints
   * a var's possible values are the intersection of one or more as bounded sets
     implied by table constraints (finite row mappings)
@@ -27,9 +38,6 @@ large-scale relations.
       due to following the primary ordering blindly.  This is obviously
       suboptimal since index lower/upper offsets will be tighter than primary's,
       leaving fewer subjects to guess.
-
-* materialized-relation
-  * tables as independent helper relations providing constraints
 
 * maybe remove mandatory names for program-defined relations?
   * anonymous relations `(relation ...)` just provide a blank name by default

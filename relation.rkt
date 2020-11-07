@@ -58,6 +58,10 @@
 (define (degree-range       d) (vector-ref d 3))
 
 (define (materialized-relation kwargs)
+  ;; TODO: once using table/vref, redefine materialization to return just:
+  ;; * name
+  ;; * attribute-names
+  ;; * tables
   (match-define (list name attribute-names primary-key-name primary-t index-ts)
     (materialization kwargs))
   (relation/tables name attribute-names primary-key-name primary-t index-ts))

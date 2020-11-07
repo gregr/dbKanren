@@ -143,6 +143,12 @@
 ;
 ;;; TODO: occurs check for vector-ref
 
+;; TODO: next step is to define table domain/arc cxs via apply/bis apply/dfs
+;; * when a domain or cx is first applied:
+;;   * add it to its host/watched var
+;;   * attempt to refine bounds of target var(s)
+;;     * if bounds change, run bounds-apply to properly schedule updates
+
 (define (foldl/and f acc xs)
   (let loop ((acc acc) (xs xs))
     (if (null? xs) acc
