@@ -1,13 +1,14 @@
 #lang racket/base
-(provide vector-table? vector-table-sort! vector-dedup
+(provide materializer extend-materialization
+         vector-table? vector-table-sort! vector-dedup
          table/metadata table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets sorter tabulator encoder
          table-project table-intersect-start
          value-table-file-name offset-table-file-name
          call/files let/files s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
-         racket/file racket/function racket/list racket/match racket/set
-         racket/vector)
+         racket/file racket/function racket/list racket/match racket/pretty
+         racket/set racket/vector)
 
 (define (s-encode out type s) (s-each (lambda (v) (encode out type v)) s))
 (define (s-decode in type)
@@ -501,3 +502,202 @@
              (pv      (vector-ref h iparent)))
         (cond ((? v pv) (vector-set! h i pv) (loop iparent))
               (else     (vector-set! h i v)))))))
+
+(define (alist-ref alist key (default (void)))
+  (define kv (assoc key alist))
+  (cond (kv              (cdr kv))
+        ((void? default) (error "missing key in association list:" key alist))
+        (else            default)))
+(define (alist-remove alist key)
+  (filter (lambda (kv) (not (equal? (car kv) key))) alist))
+
+(define (list-arranger input-names output-names)
+  (define ss.in    (generate-temporaries input-names))
+  (define name=>ss (make-immutable-hash (map cons input-names ss.in)))
+  (define ss.out   (map (lambda (n) (hash-ref name=>ss n)) output-names))
+  (eval-syntax #`(lambda (row)
+                   (match-define (list #,@ss.in) row)
+                   (list #,@ss.out))))
+
+(define (table-materializer kwargs)
+  ;; TODO: configurable default buffer-size
+  (define buffer-size    (alist-ref kwargs 'buffer-size 100000))
+  (define source-names   (alist-ref kwargs 'source-names))
+  (define dpath          (alist-ref kwargs 'directory))
+  (define fprefix        (alist-ref kwargs 'file-prefix))
+  (define column-names   (alist-ref kwargs 'column-names))
+  (define column-types   (alist-ref kwargs 'column-types))
+  (define key-name       (alist-ref kwargs 'key-name #f))
+  (define sorted-columns (alist-ref kwargs 'sorted-columns '()))
+  (define t (tabulator buffer-size dpath fprefix column-names column-types
+                       key-name sorted-columns))
+  (define transform (list-arranger source-names column-names))
+  (method-lambda
+    ((put x) (t 'put (transform x)))
+    ((close) (t 'close))))
+
+(define (materialize-index-tables dpath source-fprefix name->type source-names
+                                  index-descriptions)
+  (define index-ms
+    (map (lambda (td)
+           (define fprefix        (alist-ref td 'file-prefix))
+           (define column-names   (alist-ref td 'columns))
+           (define sorted-columns (alist-ref td 'sorted '()))
+           (define column-types (map name->type column-names))
+           (table-materializer
+             `((source-names   . ,source-names)
+               (directory      . ,dpath)
+               (file-prefix    . ,fprefix)
+               (column-names   . ,column-names)
+               (column-types   . ,column-types)
+               (key-name       . #f)
+               (sorted-columns . ,sorted-columns))))
+         index-descriptions))
+  (let/files ((in (value-table-file-name source-fprefix))) ()
+    (define src (s-decode in (map name->type (cdr source-names))))
+    (s-each (lambda (x) (for-each (lambda (m) (m 'put x)) index-ms))
+            (s-enumerate 0 src)))
+  (map (lambda (m) (m 'close)) index-ms))
+
+(define (materializer kwargs)
+  ;; TODO: configurable default buffer-size
+  (define buffer-size        (alist-ref kwargs 'buffer-size 100000))
+  (define directory-path     (alist-ref kwargs 'path))
+  (define attribute-names    (alist-ref kwargs 'attribute-names))
+  (define attribute-types    (alist-ref kwargs 'attribute-types
+                                        (map (lambda (_) #f) attribute-names)))
+  (define key                (alist-ref kwargs 'key-name #t))
+  (define index-descriptions
+    (map (lambda (itd)
+           (cons (cons 'columns (append (alist-ref itd 'columns) (list key)))
+                 (alist-remove itd 'columns)))
+         (alist-ref kwargs 'indexes '())))
+  (define table-descriptions
+    (append (alist-ref kwargs 'tables `(((columns . ,attribute-names))))
+            index-descriptions))
+  (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
+                          (error "duplicates:" as)))
+  (unique?! attribute-names)
+  (unless (= (length attribute-names) (length attribute-types))
+    (error "mismatching attribute names and types:"
+           attribute-names attribute-types))
+  (define name=>type (make-immutable-hash
+                       (map cons attribute-names attribute-types)))
+  (when (null? table-descriptions)
+    (error "empty list of table descriptions for:" attribute-names))
+  (define index-tds            (cdr table-descriptions))
+  (define primary-td           (car table-descriptions))
+  (define primary-column-names (alist-ref primary-td 'columns))
+  (define primary-column-types (map (lambda (n) (hash-ref name=>type n))
+                                    primary-column-names))
+  (define primary-source-names (cons key primary-column-names))
+  (unique?! primary-column-names)
+  (when (member key primary-column-names)
+    (error "key name must be distinct:" key primary-column-names))
+  (unless (equal? (set-remove (list->set attribute-names) key)
+                  (list->set primary-column-names))
+    (error "primary columns must include all non-key attributes:"
+           (set->list (set-remove (list->set attribute-names) key))
+           (set->list (list->set primary-column-names))))
+  (define dpath (if #f (path->string (build-path "TODO: configurable base"
+                                                 directory-path))
+                  directory-path))
+  (make-directory* dpath)
+  (define metadata-fname (path->string (build-path dpath "metadata.scm")))
+  (define primary-fprefix "primary")
+  (define primary-fname (path->string (build-path dpath primary-fprefix)))
+  ;; TODO: caller should decide whether to materialize a fresh relation, or
+  ;; to materialize additional indexes for an existing relation.
+  ;; * check directory for available fprefixes
+  ;; * also, check metadata to see which index descriptions have already
+  ;;   been satisfied, and which need to be added
+  (define index-fprefixes
+    (map (lambda (i) (string-append "index." (number->string i)))
+         (range (length index-tds))))
+  (define metadata-out (open-output-file metadata-fname))
+  (define primary-t (tabulator buffer-size dpath primary-fprefix
+                               primary-column-names primary-column-types
+                               key (cdr primary-td)))
+  (method-lambda
+    ((put x) (primary-t 'put x))
+    ;; TODO: factor out index building to allow incrementally adding new ones
+    ;; (incremental builds need to be initiated by caller, not here)
+    ((close) (define primary-info (primary-t 'close))
+             (define key-type (nat-type/max (alist-ref primary-info 'length)))
+             (define name->type
+               (let ((name=>type (if key (hash-set name=>type key key-type)
+                                   name=>type)))
+                 (lambda (n) (hash-ref name=>type n))))
+             (define index-infos
+               (materialize-index-tables
+                 dpath primary-fname name->type primary-source-names
+                 (map (lambda (fprefix td) `((file-prefix . ,fprefix) . ,td))
+                      index-fprefixes index-tds)))
+             (pretty-write `((attribute-names . ,attribute-names)
+                             (attribute-types . ,attribute-types)
+                             (primary-table   . ,primary-info)
+                             (index-tables    . ,index-infos))
+                           metadata-out)
+             (close-output-port metadata-out))))
+
+(define (extend-materialization kwargs)
+  ;; TODO: validate existing relation against kwargs?
+  (define directory-path (alist-ref kwargs 'path))
+  (define dpath (if #f (path->string (build-path "TODO: configurable base"
+                                                 directory-path))
+                  directory-path))
+  (define path.metadata (path->string (build-path dpath "metadata.scm")))
+  (define path.metadata.backup
+    (path->string (build-path dpath "metadata.scm.backup")))
+  (define info-alist (let/files ((in path.metadata)) () (read in)))
+  (when (eof-object? info-alist) (error "corrupt relation metadata:" dpath))
+  (define info                 (make-immutable-hash info-alist))
+  (define primary-info         (hash-ref info 'primary-table))
+  (define index-infos          (hash-ref info 'index-tables))
+  (define attribute-names      (hash-ref info 'attribute-names))
+  (define attribute-types      (hash-ref info 'attribute-types))
+  (define primary-key-name     (alist-ref primary-info 'key-name))
+  (define primary-column-names (alist-ref primary-info 'column-names))
+  (define source-fprefix
+    (path->string (build-path dpath (alist-ref primary-info 'file-prefix))))
+  (define source-names (cons primary-key-name primary-column-names))
+  (define key-type (nat-type/max (alist-ref primary-info 'length)))
+  (define name=>type
+    (let ((name=>type (make-immutable-hash
+                        (map cons attribute-names attribute-types))))
+      (if primary-key-name (hash-set name=>type primary-key-name key-type)
+        name=>type)))
+  (define (name->type n) (hash-ref name=>type n))
+  (define index-descriptions
+    (map (lambda (itd)
+           (cons (cons 'columns (append (alist-ref itd 'columns)
+                                        (list primary-key-name)))
+                 (alist-remove itd 'columns)))
+         (alist-ref kwargs 'indexes '())))
+  (define table-descriptions
+    (append (alist-ref kwargs 'tables `(((columns . ,attribute-names))))
+            index-descriptions))
+  (define index-tds (cdr table-descriptions))
+  (define existing-index-column-names
+    (list->set (map (lambda (ii) (alist-ref ii 'column-names)) index-infos)))
+  (define new-index-tds
+    (filter (lambda (td) (not (set-member? existing-index-column-names
+                                           (alist-ref td 'columns))))
+            index-tds))
+  (define index-fprefixes
+    (map (lambda (i) (string-append "index." (number->string i)))
+         (range    (length index-infos)
+                   (+ (length index-infos) (length new-index-tds)))))
+  (define new-index-infos
+    (materialize-index-tables
+      dpath source-fprefix name->type source-names
+      (map (lambda (fprefix td) `((file-prefix . ,fprefix) . ,td))
+           index-fprefixes new-index-tds)))
+  (rename-file-or-directory path.metadata path.metadata.backup #t)
+  (let/files () ((metadata-out path.metadata))
+    (pretty-write `((attribute-names . ,attribute-names)
+                    (attribute-types . ,attribute-types)
+                    (primary-table   . ,primary-info)
+                    (index-tables    . ,(append index-infos new-index-infos)))
+                  metadata-out))
+  (delete-file path.metadata.backup))
