@@ -1,5 +1,5 @@
 #lang racket/base
-(provide materializer extend-materialization
+(provide materializer extend-materialization materialization
          vector-table? vector-table-sort! vector-dedup
          table/metadata table/vector table/bytes table/port
          table/bytes/offsets table/port/offsets sorter tabulator encoder
@@ -701,3 +701,99 @@
                     (index-tables    . ,(append index-infos new-index-infos)))
                   metadata-out))
   (delete-file path.metadata.backup))
+
+(define (materialization/source source kwargs)
+  (define name   (alist-ref kwargs 'relation-name))
+  (define sort?  (alist-ref kwargs 'sort?  #t))
+  (define dedup? (alist-ref kwargs 'dedup? #t))
+  (define info (make-immutable-hash kwargs))
+  (define attribute-names (hash-ref info 'attribute-names))
+  (define attribute-types (hash-ref info 'attribute-types
+                                    (map (lambda (_) #f) attribute-names)))
+  (define primary-info (make-immutable-hash
+                         (hash-ref info 'primary-table
+                                   `((column-names . ,attribute-names)
+                                     (key-name     . #t)))))
+  (define primary-key-name (hash-ref primary-info 'key-name))
+  (define name-type-alist (make-immutable-hash
+                            (map cons attribute-names attribute-types)))
+  (let ((kt (hash-ref name-type-alist primary-key-name 'nat)))
+    (unless (or (not kt) (eq? kt 'nat)
+                (and (vector? kt) (eq? (vector-ref kt 0) 'nat)))
+      (error "invalid key type:" kt kwargs)))
+  (define name=>type (hash-set name-type-alist primary-key-name 'nat))
+  (define (name->type n) (hash-ref name=>type n))
+  (define primary-column-names (hash-ref primary-info 'column-names))
+  (define primary-column-types (map name->type primary-column-names))
+  (define primary-source-names (if primary-key-name
+                                 (cons primary-key-name primary-column-names)
+                                 primary-column-names))
+  (unless (vector? source) (error "invalid source vector:" kwargs source))
+  (when sort? (vector-table-sort! primary-column-types source))
+  (define primary-v (if dedup? (vector-dedup source) source))
+  (define primary-t (table/vector primary-key-name primary-column-names
+                                  primary-column-types primary-v))
+  (define index-ts
+    (let* ((ss.sources (generate-temporaries primary-source-names))
+           (name=>ss (make-immutable-hash
+                       (map cons primary-source-names ss.sources)))
+           (name->ss (lambda (n) (hash-ref name=>ss n))))
+      (map (lambda (info)
+             (define key-name       (alist-ref info 'key-name #f))
+             (define sorted-columns (alist-ref info 'sorted-columns '()))
+             (define column-names   (alist-ref info 'column-names))
+             (define column-types   (map name->type column-names))
+             (define ss.columns     (map name->ss   column-names))
+             (define index-src
+               (cond (primary-key-name
+                       (define transform
+                         (eval-syntax
+                           #`(lambda (#,(car ss.sources) row)
+                               (match-define (vector #,@(cdr ss.sources)) row)
+                               (vector #,@ss.columns))))
+                       (define iv (make-vector (vector-length primary-v)))
+                       (for ((i   (in-range (vector-length primary-v)))
+                             (row (in-vector primary-v)))
+                         (vector-set! iv i (transform i row)))
+                       iv)
+                     (else (define transform
+                             (eval-syntax
+                               #`(lambda (row)
+                                   (match-define (vector #,@ss.sources) row)
+                                   (vector #,@ss.columns))))
+                           (vector-map transform primary-v))))
+             (vector-table-sort! column-types index-src)
+             (table/vector key-name column-names column-types
+                           (vector-dedup index-src)))
+           (hash-ref info 'index-tables '()))))
+  (list name attribute-names primary-key-name primary-t index-ts))
+
+(define (materialization/path directory-path kwargs)
+  (define name           (alist-ref kwargs 'relation-name))
+  (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
+  (define dpath (if #f (path->string (build-path "TODO: configurable base"
+                                                 directory-path))
+                  directory-path))
+  (define info-alist
+    (let/files ((in (path->string (build-path dpath "metadata.scm")))) ()
+      (read in)))
+  (when (eof-object? info-alist) (error "corrupt relation metadata:" dpath))
+  (define info (make-immutable-hash info-alist))
+  (define attribute-names    (hash-ref info 'attribute-names))
+  (define attribute-types    (hash-ref info 'attribute-types))
+  (define primary-info-alist (hash-ref info 'primary-table))
+  (define primary-info       (make-immutable-hash primary-info-alist))
+  (define primary-t (table/metadata retrieval-type dpath primary-info-alist))
+  (define primary-key-name     (hash-ref primary-info 'key-name))
+  (define primary-column-names (primary-t 'columns))
+  (define index-ts
+    (map (lambda (info) (table/metadata retrieval-type dpath info))
+         (hash-ref info 'index-tables '())))
+  (list name attribute-names primary-key-name primary-t index-ts))
+
+(define (materialization kwargs)
+  (define directory-path? (alist-ref kwargs 'path   #f))
+  (define source?         (alist-ref kwargs 'source #f))
+  (cond (directory-path? (materialization/path   directory-path? kwargs))
+        (source?         (materialization/source source?         kwargs))
+        (else (error "missing relation path or source:" kwargs))))
