@@ -1,11 +1,7 @@
 #lang racket/base
 (provide materializer extend-materialization materialization
-         vector-table? vector-table-sort! vector-dedup
-         table/metadata table/vector table/bytes table/port
-         table/bytes/offsets table/port/offsets sorter tabulator encoder
-         table-project table-intersect-start
-         value-table-file-name offset-table-file-name
-         call/files let/files s-encode s-decode)
+         table-project table-intersect-start vector-table?
+         call/files let/files encoder s-encode s-decode)
 (require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
          racket/file racket/function racket/list racket/match racket/pretty
          racket/set racket/vector)
