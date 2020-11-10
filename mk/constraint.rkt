@@ -694,3 +694,61 @@
   ;; constraints such that later ones wouldn't subsume those already
   ;; contributing to the impossible set.
   (if (null? =/=**) t `#s(cx ,t (=/=** . ,=/=**))))
+
+(define (uid:new) (vector 0))
+
+(define (relation/table table-name t)
+  (define ((cx:new args) st)
+    (define (add-cx st col term)
+      (foldl (lambda (x st)
+               (add-domain st (lambda (st) (update-bounds/arg col st)) x))
+             st (set->list (term-vars term))))
+    (define (update-bounds/t col st)
+      (match-define (cons col=>b t) (state-store-ref st id))
+      (define b.0 (hash-ref col=>b col bounds.any))
+      (define b.1 (bounds (t 'min col) #t (t 'max col) #t))
+      (if (equal? b.0 b.1) st
+        (bounds-apply
+          (state-store-set st id (cons (hash-set col=>b col b.1) t))
+          b.1 (hash-ref col=>arg col))))
+    (define (update-bounds/arg col st)
+      (match-define (cons col=>b t) (state-store-ref st id))
+      (define b.0  (hash-ref col=>b col bounds.any))
+      (define term (walk* st (hash-ref col=>arg col)))
+      (define b.t  (term-bounds st term))
+      (if (bounds? b.t)
+        (if (equal? b.0 b.t) (add-cx st col term)
+          (let*/and ((t (t (if (bounds-lb-inclusive? b.t) '>= '>)
+                           col (bounds-lb b.t)))
+                     (t (t (if (bounds-ub-inclusive? b.t) '<= '<)
+                           col (bounds-ub b.t))))
+            (let* ((b.1 (bounds (t 'min col) #t (t 'max col) #t))
+                   (new (cons (hash-set col=>b col b.1) t))
+                   (st  (state-store-set st id new)))
+              (if (equal? b.t b.1) st
+                (let ((cols.old (remove col (t 'columns.fast))))
+                  (foldl/and update-bounds/t
+                             (bounds-apply (add-cx st col term) b.1 term)
+                             cols.old))))))
+        (let*/and ((cols.0   (t 'columns.fast))
+                   (t        (t '= col b.t))
+                   (cols.1   (t 'columns.fast))
+                   (cols.new (set-subtract cols.1 cols.0))
+                   (cols.old (set-subtract cols.1 cols.new))
+                   (st       (state-store-set
+                               st id (cons (hash-remove col=>b col) t)))
+                   (st       (foldl/and update-bounds/arg st cols.new)))
+          (foldl/and update-bounds/t st cols.old))))
+    (define id       (uid:new))
+    (define cols     (t 'columns.fast))
+    (define col=>arg (make-immutable-hash (map cons cols (walk* st args))))
+    (foldl update-bounds/arg
+           (state-store-set st id (cons (hash) t)) cols))
+  (define r (make-relation table-name (t 'columns)))
+  (relations-set! r 'apply/bis cx:new)
+  (relations-set! r 'apply/dfs
+                  (lambda (k args)
+                    (lambda (st) (let ((st ((cx:new args) st)))
+                                   ;; TODO: this is dfs:return
+                                   (if st (k st) '())))))
+  r)
