@@ -1,5 +1,6 @@
 #lang racket/base
-(provide state.empty walk* unify disunify use state-enumerate reify)
+(provide state.empty walk* unify disunify use state-enumerate reify
+         relation/tables)
 (require "../method.rkt" "../order.rkt" "../stream.rkt" "syntax.rkt"
          (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
@@ -751,4 +752,28 @@
                     (lambda (st) (let ((st ((cx:new args) st)))
                                    ;; TODO: this is dfs:return
                                    (if st (k st) '())))))
+  r)
+
+(define (relation/tables relation-name attribute-names primary-key-name ts)
+  (define r (make-relation relation-name attribute-names))
+  (define rs
+    (map (lambda (i t)
+           (define name (string->symbol
+                          (string-append (symbol->string relation-name) "."
+                                         (number->string i))))
+           (relation/table name t))
+         (range (length ts)) ts))
+  (define (expand . args)
+    (define attr=>arg.0 (make-immutable-hash (map cons attribute-names args)))
+    (define attr=>arg
+      (if (member primary-key-name attribute-names) attr=>arg.0
+        (hash-set attr=>arg.0 primary-key-name (var primary-key-name))))
+    (apply conj*
+           (map (lambda (r t)
+                  (relate r (map (lambda (c)
+                                   (define arg (hash-ref attr=>arg c (void)))
+                                   (if (void? arg) (var '_) arg))
+                                 (t 'columns))))
+                rs ts)))
+  (relations-set! r 'expand expand)
   r)
