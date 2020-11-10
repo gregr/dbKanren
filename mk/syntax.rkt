@@ -6,14 +6,14 @@
   (struct-out constrain)
   (struct-out ==/use)
   (struct-out var)
+  relate retrieve
 
   make-relation relations relations-ref relations-set! relations-set*!
   relation letrec-relation define-relation
   relation/stream letrec-relation/stream define-relation/stream
   conj* disj* fresh conde :== query
-  == =/= any<=o flooro +o *o string==byteso symbol==stringo
+  == =/= any<=o flooro +o *o string==byteso symbol==stringo functiono
   vector-lengtho vector-refo bytes-lengtho bytes-refo
-  retrieve
 
   ground? term-vars
   make-pretty pretty)
