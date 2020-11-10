@@ -95,16 +95,16 @@
      (define name (relation/stream name (param ...) stream)))))
 (define success (== #t #t))
 (define failure (== #f #t))
-(define-syntax conj*
-  (syntax-rules ()
-    ((_)           success)
-    ((_ g)         g)
-    ((_ gs ... gN) (conj (conj* gs ...) gN))))
-(define-syntax disj*
-  (syntax-rules ()
-    ((_)           failure)
-    ((_ g)         g)
-    ((_ g0 gs ...) (disj g0 (disj* gs ...)))))
+(define (conj* . gs)
+  (if (null? gs) success
+    (let loop ((g (car gs)) (gs (cdr gs)))
+      (if (null? gs) g
+        (conj g (loop (car gs) (cdr gs)))))))
+(define (disj* . gs)
+  (if (null? gs) failure
+    (let loop ((g (car gs)) (gs (cdr gs)))
+      (if (null? gs) g
+        (disj g (loop (car gs) (cdr gs)))))))
 (define-syntax let/fresh
   (syntax-rules ()
     ((_ (x ...) e ...) (let ((x (var 'x)) ...) e ...))))
