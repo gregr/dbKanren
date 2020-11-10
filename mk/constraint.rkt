@@ -213,13 +213,10 @@
 ;; Also, vector comparisons can be converted to analogous list comparisons, as
 ;; currently done by bounds-apply.
 
-(struct bounds (lb lb-inclusive? ub ub-inclusive?))
+(struct bounds (lb lb-inclusive? ub ub-inclusive?) #:prefab)
 (define bounds.any (bounds term.min #t term.max #t))
-(define (make-bounds lb lbi ub ubi)
-  (if (and lbi ubi (eq? lb term.min) (eq? ub term.max))
-    bounds.any (bounds lb lbi ub ubi)))
 (define (bounds-apply st b t (cx.rest.lb #f) (cx.rest.ub #f))
-  (if (and (eq? b bounds.any) (not cx.rest.lb) (not cx.rest.ub)) st
+  (if (and (equal? b bounds.any) (not cx.rest.lb) (not cx.rest.ub)) st
     (let loop ((b b) (t (walk* st t)))
       (define lb  (bounds-lb b))
       (define ub  (bounds-ub b))
@@ -253,16 +250,16 @@
                       ;; sloppiness.  On that note, domain trimming also makes
                       ;; inclusiveness tracking unnecessary, aside from any
                       ;; performance implications.
-                      (define b.a (make-bounds lb.a #t    ub.a #t))
-                      (define b.d (make-bounds lb.d lbi.d ub.d ubi.d))
+                      (define b.a (bounds lb.a #t    ub.a #t))
+                      (define b.d (bounds lb.d lbi.d ub.d ubi.d))
                       (define (cx.lb st)
                         (define (cx st)
-                          (bounds-apply st (make-bounds lb.d lbi.d term.max #t)
+                          (bounds-apply st (bounds lb.d lbi.d term.max #t)
                                         t.d cx.rest.lb #f))
                         (bounds-apply st b.a t.a cx #f))
                       (define (cx.ub st)
                         (define (cx st)
-                          (bounds-apply st (make-bounds term.min #t ub.d ubi.d)
+                          (bounds-apply st (bounds term.min #t ub.d ubi.d)
                                         t.d #f cx.rest.ub))
                         (bounds-apply st b.a t.a #f cx))
                       (if (equal? lb.a ub.a)
