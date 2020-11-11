@@ -1,8 +1,11 @@
 #lang racket/base
-(require "../mk.rkt" "../relation.rkt" "../stream.rkt" "../table.rkt"
+(require "../mk.rkt" "../order.rkt" "../relation.rkt" "../stream.rkt"
+         "../table.rkt"
          racket/function racket/list racket/pretty racket/set)
 (print-as-expression #f)
 (pretty-print-abbreviate-read-macros #f)
+
+(define (sort/any xs) (sort xs any<?))
 
 (define-syntax-rule (test name e expected)
   (begin (printf "Testing ~s:\n" name)
@@ -582,24 +585,26 @@
   '(((-1 0 no)) ((-1 0 no)) ((0 1 a2))))
 
 (test 'table-intersection
-  (run* (n m a b c)
-    (foldl (lambda (g0 g) (fresh () g g0)) (== #t #t)
-           (map (lambda (v R) (fresh (i) (R i n m v))) (list a b c)
-                intersected-tables)))
-  '((3 8 e0   e1   e2)
-    (3 8 e0   e1.1 e2)
-    (3 8 e0.1 e1   e2)
-    (3 8 e0.1 e1.1 e2)
-    (3 8 e0.2 e1   e2)
-    (3 8 e0.2 e1.1 e2)
-    (6 3 g0   g1   g2)
-    (6 5 h0   h1   h2)
-    (7 0 i0   i1   i2)
-    (7 4 k0   k1   k2)
-    (7 4 k0   k1   k2.1)
-    (7 6 l0   l1   l2)
-    (9 1 0    o1   o2)
-    (9 1 0    o1.1 o2)
-    (9 1 o0   o1   o2)
-    (9 1 o0   o1.1 o2)
-    (9 5 q0   q1   q2)))
+  (sort/any
+    (run* (n m a b c)
+      (foldl (lambda (g0 g) (fresh () g g0)) (== #t #t)
+             (map (lambda (v R) (fresh (i) (R i n m v))) (list a b c)
+                  intersected-tables))))
+  (sort/any
+    '((3 8 e0   e1   e2)
+      (3 8 e0   e1.1 e2)
+      (3 8 e0.1 e1   e2)
+      (3 8 e0.1 e1.1 e2)
+      (3 8 e0.2 e1   e2)
+      (3 8 e0.2 e1.1 e2)
+      (6 3 g0   g1   g2)
+      (6 5 h0   h1   h2)
+      (7 0 i0   i1   i2)
+      (7 4 k0   k1   k2)
+      (7 4 k0   k1   k2.1)
+      (7 6 l0   l1   l2)
+      (9 1 0    o1   o2)
+      (9 1 0    o1.1 o2)
+      (9 1 o0   o1   o2)
+      (9 1 o0   o1.1 o2)
+      (9 5 q0   q1   q2))))
