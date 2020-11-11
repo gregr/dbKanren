@@ -459,10 +459,10 @@
                  (let*/and ((st (if (var? t) (var-update st t) st)))
                    (state-pending-run st)))))
 
-(define (state-choose st xs.observable)
+(define (state-choose st xstatss xs.observable)
   (define x=>stats
     (foldl
-      (lambda (t x=>stats)
+      (lambda (xstats x=>stats)
         (foldl (lambda (xstat x=>stats)
                  (match-define (cons x cardinality.new) xstat)
                  (hash-update x=>stats x
@@ -473,8 +473,8 @@
                                         cardinality.new)
                                       (+ count 1)))
                               '(#f . 0)))
-               x=>stats (t 'variables)))
-      hasheq.empty (set->list (state-tables st))))
+               x=>stats xstats))
+      hasheq.empty xstatss))
   ;; TODO: if we don't make subsequent use of sorted xccs, just use a linear
   ;; scan to find x.best instead of sorting.
   (define xccs
@@ -496,26 +496,30 @@
   ;; TODO: it might be better to loop the entire state-choose.  It may be
   ;; unlikely, but pruning the domain of x.best could affect cardinalities
   ;; and/or counts of other variables.
-  (let loop ((st st))
-    (define v=>cx (state-var=>cx st))
-    (define t (bounds-lb (vcx-bounds (hash-ref v=>cx x.best vcx.empty))))
-    (define st.new (assign st x.best t))
-    (define (s-rest)
-      (define st.skip (disunify st x.best t))
-      (if st.skip (loop st.skip) '()))
-    (if st.new (cons st.new s-rest) s-rest)))
+  (define v=>cx (state-var=>cx st))
+  (define t (bounds-lb (vcx-bounds (state-var=>cx-ref st x.best))))
+  (define st.new (assign st x.best t))
+  (define (s-rest) (let ((st.skip (disunify st x.best t)))
+                     (if st.skip (list st.skip) '())))
+  (if st.new (cons st.new s-rest) s-rest))
 
 (define (state-enumerate st.0 term)
   (define st (state-pending-run st.0))
   (if st
-    (if (set-empty? (state-tables st))
-      (begin (state-uses-empty?! st) (list st))
-      ;; TODO: term-vars walk* efficiency
-      (let* ((xs.observable (set->list (term-vars (walk* st term))))
-             (sts.all (s-append*
-                        (s-map (lambda (st) (state-enumerate st xs.observable))
-                               (state-choose st xs.observable)))))
-        (if (null? xs.observable) (s-limit 1 sts.all) sts.all)))
+    (let* ((tcxs (set->list (state-tables st)))
+           (xss  (map (lambda (tcx) (tcx-cardinalities st tcx)) tcxs))
+           (st   (foldl (lambda (tcx xstats st)
+                          (if (null? xstats) (state-tables-remove st tcx) st))
+                        st tcxs xss)))
+      (if (set-empty? (state-tables st))
+        (begin (state-uses-empty?! st) (list st))
+        ;; TODO: term-vars walk* efficiency
+        (let* ((xs.observable (set->list (term-vars (walk* st term))))
+               (xstats        (filter pair? xss))
+               (sts.all (s-append*
+                          (s-map (lambda (st) (state-enumerate st xs.observable))
+                                 (state-choose st xstats xs.observable)))))
+          (if (null? xs.observable) (s-limit 1 sts.all) sts.all))))
     '()))
 
 (define (assign st x t)
@@ -767,7 +771,7 @@
                        (set->list (term-vars a))))
                 cols a*)))))
     (let* ((st (state-store-set st id (cons (hash) t)))
-                                         )
+           (st (state-tables-add st tcx)))
       (update-bounds/new (t 'columns.fast) st)))
   (define r (make-relation table-name (t 'columns)))
   (relations-set! r 'apply/bis
