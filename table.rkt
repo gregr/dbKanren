@@ -95,46 +95,6 @@
                                  (cons col bound) (+ mask 1)
                                  start.new end.new)))))))))
 
-(define (table/old vref key-col cols types row-count)
-  (let table ((cols cols) (types types) (mask 0) (start 0) (end row-count))
-    (define (ref i j) (vector-ref  (vref i) (+ mask j)))
-    (define (ref* i)  (vector-copy (vref i)    mask))
-    (define compare (and (pair? types) (type->compare (car types))))
-    (define <?      (and compare (compare-><? compare)))
-    (define <=?     (and compare (compare-><=? compare)))
-    (define (make-i<  v) (lambda (i) (<?  (ref i 0) v)))
-    (define (make-i<= v) (lambda (i) (<=? (ref i 0) v)))
-    (define (make-i>  v) (lambda (i) (<?  v (ref i 0))))
-    (define (make-i>= v) (lambda (i) (<=? v (ref i 0))))
-    (method-lambda
-      ((columns) cols)
-      ((types)   types)
-      ((width)   (length cols))
-      ((length)  (- end start))
-      ((key)     start)
-      ((ref* i)  (ref* (+ start i)))
-      ((ref i j) (ref  (+ start i) j))
-      ((mask j)  (table (s-drop j cols) (s-drop j types) (+ mask j) start end))
-      ((stream)  (let loop ((i 0))
-                   (thunk (if (= i (- end start)) '()
-                            (cons (vector->list (ref* (+ start i)))
-                                  (loop (+ i 1)))))))
-      ((find<  v) (bisect start end (make-i< v)))
-      ((find<= v) (bisect start end (make-i<= v)))
-      ((drop<  v) (table cols types mask
-                         (bisect-next start end (make-i< v)) end))
-      ((drop<= v) (table cols types mask
-                         (bisect-next start end (make-i<= v)) end))
-      ((take<= v) (table cols types mask
-                         start (bisect-next start end (make-i<= v))))
-      ;; TODO: > >= variants: take>= drop> drop>=
-      ;((drop> v)
-      ; (table cols types mask start (bisect-prev start end (make-i> v))))
-      ((drop-key< k) (table cols types mask (max start (min k end)) end))
-      ((drop-key> k) (table cols types mask start (min end (max k start))))
-      ((take count)  (table cols types mask start (+ count start)))
-      ((drop count)  (table cols types mask (+ count start) end)))))
-
 (define (table-length t key)       (t 'max-count key))
 (define (table-ref    t key i col) ((t '= key i) 'min col))
 
