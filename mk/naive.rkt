@@ -1,7 +1,8 @@
 #lang racket/base
 (provide bis:query->stream bis:retrieve
-         dfs:query->stream dfs:retrieve)
-(require "../stream.rkt" "constraint.rkt" "syntax.rkt"
+         dfs:query->stream dfs:retrieve
+         materialized-relation define-materialized-relation)
+(require "../stream.rkt" "../table.rkt" "constraint.rkt" "syntax.rkt"
          (except-in racket/match ==) racket/function)
 
 (define ((enumerate-and-reify x) st)
@@ -90,3 +91,14 @@
 (define ((dfs:== t1 t2 k)  st) (dfs:return k (unify st t1 t2)))
 (define ((dfs:==/use u k)  st) (dfs:return k (use st u)))
 (define ((dfs:=/= t1 t2 k) st) (dfs:return k (disunify st t1 t2)))
+
+(define (materialized-relation kwargs)
+  (match-define (list name attribute-names primary-key-name primary-t index-ts)
+    (materialization kwargs))
+  (relation/tables name attribute-names primary-key-name
+                   (cons primary-t index-ts)))
+
+(define-syntax define-materialized-relation
+  (syntax-rules ()
+    ((_ name kwargs) (define name (materialized-relation
+                                    `((relation-name . name) . ,kwargs))))))

@@ -33,7 +33,7 @@
 ;; TODO: support multiple sorted columns
 ;;       (wait until column-oriented tables are implemented for simplicity)
 
-(define (table/vref vref key-col cols.all types row-count)
+(define (table vref key-col cols.all types row-count)
   (let table ((cols  cols.all)
               (types types)
               (key-bound? #f) (bound '()) (mask 0) (start 0) (end row-count))
@@ -95,7 +95,7 @@
                                  (cons col bound) (+ mask 1)
                                  start.new end.new)))))))))
 
-(define (table vref key-col cols types row-count)
+(define (table/old vref key-col cols types row-count)
   (let table ((cols cols) (types types) (mask 0) (start 0) (end row-count))
     (define (ref i j) (vector-ref  (vref i) (+ mask j)))
     (define (ref* i)  (vector-copy (vref i)    mask))
@@ -135,8 +135,8 @@
       ((take count)  (table cols types mask start (+ count start)))
       ((drop count)  (table cols types mask (+ count start) end)))))
 
-(define (table-length t key)       (t 'length))
-(define (table-ref    t key i col) (t 'ref i 0))
+(define (table-length t key)       (t 'max-count key))
+(define (table-ref    t key i col) ((t '= key i) 'min col))
 
 (define (table/port/offsets table.offsets key-col cols types in)
   (define type `#(tuple ,@types))
