@@ -135,12 +135,15 @@
       ((take count)  (table cols types mask start (+ count start)))
       ((drop count)  (table cols types mask (+ count start) end)))))
 
+(define (table-length t key)       (t 'length))
+(define (table-ref    t key i col) (t 'ref i 0))
+
 (define (table/port/offsets table.offsets key-col cols types in)
   (define type `#(tuple ,@types))
   (define (ref i)
-    (file-position in (table.offsets 'ref i 0))
+    (file-position in (table-ref table.offsets #t i 'offset))
     (decode in type))
-  (table ref key-col cols types (table.offsets 'length)))
+  (table ref key-col cols types (table-length table.offsets #t)))
 
 (define (table/bytes/offsets table.offsets key-col cols types bs)
   (define in (open-input-bytes bs))
