@@ -696,7 +696,7 @@
   ;; contributing to the impossible set.
   (if (null? =/=**) t `#s(cx ,t (=/=** . ,=/=**))))
 
-(define (uid:new) (vector 0))
+(define (uid:new) (gensym))
 
 (define (relation/table table-name t)
   (define ((cx:new args) st)
