@@ -699,19 +699,22 @@
 (define (uid:new) (gensym))
 
 (define (relation/table table-name t)
-  (define ((cx:new args) st)
+  (define (cx:new st args.0)
     (define (add-cx st col term)
       (foldl (lambda (x st)
                (add-domain st (lambda (st) (update-bounds/arg col st)) x))
+             ;; TODO: avoid attaching duplicates to the same var
              st (set->list (term-vars term))))
+    (define (t-col-bounds t col) (bounds (t 'min col) #t (t 'max col) #t))
     (define (update-bounds/t col st)
       (match-define (cons col=>b t) (state-store-ref st id #f))
-      (define b.0 (hash-ref col=>b col bounds.any))
-      (define b.1 (bounds (t 'min col) #t (t 'max col) #t))
-      (if (equal? b.0 b.1) st
-        (bounds-apply
-          (state-store-set st id (cons (hash-set col=>b col b.1) t))
-          b.1 (hash-ref col=>arg col))))
+      (if (not (member col (t 'columns.fast))) st
+        (let ((b.0 (hash-ref col=>b col bounds.any))
+              (b.1 (t-col-bounds t col)))
+          (if (equal? b.0 b.1) st
+            (bounds-apply
+              (state-store-set st id (cons (hash-set col=>b col b.1) t))
+              b.1 (hash-ref col=>arg col))))))
     (define (update-bounds/arg col st)
       (match-define (cons col=>b t) (state-store-ref st id #f))
       (define b.0  (hash-ref col=>b col bounds.any))
@@ -723,13 +726,12 @@
                            col (bounds-lb b.t)))
                      (t (t (if (bounds-ub-inclusive? b.t) '<= '<)
                            col (bounds-ub b.t))))
-            (let* ((b.1 (bounds (t 'min col) #t (t 'max col) #t))
+            (let* ((b.1 (t-col-bounds t col))
                    (new (cons (hash-set col=>b col b.1) t))
-                   (st  (state-store-set st id new)))
+                   (st  (state-store-set (add-cx st col term) id new)))
               (if (equal? b.t b.1) st
                 (let ((cols.old (remove col (t 'columns.fast))))
-                  (foldl/and update-bounds/t
-                             (bounds-apply (add-cx st col term) b.1 term)
+                  (foldl/and update-bounds/t (bounds-apply st b.1 term)
                              cols.old))))))
         (let*/and ((cols.0   (t 'columns.fast))
                    (t        (t '= col b.t))
@@ -738,15 +740,41 @@
                    (cols.old (set-subtract cols.1 cols.new))
                    (st       (state-store-set
                                st id (cons (hash-remove col=>b col) t)))
-                   (st       (foldl/and update-bounds/arg st cols.new)))
+                   (st       (update-bounds/new cols.new st)))
           (foldl/and update-bounds/t st cols.old))))
+    (define (update-bounds/new cols.new st)
+      (match-define (cons col=>b t) (state-store-ref st id #f))
+      (let* ((col=>b (foldl (lambda (c col=>b)
+                              (hash-set col=>b c (t-col-bounds t c)))
+                            col=>b cols.new))
+             (st (state-store-set st id (cons col=>b t))))
+        (foldl/and update-bounds/arg st cols.new)))
     (define id       (uid:new))
-    (define cols     (t 'columns.fast))
-    (define col=>arg (make-immutable-hash (map cons cols (walk* st args))))
-    (foldl update-bounds/arg
-           (state-store-set st id (cons (hash) t)) cols))
+    (define args (walk* st args.0))
+    (define col=>arg (make-immutable-hash (map cons (t 'columns) args)))
+    (define tcx
+      (method-lambda
+        ((info st) (match-define (cons _ t) (state-store-ref st id #f))
+                   (list table-name (t 'columns.bound) (walk* st args)))
+        ((cardinalities st)
+         (match-define (cons _ t) (state-store-ref st id #f))
+         (define cols (t 'columns.fast))
+         (define a*   (walk* st (map (lambda (c) (hash-ref col=>arg c)) cols)))
+         (append*
+           (map (lambda (c a)
+                  (define cardinality (t 'max-count c))
+                  (map (lambda (x) (cons x cardinality))
+                       (set->list (term-vars a))))
+                cols a*)))))
+    (let* ((st (state-store-set st id (cons (hash) t)))
+                                         )
+      (update-bounds/new (t 'columns.fast) st)))
   (define r (make-relation table-name (t 'columns)))
-  (relations-set! r 'apply/bis cx:new)
+  (relations-set! r 'apply/bis
+                  (lambda (args)
+                    (lambda (st) (let ((st (cx:new st args)))
+                                   ;; TODO: this is bis:return
+                                   (if st (list st) '())))))
   (relations-set! r 'apply/dfs
                   (lambda (k args)
                     (lambda (st) (let ((st ((cx:new args) st)))
@@ -777,3 +805,5 @@
                 rs ts)))
   (relations-set! r 'expand expand)
   r)
+
+(define (tcx-cardinalities st tcx) (tcx 'cardinalities st))
