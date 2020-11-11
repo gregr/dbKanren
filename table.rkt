@@ -679,7 +679,7 @@
              (table/vector key-name column-names column-types
                            (vector-dedup index-src)))
            (hash-ref info 'index-tables '()))))
-  (list name attribute-names primary-key-name primary-t index-ts))
+  (list name attribute-names primary-key-name (cons primary-t index-ts)))
 
 (define (materialization/path directory-path kwargs)
   (define name           (alist-ref kwargs 'relation-name))
@@ -702,7 +702,7 @@
   (define index-ts
     (map (lambda (info) (table/metadata retrieval-type dpath info))
          (hash-ref info 'index-tables '())))
-  (list name attribute-names primary-key-name primary-t index-ts))
+  (list name attribute-names primary-key-name (cons primary-t index-ts)))
 
 (define (materialization kwargs)
   (define directory-path? (alist-ref kwargs 'path   #f))

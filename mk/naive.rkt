@@ -93,10 +93,9 @@
 (define ((dfs:=/= t1 t2 k) st) (dfs:return k (disunify st t1 t2)))
 
 (define (materialized-relation kwargs)
-  (match-define (list name attribute-names primary-key-name primary-t index-ts)
+  (match-define (list name attribute-names primary-key-name ts)
     (materialization kwargs))
-  (relation/tables name attribute-names primary-key-name
-                   (cons primary-t index-ts)))
+  (relation/tables name attribute-names primary-key-name ts))
 
 (define-syntax define-materialized-relation
   (syntax-rules ()
