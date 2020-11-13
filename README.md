@@ -6,43 +6,23 @@ large-scale relations.
 
 ## TODO
 
-* test table/vref by rewriting materialized-relation loop to use it
-
-* `expand` a materialized relation into uses of its constituent table relations
-  * which means we need each table to be an independent `relation`
-    * applying `relation` produces one or more domain cxs w/ arc cx follow ups
-      * requires definition of `apply/bis` and `apply/dfs`
-    * eventually, make sure relation metadata contains information for analysis
-      * e.g., degree constraints, fast column ordering, subsumption tag/rules
-  * move constraint-management code from relation.rkt to constraint.rkt
-    * should be able to delete relation.rkt
-
-* domain constraints
-  * a var's possible values are the intersection of one or more as bounded sets
-    implied by table constraints (finite row mappings)
-    * disagreeing bounds are refined by incremental intersection
-  * disequality constraints invalidate inclusiveness of matching bounds
-    * properly 2-watch `=/=*` constraints to make sure inclusiveness trimming
-      opportunities are not missed
-      * possibly also switch to eager disunify processing
-  * description metadata
-    * for subsumption and/or simplification with other constraints
-
-* performance bug: current column guessing order is stupid in that it is not
-  informed by the cardinality estimates provided by indexes, blindly following
-  primary table order
-  * example
-    * primary: (id subject object)
-    * index:   (object subject)
-    * Given object, apply/expand procedure will guess id next instead of subject,
-      due to following the primary ordering blindly.  This is obviously
-      suboptimal since index lower/upper offsets will be tighter than primary's,
-      leaving fewer subjects to guess.
+* properly 2-watch `=/=*` constraints to make sure inclusiveness trimming
+  opportunities are not missed
+  * possibly also switch to eager disunify processing
+* eventually, make sure relation metadata contains information for analysis
+  * e.g., degree constraints, fast column ordering, subsumption tag/rules
+  * descriptions used for subsumption
+    * #(,relation ,attributes-satisfied ,attributes-pending)
+    * within a relation, table constraint A subsumes B if
+      B's attributes-pending is a prefix of A's
+      AND
+      B does not have any attributes-satisfied that A does not have
 
 * maybe remove mandatory names for program-defined relations?
   * anonymous relations `(relation ...)` just provide a blank name by default
   * can `set-relation-name!` to provide a name if desired
   * materialized relations can default to using the name stored on disk
+  * use racket's `procedure-rename` for better pretty-printing?
 
 * define tables that use column-oriented layout
 
