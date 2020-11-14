@@ -1,6 +1,5 @@
 #lang racket/base
-(provide bis:query->stream bis:retrieve
-         dfs:query->stream dfs:retrieve
+(provide bis:query->stream dfs:query->stream
          materialized-relation define-materialized-relation)
 (require "../stream.rkt" "../table.rkt" "constraint.rkt" "syntax.rkt"
          (except-in racket/match ==) racket/function)

@@ -72,23 +72,23 @@
      (let ((r (make-relation 'name '(param ...))))
        (relations-set! r 'expand (lambda (param ...) (fresh () g ...)))
        r))))
-(define-syntax relation/stream
-  (syntax-rules ()
-    ((_ name (param ...) stream)
-     (relation name (param ...) (retrieve stream param ...)))))
 (define-syntax letrec-relation
   (syntax-rules ()
     ((_ (((name param ...) g ...) ...) body ...)
      (letrec ((name (relation name (param ...) g ...)) ...) body ...))))
+(define-syntax define-relation
+  (syntax-rules ()
+    ((_ (name param ...) g ...)
+     (define name (relation name (param ...) g ...)))))
+(define-syntax relation/stream
+  (syntax-rules ()
+    ((_ name (param ...) stream)
+     (relation name (param ...) (retrieve stream param ...)))))
 (define-syntax letrec-relation/stream
   (syntax-rules ()
     ((_ (((name param ...) stream) ...) body ...)
      (letrec ((name (relation/stream name (param ...) stream)) ...)
        body ...))))
-(define-syntax define-relation
-  (syntax-rules ()
-    ((_ (name param ...) g ...)
-     (define name (relation name (param ...) g ...)))))
 (define-syntax define-relation/stream
   (syntax-rules ()
     ((_ (name param ...) stream)
