@@ -780,7 +780,7 @@
                                    (if st (list st) '())))))
   (relations-set! r 'apply/dfs
                   (lambda (k args)
-                    (lambda (st) (let ((st ((cx:new args) st)))
+                    (lambda (st) (let ((st (cx:new st args)))
                                    ;; TODO: this is dfs:return
                                    (if st (k st) '())))))
   r)
