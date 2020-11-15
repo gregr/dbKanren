@@ -1,7 +1,8 @@
 #lang racket/base
-(provide state.empty walk* unify disunify use state-enumerate reify
-         relation/tables)
-(require "../method.rkt" "../order.rkt" "../stream.rkt" "syntax.rkt"
+(provide bis:query->stream dfs:query->stream
+         materialized-relation define-materialized-relation)
+(require "../method.rkt" "../order.rkt" "../stream.rkt" "../table.rkt"
+         "syntax.rkt"
          (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
 
@@ -750,14 +751,10 @@
   (define r (make-relation table-name (t 'columns)))
   (relations-set! r 'apply/bis
                   (lambda (args)
-                    (lambda (st) (let ((st (cx:new st args)))
-                                   ;; TODO: this is bis:return
-                                   (if st (list st) '())))))
+                    (lambda (st) (bis:return   (cx:new st args)))))
   (relations-set! r 'apply/dfs
                   (lambda (k args)
-                    (lambda (st) (let ((st (cx:new st args)))
-                                   ;; TODO: this is dfs:return
-                                   (if st (k st) '())))))
+                    (lambda (st) (dfs:return k (cx:new st args)))))
   r)
 
 (define (relation/tables relation-name attribute-names primary-key-name ts)
@@ -853,3 +850,101 @@
 ;; each one multiple times.  This is sort of an on-the-fly tree decomposition.
 ;; Before fully solving each independent problem, ensure that each is
 ;; satisfiable.  Existential-only paths can stop after satisfiability check.
+
+
+(define ((enumerate-and-reify x) st)
+  (s-map (lambda (st) (reify st x)) (state-enumerate st x)))
+
+(define (bis:query->stream q)
+  (match-define `#s(query ,x ,g) q)
+  (s-append* (s-map (enumerate-and-reify x) ((bis:goal g) state.empty))))
+(define (bis:bind s k)
+  (cond ((null?      s) '())
+        ((procedure? s) (thunk (bis:bind (s) k)))
+        (else           (bis:mplus (k (car s)) (thunk (bis:bind (cdr s) k))))))
+(define (bis:mplus s1 s2)
+  (cond ((null?      s1) (s2))
+        ((procedure? s1) (thunk (bis:mplus (s2) s1)))
+        (else (define d1  (cdr s1))
+              (define s1^ (if (procedure? d1) d1 (thunk d1)))
+              (cons (car s1) (thunk (bis:mplus (s2) s1^))))))
+(define ((bis:retrieve s args) st)
+  (let loop ((s (s-next s)))
+    (cond ((null?      s) '())
+          ((procedure? s) (thunk (loop (s))))
+          (else (bis:mplus ((bis:== (car s) args) st)
+                           (thunk (loop (s-next (cdr s)))))))))
+(define ((bis:apply/expand ex args) st)
+  ((bis:goal (apply ex (walk* st args))) st))
+(define ((bis:expand ex args) st) ((bis:goal (apply ex args)) st))
+(define (bis:goal g)
+  (match g
+    (`#s(conj ,g1 ,g2) (let ((k1 (bis:goal g1)) (k2 (bis:goal g2)))
+                         (lambda (st) (bis:bind (k1 st) k2))))
+    (`#s(disj ,g1 ,g2) (let ((k1 (bis:goal g1)) (k2 (bis:goal g2)))
+                         (lambda (st) (bis:mplus (k1 st) (thunk (k2 st))))))
+    (`#s(==/use ,_ ,_ ,_ ,_) (bis:==/use g))
+    (`#s(constrain ,(? procedure? proc) ,args)
+      (define r (relations-ref proc))
+      (define apply/bis    (hash-ref r 'apply/bis    #f))
+      (define apply/expand (hash-ref r 'apply/expand #f))  ; impure expansion
+      (define expand       (hash-ref r 'expand       #f))  ; pure expansion
+      (cond (apply/bis    (apply/bis args))
+            (apply/expand (bis:apply/expand apply/expand args))
+            (expand       (bis:expand       expand       args))
+            (else (error "no interpretation for:" proc args))))
+    (`#s(constrain (retrieve ,s) ,args)     (bis:retrieve s args))
+    (`#s(constrain ==            (,t1 ,t2)) (bis:==  t1 t2))
+    (`#s(constrain =/=           (,t1 ,t2)) (bis:=/= t1 t2))))
+(define (bis:return st)      (if st (list st) '()))
+(define ((bis:== t1 t2)  st) (bis:return (unify st t1 t2)))
+(define ((bis:==/use u)  st) (bis:return (use st u)))
+(define ((bis:=/= t1 t2) st) (bis:return (disunify st t1 t2)))
+
+(define (dfs:query->stream q) ((dfs:query q) state.empty))
+(define (dfs:query q)
+  (match-define `#s(query ,x ,g) q)
+  (dfs:goal g (enumerate-and-reify x)))
+(define ((dfs:mplus k1 k2) st) (s-append (k1 st) (thunk (k2 st))))
+(define ((dfs:retrieve s args k) st)
+  (let loop ((s (s-next s)))
+    (cond ((null?      s) '())
+          ((procedure? s) (thunk (loop (s))))
+          (else ((dfs:mplus (dfs:==       (car s) args k)
+                            (dfs:retrieve (cdr s) args k))
+                 st)))))
+(define ((dfs:apply/expand ex args k) st)
+  ((dfs:goal (apply ex (walk* st args)) k) st))
+(define ((dfs:expand ex args k) st) ((dfs:goal (apply ex args) k) st))
+(define (dfs:goal g k)
+  (define loop dfs:goal)
+  (match g
+    (`#s(conj ,g1 ,g2) (loop g1 (loop g2 k)))
+    (`#s(disj ,g1 ,g2) (dfs:mplus (loop g1 k) (loop g2 k)))
+    (`#s(==/use ,_ ,_ ,_ ,_) (dfs:==/use g k))
+    (`#s(constrain ,(? procedure? proc) ,args)
+      (define r (relations-ref proc))
+      (define apply/dfs    (hash-ref r 'apply/dfs    #f))
+      (define apply/expand (hash-ref r 'apply/expand #f))  ; impure expansion
+      (define expand       (hash-ref r 'expand       #f))  ; pure expansion
+      (cond (apply/dfs    (apply/dfs k args))
+            (apply/expand (dfs:apply/expand apply/expand args k))
+            (expand       (dfs:expand       expand       args k))
+            (else (error "no interpretation for:" proc args))))
+    (`#s(constrain (retrieve ,s) ,args)     (dfs:retrieve s args k))
+    (`#s(constrain ==            (,t1 ,t2)) (dfs:==  t1 t2 k))
+    (`#s(constrain =/=           (,t1 ,t2)) (dfs:=/= t1 t2 k))))
+(define (dfs:return k st)      (if st (k st) '()))
+(define ((dfs:== t1 t2 k)  st) (dfs:return k (unify st t1 t2)))
+(define ((dfs:==/use u k)  st) (dfs:return k (use st u)))
+(define ((dfs:=/= t1 t2 k) st) (dfs:return k (disunify st t1 t2)))
+
+(define (materialized-relation kwargs)
+  (match-define (list name attribute-names primary-key-name ts)
+    (materialization kwargs))
+  (relation/tables name attribute-names primary-key-name ts))
+
+(define-syntax define-materialized-relation
+  (syntax-rules ()
+    ((_ name kwargs) (define name (materialized-relation
+                                    `((relation-name . name) . ,kwargs))))))
