@@ -1,8 +1,8 @@
 #lang racket/base
-(provide (all-from-out "mk/common.rkt") (all-from-out "mk/syntax.rkt")
-         (all-from-out "mk/constraint.rkt")
+(provide (all-from-out "common.rkt") (all-from-out "syntax.rkt")
+         (all-from-out "constraint.rkt")
          run^ run run*)
-(require "mk/common.rkt" "mk/constraint.rkt" "mk/syntax.rkt" "stream.rkt")
+(require "common.rkt" "constraint.rkt" "stream.rkt" "syntax.rkt")
 
 ;(define query->stream dfs:query->stream)
 (define query->stream bis:query->stream)

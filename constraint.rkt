@@ -1,8 +1,7 @@
 #lang racket/base
 (provide bis:query->stream dfs:query->stream
          materialized-relation define-materialized-relation)
-(require "../method.rkt" "../order.rkt" "../stream.rkt" "../table.rkt"
-         "syntax.rkt"
+(require "method.rkt" "order.rkt" "stream.rkt" "syntax.rkt" "table.rkt"
          (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
 

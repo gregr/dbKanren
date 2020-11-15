@@ -4,7 +4,7 @@
          not-pairo not-vectoro not-booleano not-integero
          vector==listo bytes==listo <=o <o string<=o string<o absento
          appendo removeo membero not-membero uniqueo)
-(require "../order.rkt" "syntax.rkt")
+(require "order.rkt" "syntax.rkt")
 
 (define-relation (symbolo t)
   (any<=o term.symbol.min t) (any<=o t term.symbol.max)
