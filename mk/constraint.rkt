@@ -123,32 +123,7 @@
 ;;   compose subgraph solutions
 ;;     if any subgraph failed completely, composition also fails
 
-
-;; initial implementation scratch notes:
-;
-;;; TODO:
-;;; bounds -> bounds?
-;(define (table-intersect/ub table ub inclusive?)
-;  ;; update a table given new ub
-;  ;; NOTE: this does not handle initial table constraint evaluation, which might already be within bounds
-;
-;  ;; TODO: inclusive? chooses <= or <
-;
-;  ;; TODO: this produces #f OR a new table with a possibly-changed ub
-;  (table '<= ub)
-;
-;  ;; if #f, fail
-;  ;; otherwise continue with new table
-;  ;; if ub has changed, also activate ub watchers
-;  )
-;
 ;;; TODO: occurs check for vector-ref
-
-;; TODO: next step is to define table domain/arc cxs via apply/bis apply/dfs
-;; * when a domain or cx is first applied:
-;;   * add it to its host/watched var
-;;   * attempt to refine bounds of target var(s)
-;;     * if bounds change, run bounds-apply to properly schedule updates
 
 (define (foldl/and f acc xs)
   (let loop ((acc acc) (xs xs))

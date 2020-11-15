@@ -6,9 +6,34 @@ large-scale relations.
 
 ## TODO
 
+* dynamically-scoped config system (use parameters) to provide defaults
+  * logging (levels, output locations, and verbosity (what also gets printed))
+    * e.g., warnings, materialization progress
+  * error-handling mechanism (halt, warn/log, or interact)
+    * e.g., materialized relation already exists
+  * buffer-size for sorter
+  * base-path for storage
+  * background worker threads/places for materialization
+  * mk search strategy
+  * metadata.scm protocol versioning for automatic update/migration
+  * data staleness detection
+    * timestamps for source data (file modification) and materialization time
+    * interactive prompting for whether to update
+
+* `state-pending-run` before splitting search on any disj
+  * instead, maybe even go so far as to `state-enumerate` before?
+
 * properly 2-watch `=/=*` constraints to make sure inclusiveness trimming
   opportunities are not missed
   * possibly also switch to eager disunify processing
+* implement simple `any<=o` constraints (at most one term is non-ground)
+* support branchless disjunctions when all leaf constraints are simple?
+  * no user-defined relations for now
+* re-express bounds-apply using branchless disjunctions
+* recognize finite domains and express using branchless disjunctions?
+
+* define tables that use column-oriented layout
+
 * eventually, make sure relation metadata contains information for analysis
   * e.g., degree constraints, fast column ordering, subsumption tag/rules
   * descriptions used for subsumption
@@ -18,37 +43,14 @@ large-scale relations.
       AND
       B does not have any attributes-satisfied that A does not have
 
-* maybe remove mandatory names for program-defined relations?
-  * anonymous relations `(relation ...)` just provide a blank name by default
-  * can `set-relation-name!` to provide a name if desired
-  * materialized relations can default to using the name stored on disk
-  * use racket's `procedure-rename` for better pretty-printing?
-
-* define tables that use column-oriented layout
-
-* metadata.scm protocol versioning for automatic update/migration
-
-* floating point numbers are not valid terms
-  * reordering operations endangers soundness
-  * detect float literals when doing so won't hurt performance
-
-* how do we express columns of suffix type?
-  * it would have this representation type: `#(suffix count len)`
-  * but it would use a different comparison operator
-
-* dynamically-scoped config system (use parameters) to provide defaults
-  * logging (levels, output locations, and verbosity (what also gets printed))
-    * e.g., warnings, materialization progress
-  * error-handling mechanism (halt, warn/log, or interact)
-    * e.g., materialized relation already exists
-  * buffer-size for sorter
-  * base-path for storage
-  * mk search strategy
-
 * remaining loose ends necessary for full expressiveness
   * fixed point computation
   * strategy w/ flexible goal ordering
   * these are defined in the "evaluation" section below
+
+* how do we express columns of suffix type?
+  * it would have this representation type: `#(suffix count len)`
+  * but it would use a different comparison operator
 
 * relation compilation to remove interpretive overhead
   * mode analysis
@@ -59,6 +61,10 @@ large-scale relations.
     * e.g., unify on partially-known term structures can be unrolled
     * constraint evaluations can be pre-simplified and reordered
   * code generation
+
+* floating point numbers are not valid terms
+  * reordering operations endangers soundness
+  * detect float literals when doing so won't hurt performance
 
 
 ### Data processing
