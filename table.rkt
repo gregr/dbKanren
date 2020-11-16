@@ -2,7 +2,7 @@
 (provide materializer extend-materialization materialization
          table-project table-intersect-start vector-table?
          call/files let/files encoder s-encode s-decode)
-(require "codec.rkt" "method.rkt" "order.rkt" "stream.rkt"
+(require "codec.rkt" "config.rkt" "method.rkt" "order.rkt" "stream.rkt"
          racket/file racket/function racket/list racket/match racket/pretty
          racket/set racket/vector)
 
@@ -254,7 +254,7 @@
 (define (value-table-file-name  prefix) (string-append prefix ".value.table"))
 (define (offset-table-file-name prefix) (string-append prefix ".offset.table"))
 
-(define (tabulator buffer-size directory-path file-prefix
+(define (tabulator directory-path file-prefix
                    column-names column-types key-name sorted-columns)
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
                           (error "duplicates:" as)))
@@ -272,8 +272,7 @@
   (define value-file-name  (value-table-file-name path-prefix))
   (define offset-file-name (and (not row-size)
                                 (offset-table-file-name path-prefix)))
-  (define tsorter (sorter #t value-file-name offset-file-name buffer-size
-                          row-type row<))
+  (define tsorter (sorter #t value-file-name offset-file-name row-type row<))
   (method-lambda
     ((put x) (tsorter 'put x))
     ((close) (match-define (cons offset-type item-count) (tsorter 'close))
@@ -293,8 +292,7 @@
                (key-name          . ,key-name)
                (sorted-columns    . ,sorted-columns)))))
 
-(define (sorter dedup? value-file-name offset-file-name? buffer-size
-                type value<)
+(define (sorter dedup? value-file-name offset-file-name? type value<)
   (define fname-sort-value  (string-append value-file-name ".value.sort"))
   (define fname-sort-offset (string-append value-file-name ".offset.sort"))
   (define out-value         (open-output-file value-file-name))
@@ -302,8 +300,7 @@
     (and offset-file-name?  (open-output-file offset-file-name?)))
   (define out-sort-value    (open-output-file fname-sort-value))
   (define out-sort-offset   (open-output-file fname-sort-offset))
-  (define ms (multi-sorter out-sort-value out-sort-offset buffer-size
-                           type value<))
+  (define ms (multi-sorter out-sort-value out-sort-offset type value<))
   (method-lambda
     ((put value) (ms 'put value))
     ((close)
@@ -334,7 +331,8 @@
      (when out-offset (close-output-port out-offset))
      (cons otype item-count))))
 
-(define (multi-sorter out-chunk out-offset buffer-size type value<)
+(define (multi-sorter out-chunk out-offset type value<)
+  (define buffer-size (current-config-ref 'buffer-size))
   (let ((v (make-vector buffer-size)) (chunk-count 0) (item-count 0) (i 0))
     (method-lambda
       ((put value) (vector-set! v i value)
@@ -433,8 +431,6 @@
                    (list #,@ss.out))))
 
 (define (table-materializer kwargs)
-  ;; TODO: configurable default buffer-size
-  (define buffer-size    (alist-ref kwargs 'buffer-size 100000))
   (define source-names   (alist-ref kwargs 'source-names))
   (define dpath          (alist-ref kwargs 'directory))
   (define fprefix        (alist-ref kwargs 'file-prefix))
@@ -442,7 +438,7 @@
   (define column-types   (alist-ref kwargs 'column-types))
   (define key-name       (alist-ref kwargs 'key-name #f))
   (define sorted-columns (alist-ref kwargs 'sorted-columns '()))
-  (define t (tabulator buffer-size dpath fprefix column-names column-types
+  (define t (tabulator dpath fprefix column-names column-types
                        key-name sorted-columns))
   (define transform (list-arranger source-names column-names))
   (method-lambda
@@ -473,8 +469,6 @@
   (map (lambda (m) (m 'close)) index-ms))
 
 (define (materializer kwargs)
-  ;; TODO: configurable default buffer-size
-  (define buffer-size        (alist-ref kwargs 'buffer-size 100000))
   (define directory-path     (alist-ref kwargs 'path))
   (define attribute-names    (alist-ref kwargs 'attribute-names))
   (define attribute-types    (alist-ref kwargs 'attribute-types
@@ -528,7 +522,7 @@
     (map (lambda (i) (string-append "index." (number->string i)))
          (range (length index-tds))))
   (define metadata-out (open-output-file metadata-fname))
-  (define primary-t (tabulator buffer-size dpath primary-fprefix
+  (define primary-t (tabulator dpath primary-fprefix
                                primary-column-names primary-column-types
                                key (cdr primary-td)))
   (method-lambda
