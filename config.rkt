@@ -1,6 +1,6 @@
 #lang racket/base
 (provide current-config config.default file->config current-config-ref
-         config-ref config-set config-set/alist)
+         current-config-relation-path config-ref config-set config-set/alist)
 
 (define config.default
   (make-immutable-hash
@@ -41,3 +41,7 @@
 
 (define current-config (make-parameter config.default))
 (define (current-config-ref key) (config-ref (current-config) key))
+(define (current-config-relation-path path)
+  (define relation-root-path (current-config-ref 'relation-root-path))
+  (if relation-root-path (path->string (build-path relation-root-path path))
+    path))
