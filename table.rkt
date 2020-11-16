@@ -506,9 +506,7 @@
     (error "primary columns must include all non-key attributes:"
            (set->list (set-remove (list->set attribute-names) key))
            (set->list (list->set primary-column-names))))
-  (define dpath (if #f (path->string (build-path "TODO: configurable base"
-                                                 directory-path))
-                  directory-path))
+  (define dpath (current-config-relation-path (alist-ref kwargs 'path)))
   (make-directory* dpath)
   (define metadata-fname (path->string (build-path dpath "metadata.scm")))
   (define primary-fprefix "primary")
@@ -549,10 +547,7 @@
 
 (define (extend-materialization kwargs)
   ;; TODO: validate existing relation against kwargs?
-  (define directory-path (alist-ref kwargs 'path))
-  (define dpath (if #f (path->string (build-path "TODO: configurable base"
-                                                 directory-path))
-                  directory-path))
+  (define dpath (current-config-relation-path (alist-ref kwargs 'path)))
   (define path.metadata (path->string (build-path dpath "metadata.scm")))
   (define path.metadata.backup
     (path->string (build-path dpath "metadata.scm.backup")))
@@ -678,9 +673,7 @@
 (define (materialization/path directory-path kwargs)
   (define name           (alist-ref kwargs 'relation-name))
   (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
-  (define dpath (if #f (path->string (build-path "TODO: configurable base"
-                                                 directory-path))
-                  directory-path))
+  (define dpath (current-config-relation-path directory-path))
   (define info-alist
     (let/files ((in (path->string (build-path dpath "metadata.scm")))) ()
       (read in)))
