@@ -1,7 +1,6 @@
 #lang racket/base
 (provide materializer extend-materialization materialization
-         table-project table-intersect-start vector-table?
-         call/files let/files encoder s-encode s-decode)
+         vector-table? call/files let/files encoder s-encode s-decode)
 (require "codec.rkt" "config.rkt" "method.rkt" "order.rkt" "stream.rkt"
          racket/file racket/function racket/list racket/match racket/pretty
          racket/set racket/vector)
@@ -229,27 +228,6 @@
                     (cond ((= o 0)                   i)
                           ((and (>= n start) (i> n)) (loop n o))
                           (else                      (loop i o)))))))))
-
-(define (table-project t v) (((t 'drop< v) 'take<= v) 'mask 1))
-
-;; TODO: table-intersect-end
-(define (table-intersect-start ts)
-  (define (next t) (and (< 0 (t 'length)) (list (t 'ref 0 0))))
-  (define initial-max (and (not (null? ts)) (next (car ts))))
-  (and initial-max
-       (let loop ((max (car initial-max)) (ts ts) (finished '()))
-         (if (null? ts)
-           (let loop ((max max) (pending (reverse finished)) (finished '()))
-             (if (null? pending) (loop max (reverse finished) '())
-               (let ((t-next (caar pending)) (t (cdar pending)))
-                 (if (equal? t-next max)
-                   (cons max (map cdr (foldl cons pending finished)))
-                   (let* ((t (t 'drop< max)) (new (next t)))
-                     (and new (loop (car new) (cdr pending)
-                                    (cons (cons (car new) t) finished))))))))
-           (let* ((t ((car ts) 'drop< max)) (new (next t)))
-             (and new (loop (car new) (cdr ts) (cons (cons (car new) t)
-                                                     finished))))))))
 
 (define (value-table-file-name  prefix) (string-append prefix ".value.table"))
 (define (offset-table-file-name prefix) (string-append prefix ".offset.table"))
