@@ -1,6 +1,8 @@
 #lang racket/base
 (provide current-config config.default file->config current-config-ref
-         current-config-relation-path config-ref config-set config-set/alist)
+         current-config-relation-path config-ref config-set config-set/alist
+         logf logf/date)
+(require racket/date)
 
 (define config.default
   (make-immutable-hash
@@ -45,3 +47,20 @@
   (define relation-root-path (current-config-ref 'relation-root-path))
   (if relation-root-path (path->string (build-path relation-root-path path))
     path))
+
+(define (pad2 n) (let ((s (number->string n)))
+                   (if (<= 2 (string-length s)) s
+                     (string-append "0" s))))
+
+(define (logf/date message . args)
+  (define msg (string-append "[~a/~a/~a - ~a:~a:~a] " message))
+  (define d (current-date))
+  (define stamp (list (date-month d) (date-day d)
+                      (date-hour d) (date-second d) (date-minute d)))
+  (apply printf msg (date-year d) (append (map pad2 stamp) args)))
+
+(define (logf message . args)
+  (define msg (string-append "[~a:~a:~a] " message))
+  (define d (current-date))
+  (define stamp (list (date-hour d) (date-second d) (date-minute d)))
+  (apply printf msg (append (map pad2 stamp) args)))
