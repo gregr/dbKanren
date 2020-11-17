@@ -231,6 +231,7 @@
 
 (define (value-table-file-name  prefix) (string-append prefix ".value.table"))
 (define (offset-table-file-name prefix) (string-append prefix ".offset.table"))
+(define metadata-file-name              "metadata.scm")
 
 (define (tabulator directory-path file-prefix
                    column-names column-types key-name sorted-columns)
@@ -486,7 +487,7 @@
            (set->list (list->set primary-column-names))))
   (define dpath (current-config-relation-path (alist-ref kwargs 'path)))
   (make-directory* dpath)
-  (define metadata-fname (path->string (build-path dpath "metadata.scm")))
+  (define metadata-fname (path->string (build-path dpath metadata-file-name)))
   (define primary-fprefix "primary")
   (define primary-fname (path->string (build-path dpath primary-fprefix)))
   ;; TODO: caller should decide whether to materialize a fresh relation, or
@@ -526,9 +527,10 @@
 (define (extend-materialization kwargs)
   ;; TODO: validate existing relation against kwargs?
   (define dpath (current-config-relation-path (alist-ref kwargs 'path)))
-  (define path.metadata (path->string (build-path dpath "metadata.scm")))
+  (define path.metadata (path->string (build-path dpath metadata-file-name)))
   (define path.metadata.backup
-    (path->string (build-path dpath "metadata.scm.backup")))
+    (path->string
+      (build-path dpath (string-append metadata-file-name ".backup"))))
   (define info-alist (let/files ((in path.metadata)) () (read in)))
   (when (eof-object? info-alist) (error "corrupt relation metadata:" dpath))
   (define info                 (make-immutable-hash info-alist))
@@ -653,7 +655,7 @@
   (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
   (define dpath (current-config-relation-path directory-path))
   (define info-alist
-    (let/files ((in (path->string (build-path dpath "metadata.scm")))) ()
+    (let/files ((in (path->string (build-path dpath metadata-file-name)))) ()
       (read in)))
   (when (eof-object? info-alist) (error "corrupt relation metadata:" dpath))
   (define info (make-immutable-hash info-alist))
