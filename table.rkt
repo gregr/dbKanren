@@ -148,8 +148,6 @@
                     (loop end)))))))
 
 (define (table/metadata retrieval-type directory-path info-alist)
-  ;(define (warning . args) (printf "warning: ~s\n" args))
-  (define (warning . args) (error "warning:" args))
   (define info         (make-immutable-hash info-alist))
   (define path-prefix
     (path->string (build-path directory-path (hash-ref info 'file-prefix))))
@@ -165,18 +163,18 @@
            (file-size fname.value) (hash-ref info 'value-file-size)))
   (unless (equal? (file-or-directory-modify-seconds fname.value)
                   (hash-ref info 'value-file-time))
-    (warning "file modification time does not match metadata:" fname.value
-             (file-or-directory-modify-seconds fname.value)
-             (hash-ref info 'value-file-time)))
+    (error "file modification time does not match metadata:" fname.value
+           (file-or-directory-modify-seconds fname.value)
+           (hash-ref info 'value-file-time)))
   (when offset-type
     (unless (equal? (file-size fname.offset) (hash-ref info 'offset-file-size))
       (error "file size does not match metadata:" fname.offset
              (file-size fname.offset) (hash-ref info 'offset-file-size)))
     (unless (equal? (file-or-directory-modify-seconds fname.offset)
                     (hash-ref info 'offset-file-time))
-      (warning "file modification time does not match metadata:" fname.offset
-               (file-or-directory-modify-seconds fname.offset)
-               (hash-ref info 'offset-file-time))))
+      (error "file modification time does not match metadata:" fname.offset
+             (file-or-directory-modify-seconds fname.offset)
+             (hash-ref info 'offset-file-time))))
   (define t.value
     (case retrieval-type
       ((disk) (define in.value (open-input-file fname.value))
