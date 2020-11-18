@@ -522,15 +522,17 @@
                            metadata-out)
              (close-output-port metadata-out))))
 
+(define (read-metadata path)
+  (define info (let/files ((in path)) () (read in)))
+  (when (eof-object? info) (error "corrupt relation metadata:" path))
+  info)
+
 (define (extend-materialization kwargs)
   ;; TODO: validate existing relation against kwargs?
   (define dpath (current-config-relation-path (alist-ref kwargs 'path)))
   (define path.metadata (path->string (build-path dpath metadata-file-name)))
-  (define path.metadata.backup
-    (path->string
-      (build-path dpath (string-append metadata-file-name ".backup"))))
-  (define info-alist (let/files ((in path.metadata)) () (read in)))
-  (when (eof-object? info-alist) (error "corrupt relation metadata:" dpath))
+  (define path.metadata.backup (string-append path.metadata ".backup"))
+  (define info-alist           (read-metadata path.metadata))
   (define info                 (make-immutable-hash info-alist))
   (define primary-info         (hash-ref info 'primary-table))
   (define index-infos          (hash-ref info 'index-tables))
@@ -651,12 +653,9 @@
 (define (materialization/path directory-path kwargs)
   (define name           (alist-ref kwargs 'relation-name))
   (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
-  (define dpath (current-config-relation-path directory-path))
-  (define info-alist
-    (let/files ((in (path->string (build-path dpath metadata-file-name)))) ()
-      (read in)))
-  (when (eof-object? info-alist) (error "corrupt relation metadata:" dpath))
-  (define info (make-immutable-hash info-alist))
+  (define dpath          (current-config-relation-path directory-path))
+  (define path.metadata  (path->string (build-path dpath metadata-file-name)))
+  (define info           (make-immutable-hash (read-metadata path.metadata)))
   (define attribute-names    (hash-ref info 'attribute-names))
   (define attribute-types    (hash-ref info 'attribute-types))
   (define primary-info-alist (hash-ref info 'primary-table))
