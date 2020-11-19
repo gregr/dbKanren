@@ -400,21 +400,21 @@
 
 (define (table-materializer kwargs)
   (define source-names   (alist-ref kwargs 'source-names))
-  (define dpath          (alist-ref kwargs 'directory))
+  (define path.dir       (alist-ref kwargs 'directory))
   (define fprefix        (alist-ref kwargs 'file-prefix))
   (define column-names   (alist-ref kwargs 'column-names))
   (define column-types   (alist-ref kwargs 'column-types))
   (define key-name       (alist-ref kwargs 'key-name #f))
   (define sorted-columns (alist-ref kwargs 'sorted-columns '()))
-  (define t (tabulator dpath fprefix column-names column-types
+  (define t (tabulator path.dir fprefix column-names column-types
                        key-name sorted-columns))
   (define transform (list-arranger source-names column-names))
   (method-lambda
     ((put x) (t 'put (transform x)))
     ((close) (t 'close))))
 
-(define (materialize-index-tables dpath source-fprefix name->type source-names
-                                  index-descriptions)
+(define (materialize-index-tables
+          path.dir source-fprefix name->type source-names index-descriptions)
   (define threshold (current-config-ref 'progress-logging-threshold))
   (define index-ms
     (map (lambda (td)
@@ -424,7 +424,7 @@
            (define column-types (map name->type column-names))
            (table-materializer
              `((source-names   . ,source-names)
-               (directory      . ,dpath)
+               (directory      . ,path.dir)
                (file-prefix    . ,fprefix)
                (column-names   . ,column-names)
                (column-types   . ,column-types)
@@ -443,8 +443,7 @@
   (map (lambda (m) (m 'close)) index-ms))
 
 (define (materializer kwargs)
-  (define source-info        (alist-ref kwargs 'source-info #f))
-  (define directory-path     (alist-ref kwargs 'path))
+  (define source-info        (alist-ref kwargs 'source-info))
   (define attribute-names    (alist-ref kwargs 'attribute-names))
   (define attribute-types    (alist-ref kwargs 'attribute-types
                                         (map (lambda (_) #f) attribute-names)))
@@ -480,11 +479,12 @@
     (error "primary columns must include all non-key attributes:"
            (set->list (set-remove (list->set attribute-names) key))
            (set->list (list->set primary-column-names))))
-  (define dpath (current-config-relation-path (alist-ref kwargs 'path)))
-  (make-directory* dpath)
-  (define metadata-fname (path->string (build-path dpath metadata-file-name)))
+  (define path.dir (alist-ref kwargs 'path))
+  (make-directory* path.dir)
+  (define metadata-fname
+    (path->string (build-path path.dir metadata-file-name)))
   (define primary-fprefix "primary")
-  (define primary-fname (path->string (build-path dpath primary-fprefix)))
+  (define primary-fname (path->string (build-path path.dir primary-fprefix)))
   ;; TODO: caller should decide whether to materialize a fresh relation, or
   ;; to materialize additional indexes for an existing relation.
   ;; * check directory for available fprefixes
@@ -494,7 +494,7 @@
     (map (lambda (i) (string-append "index." (number->string i)))
          (range (length index-tds))))
   (define metadata-out (open-output-file metadata-fname))
-  (define primary-t (tabulator dpath primary-fprefix
+  (define primary-t (tabulator path.dir primary-fprefix
                                primary-column-names primary-column-types
                                key (cdr primary-td)))
   (method-lambda
@@ -509,7 +509,7 @@
                  (lambda (n) (hash-ref name=>type n))))
              (define index-infos
                (materialize-index-tables
-                 dpath primary-fname name->type primary-source-names
+                 path.dir primary-fname name->type primary-source-names
                  (map (lambda (fprefix td) `((file-prefix . ,fprefix) . ,td))
                       index-fprefixes index-tds)))
              (pretty-write `((attribute-names . ,attribute-names)
@@ -527,8 +527,9 @@
 
 (define (extend-materialization kwargs)
   ;; TODO: validate existing relation against kwargs?
-  (define dpath (current-config-relation-path (alist-ref kwargs 'path)))
-  (define path.metadata (path->string (build-path dpath metadata-file-name)))
+  (define path.dir             (alist-ref kwargs 'path))
+  (define path.metadata        (path->string
+                                 (build-path path.dir metadata-file-name)))
   (define path.metadata.backup (string-append path.metadata ".backup"))
   (define info-alist           (read-metadata path.metadata))
   (define info                 (make-immutable-hash info-alist))
@@ -539,7 +540,7 @@
   (define primary-key-name     (alist-ref primary-info 'key-name))
   (define primary-column-names (alist-ref primary-info 'column-names))
   (define source-fprefix
-    (path->string (build-path dpath (alist-ref primary-info 'file-prefix))))
+    (path->string (build-path path.dir (alist-ref primary-info 'file-prefix))))
   (define source-names (cons primary-key-name primary-column-names))
   (define key-type (nat-type/max (alist-ref primary-info 'length)))
   (define name=>type
@@ -570,7 +571,7 @@
                    (+ (length index-infos) (length new-index-tds)))))
   (define new-index-infos
     (materialize-index-tables
-      dpath source-fprefix name->type source-names
+      path.dir source-fprefix name->type source-names
       (map (lambda (fprefix td) `((file-prefix . ,fprefix) . ,td))
            index-fprefixes new-index-tds)))
   (rename-file-or-directory path.metadata path.metadata.backup #t)
@@ -651,18 +652,20 @@
 (define (materialization/path directory-path kwargs)
   (define name           (alist-ref kwargs 'relation-name))
   (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
-  (define dpath          (current-config-relation-path directory-path))
-  (define path.metadata  (path->string (build-path dpath metadata-file-name)))
+  (define path.dir       (current-config-relation-path directory-path))
+  (define path.metadata  (path->string
+                           (build-path path.dir metadata-file-name)))
   (define info           (make-immutable-hash (read-metadata path.metadata)))
-  (define attribute-names    (hash-ref info 'attribute-names))
-  (define attribute-types    (hash-ref info 'attribute-types))
-  (define primary-info-alist (hash-ref info 'primary-table))
-  (define primary-info       (make-immutable-hash primary-info-alist))
-  (define primary-t (table/metadata retrieval-type dpath primary-info-alist))
+  (define attribute-names      (hash-ref info 'attribute-names))
+  (define attribute-types      (hash-ref info 'attribute-types))
+  (define primary-info-alist   (hash-ref info 'primary-table))
+  (define primary-info         (make-immutable-hash primary-info-alist))
+  (define primary-t            (table/metadata
+                                 retrieval-type path.dir primary-info-alist))
   (define primary-key-name     (hash-ref primary-info 'key-name))
   (define primary-column-names (primary-t 'columns))
   (define index-ts
-    (map (lambda (info) (table/metadata retrieval-type dpath info))
+    (map (lambda (info) (table/metadata retrieval-type path.dir info))
          (hash-ref info 'index-tables '())))
   (list name attribute-names primary-key-name (cons primary-t index-ts)))
 
