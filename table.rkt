@@ -147,6 +147,10 @@
                     (read-bytes! bs in i end)
                     (loop end)))))))
 
+(define (file-stats path)
+  `((size . ,(file-size path))
+    (time . ,(file-or-directory-modify-seconds path))))
+
 (define (table/metadata retrieval-type directory-path info-alist)
   (define info         (make-immutable-hash info-alist))
   (define path-prefix
@@ -154,27 +158,19 @@
   (define fname.value  (value-table-file-name  path-prefix))
   (define fname.offset (offset-table-file-name path-prefix))
   (define offset-type  (hash-ref info 'offset-type))
+  (define fstat.value  (file-stats fname.value))
+  (define fstat.offset (and offset-type (file-stats fname.offset)))
   (define key-name     (hash-ref info 'key-name))
   (define column-names (hash-ref info 'column-names))
   (define column-types (hash-ref info 'column-types))
-  (define len (hash-ref info 'length))
-  (unless (equal? (file-size fname.value) (hash-ref info 'value-file-size))
-    (error "file size does not match metadata:" fname.value
-           (file-size fname.value) (hash-ref info 'value-file-size)))
-  (unless (equal? (file-or-directory-modify-seconds fname.value)
-                  (hash-ref info 'value-file-time))
-    (error "file modification time does not match metadata:" fname.value
-           (file-or-directory-modify-seconds fname.value)
-           (hash-ref info 'value-file-time)))
+  (define len          (hash-ref info 'length))
+  (unless (set=? fstat.value (hash-ref info 'value-file))
+    (error "value file stats do not match metadata:" fname.value
+           'file: fstat.value 'metadata: (hash-ref info 'value-file)))
   (when offset-type
-    (unless (equal? (file-size fname.offset) (hash-ref info 'offset-file-size))
-      (error "file size does not match metadata:" fname.offset
-             (file-size fname.offset) (hash-ref info 'offset-file-size)))
-    (unless (equal? (file-or-directory-modify-seconds fname.offset)
-                    (hash-ref info 'offset-file-time))
-      (error "file modification time does not match metadata:" fname.offset
-             (file-or-directory-modify-seconds fname.offset)
-             (hash-ref info 'offset-file-time))))
+    (unless (set=? fstat.offset (hash-ref info 'offset-file))
+      (error "offset file stats do not match metadata:" fname.offset
+             'file: fstat.offset 'metadata: (hash-ref info 'offset-file))))
   (define t.value
     (case retrieval-type
       ((disk) (define in.value (open-input-file fname.value))
@@ -253,21 +249,16 @@
   (method-lambda
     ((put x) (tsorter 'put x))
     ((close) (match-define (cons offset-type item-count) (tsorter 'close))
-             `((file-prefix       . ,file-prefix)
-               (value-file-size   . ,(file-size value-file-name))
-               (value-file-time   . ,(file-or-directory-modify-seconds
-                                       value-file-name))
-               (offset-file-size  . ,(and offset-file-name
-                                          (file-size offset-file-name)))
-               (offset-file-time  . ,(and offset-file-name
-                                          (file-or-directory-modify-seconds
-                                            offset-file-name)))
-               (offset-type       . ,offset-type)
-               (length            . ,item-count)
-               (column-names      . ,column-names)
-               (column-types      . ,column-types)
-               (key-name          . ,key-name)
-               (sorted-columns    . ,sorted-columns)))))
+             `((file-prefix    . ,file-prefix)
+               (value-file     . ,(file-stats value-file-name))
+               (offset-file    . ,(and offset-file-name
+                                       (file-stats offset-file-name)))
+               (offset-type    . ,offset-type)
+               (length         . ,item-count)
+               (column-names   . ,column-names)
+               (column-types   . ,column-types)
+               (key-name       . ,key-name)
+               (sorted-columns . ,sorted-columns)))))
 
 (define (sorter dedup? value-file-name offset-file-name? type value<)
   (define fname-sort-value  (string-append value-file-name ".value.sort"))
@@ -446,6 +437,7 @@
   (map (lambda (m) (m 'close)) index-ms))
 
 (define (materializer kwargs)
+  (define source-info        (alist-ref kwargs 'source-info #f))
   (define directory-path     (alist-ref kwargs 'path))
   (define attribute-names    (alist-ref kwargs 'attribute-names))
   (define attribute-types    (alist-ref kwargs 'attribute-types
@@ -478,8 +470,7 @@
   (unique?! primary-column-names)
   (when (member key primary-column-names)
     (error "key name must be distinct:" key primary-column-names))
-  (unless (equal? (set-remove (list->set attribute-names) key)
-                  (list->set primary-column-names))
+  (unless (set=? (set-remove attribute-names key) primary-column-names)
     (error "primary columns must include all non-key attributes:"
            (set->list (set-remove (list->set attribute-names) key))
            (set->list (list->set primary-column-names))))
@@ -518,7 +509,8 @@
              (pretty-write `((attribute-names . ,attribute-names)
                              (attribute-types . ,attribute-types)
                              (primary-table   . ,primary-info)
-                             (index-tables    . ,index-infos))
+                             (index-tables    . ,index-infos)
+                             (source-info     . ,source-info))
                            metadata-out)
              (close-output-port metadata-out))))
 
