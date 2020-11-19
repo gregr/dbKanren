@@ -675,3 +675,7 @@
   (cond (directory-path? (materialization/path   directory-path? kwargs))
         (source?         (materialization/source source?         kwargs))
         (else (error "missing relation path or source:" kwargs))))
+
+(define (plist->alist kvs) (if (null? kvs) '()
+                             (cons (cons (car kvs) (cadr kvs))
+                                   (plist->alist (cddr kvs)))))
