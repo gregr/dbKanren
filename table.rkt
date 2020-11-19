@@ -415,6 +415,7 @@
 
 (define (materialize-index-tables dpath source-fprefix name->type source-names
                                   index-descriptions)
+  (define threshold (current-config-ref 'progress-logging-threshold))
   (define index-ms
     (map (lambda (td)
            (define fprefix        (alist-ref td 'file-prefix))
@@ -430,10 +431,15 @@
                (key-name       . #f)
                (sorted-columns . ,sorted-columns))))
          index-descriptions))
+  (logf "Materializing ~s index table(s) from primary:\n" (length index-ms))
   (let/files ((in (value-table-file-name source-fprefix))) ()
     (define src (s-decode in (map name->type (cdr source-names))))
-    (s-each (lambda (x) (for-each (lambda (m) (m 'put x)) index-ms))
+    (s-each (lambda (x) (let ((count (car x)))
+                          (when (= 0 (remainder count threshold))
+                            (logf "ingested ~s rows\n" count))
+                          (for-each (lambda (m) (m 'put x)) index-ms)))
             (s-enumerate 0 src)))
+  (logf "Processing all rows\n")
   (map (lambda (m) (m 'close)) index-ms))
 
 (define (materializer kwargs)
