@@ -415,7 +415,7 @@
   (define index-ms
     (map (lambda (td)
            (define fprefix      (alist-ref td 'file-prefix))
-           (define column-names (alist-ref td 'columns))
+           (define column-names (alist-ref td 'column-names))
            (define column-types (map name->type column-names))
            (table-materializer
              `((source-names   . ,source-names)
@@ -442,14 +442,10 @@
   (define attribute-types    (alist-ref kwargs 'attribute-types
                                         (map (lambda (_) #f) attribute-names)))
   (define key                (alist-ref kwargs 'key-name #t))
-  (define index-descriptions
-    (map (lambda (itd)
-           (cons (cons 'columns (append (alist-ref itd 'columns) (list key)))
-                 (alist-remove itd 'columns)))
-         (alist-ref kwargs 'indexes '())))
+  (define index-descriptions (map (lambda (cols) (append cols (list key)))
+                                  (alist-ref kwargs 'indexes '())))
   (define table-descriptions
-    (append (alist-ref kwargs 'tables `(((columns . ,attribute-names))))
-            index-descriptions))
+    (append (alist-ref kwargs 'tables `(,attribute-names)) index-descriptions))
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
                           (error "duplicates:" as)))
   (unique?! attribute-names)
@@ -461,10 +457,7 @@
   (when (null? table-descriptions)
     (error "empty list of table descriptions for:" attribute-names))
   (define index-tds            (cdr table-descriptions))
-  (define primary-td           (car table-descriptions))
-  (define primary-column-names (alist-ref primary-td 'columns))
-  (define primary-column-types (map (lambda (n) (hash-ref name=>type n))
-                                    primary-column-names))
+  (define primary-column-names (car table-descriptions))
   (define primary-source-names (cons key primary-column-names))
   (unique?! primary-column-names)
   (when (member key primary-column-names)
@@ -473,6 +466,8 @@
     (error "primary columns must include all non-key attributes:"
            (set->list (set-remove (list->set attribute-names) key))
            (set->list (list->set primary-column-names))))
+  (define primary-column-types (map (lambda (n) (hash-ref name=>type n))
+                                    primary-column-names))
   (define path.dir (alist-ref kwargs 'path))
   (make-directory* path.dir)
   (define metadata-fname
@@ -503,7 +498,8 @@
              (define index-infos
                (materialize-index-tables
                  path.dir primary-fname name->type primary-source-names
-                 (map (lambda (fprefix td) `((file-prefix . ,fprefix) . ,td))
+                 (map (lambda (fprefix td) `((file-prefix . ,fprefix)
+                                             (column-names . ,td)))
                       index-fprefixes index-tds)))
              (pretty-write `((attribute-names . ,attribute-names)
                              (attribute-types . ,attribute-types)
@@ -543,20 +539,15 @@
         name=>type)))
   (define (name->type n) (hash-ref name=>type n))
   (define index-descriptions
-    (map (lambda (itd)
-           (cons (cons 'columns (append (alist-ref itd 'columns)
-                                        (list primary-key-name)))
-                 (alist-remove itd 'columns)))
+    (map (lambda (cols) (append cols (list primary-key-name)))
          (alist-ref kwargs 'indexes '())))
   (define table-descriptions
-    (append (alist-ref kwargs 'tables `(((columns . ,attribute-names))))
-            index-descriptions))
+    (append (alist-ref kwargs 'tables `(,attribute-names)) index-descriptions))
   (define index-tds (cdr table-descriptions))
   (define existing-index-column-names
     (list->set (map (lambda (ii) (alist-ref ii 'column-names)) index-infos)))
   (define new-index-tds
-    (filter (lambda (td) (not (set-member? existing-index-column-names
-                                           (alist-ref td 'columns))))
+    (filter (lambda (cs) (not (set-member? existing-index-column-names cs)))
             index-tds))
   (define index-fprefixes
     (map (lambda (i) (string-append "index." (number->string i)))
