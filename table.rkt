@@ -1,7 +1,8 @@
 #lang racket/base
-(provide materializer extend-materialization materialization
+(provide materialize-relation extend-materialization materialization
          vector-table? call/files let/files encoder s-encode s-decode)
-(require "codec.rkt" "config.rkt" "method.rkt" "order.rkt" "stream.rkt"
+(require "codec.rkt" "config.rkt" "dsv.rkt" "method.rkt" "order.rkt"
+         "stream.rkt"
          racket/file racket/function racket/list racket/match racket/pretty
          racket/set racket/vector)
 
@@ -679,3 +680,53 @@
 (define (plist->alist kvs) (if (null? kvs) '()
                              (cons (cons (car kvs) (cadr kvs))
                                    (plist->alist (cddr kvs)))))
+
+(define (materialize-relation . pargs)
+  (define kwargs    (plist->alist pargs))
+  (define path      (alist-ref kwargs 'path))
+  (define fn.in     (alist-ref kwargs 'source-file-path   #f))
+  (define format.in (alist-ref kwargs 'source-file-format #f))
+  (define header.in (alist-ref kwargs 'source-file-header '()))
+  (define transform (alist-ref kwargs 'transform          #f))
+  (define stream.in (alist-ref kwargs 'source-stream      #f))
+  (define threshold (current-config-ref 'progress-logging-threshold))
+  (define path.in   (and fn.in (current-config-relation-path fn.in)))
+  (define path.dir  (current-config-relation-path path))
+  (define path.log  (build-path path.dir "progress.log"))
+  (define format    (or format.in (path->format fn.in)))
+  (define header    (if (pair? header.in)
+                      (map (lambda (s) (if (symbol? s) (symbol->string s) s))
+                           header.in)
+                      header.in))
+  (define source-info
+    (cond (path.in   `((path       . ,fn.in)
+                       (format     . ,format)
+                       (header     . ,header)
+                       (stats      . ,(file-stats path.in))
+                       (transform? . ,(not (not transform)))))
+          (stream.in `((stream?    . #t)
+                       (transform? . ,(not (not transform)))))
+          (else (error "materialize-relation missing file or stream source:"
+                       kwargs))))
+  (define (materialize-stream source-info stream)
+    (let ((mat (materializer `((path        . ,path.dir)
+                               (source-info . ,source-info)
+                               . ,(alist-remove kwargs 'path)))))
+      (define count 0)
+      (time (s-each (lambda (x)
+                      (when (= 0 (remainder count threshold))
+                        (logf "ingested ~s rows\n" count))
+                      (mat 'put x)
+                      (set! count (+ count 1)))
+                    (if transform (s-map transform stream) stream)))
+      (logf "Processing ~s rows\n" count)
+      (time (mat 'close))
+      (logf "Finished processing ~s rows\n" count)))
+  (define (materialize-file)
+    (let/files ((in path.in)) ()
+      (logf/date "Materializing relation ~s from ~s file ~s\n"
+                 path format fn.in)
+      (define stream ((format->header/port->stream format) header in))
+      (materialize-stream source-info stream)))
+  (unless (directory-exists? path.dir)
+    (materialize-file)))
