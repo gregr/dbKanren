@@ -229,7 +229,7 @@
 (define metadata-file-name              "metadata.scm")
 
 (define (tabulator directory-path file-prefix
-                   column-names column-types key-name sorted-columns)
+                   column-names column-types key-name)
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
                           (error "duplicates:" as)))
   (unless (= (length column-names) (length column-types))
@@ -237,8 +237,6 @@
   (unique?! column-names)
   (when (member key-name column-names)
     (error "key name must be distinct:" key-name column-names))
-  (unless (subset? sorted-columns column-names)
-    (error "unknown sorted column names:" sorted-columns column-names))
   (define row-type column-types)  ;; TODO: possibly change this to tuple?
   (define row<     (compare-><? (type->compare row-type)))
   (define row-size (sizeof row-type (void)))
@@ -258,8 +256,7 @@
                (length         . ,item-count)
                (column-names   . ,column-names)
                (column-types   . ,column-types)
-               (key-name       . ,key-name)
-               (sorted-columns . ,sorted-columns)))))
+               (key-name       . ,key-name)))))
 
 (define (sorter dedup? value-file-name offset-file-name? type value<)
   (define fname-sort-value  (string-append value-file-name ".value.sort"))
@@ -406,9 +403,7 @@
   (define column-names   (alist-ref kwargs 'column-names))
   (define column-types   (alist-ref kwargs 'column-types))
   (define key-name       (alist-ref kwargs 'key-name #f))
-  (define sorted-columns (alist-ref kwargs 'sorted-columns '()))
-  (define t (tabulator path.dir fprefix column-names column-types
-                       key-name sorted-columns))
+  (define t (tabulator path.dir fprefix column-names column-types key-name))
   (define transform (list-arranger source-names column-names))
   (method-lambda
     ((put x) (t 'put (transform x)))
@@ -419,9 +414,8 @@
   (define threshold (current-config-ref 'progress-logging-threshold))
   (define index-ms
     (map (lambda (td)
-           (define fprefix        (alist-ref td 'file-prefix))
-           (define column-names   (alist-ref td 'columns))
-           (define sorted-columns (alist-ref td 'sorted '()))
+           (define fprefix      (alist-ref td 'file-prefix))
+           (define column-names (alist-ref td 'columns))
            (define column-types (map name->type column-names))
            (table-materializer
              `((source-names   . ,source-names)
@@ -429,8 +423,7 @@
                (file-prefix    . ,fprefix)
                (column-names   . ,column-names)
                (column-types   . ,column-types)
-               (key-name       . #f)
-               (sorted-columns . ,sorted-columns))))
+               (key-name       . #f))))
          index-descriptions))
   (logf "Materializing ~s index table(s) from primary:\n" (length index-ms))
   (let/files ((in (value-table-file-name source-fprefix))) ()
@@ -496,8 +489,7 @@
          (range (length index-tds))))
   (define metadata-out (open-output-file metadata-fname))
   (define primary-t (tabulator path.dir primary-fprefix
-                               primary-column-names primary-column-types
-                               key (cdr primary-td)))
+                               primary-column-names primary-column-types key))
   (method-lambda
     ((put x) (primary-t 'put x))
     ;; TODO: factor out index building to allow incrementally adding new ones
@@ -621,11 +613,10 @@
                        (map cons primary-source-names ss.sources)))
            (name->ss (lambda (n) (hash-ref name=>ss n))))
       (map (lambda (info)
-             (define key-name       (alist-ref info 'key-name #f))
-             (define sorted-columns (alist-ref info 'sorted-columns '()))
-             (define column-names   (alist-ref info 'column-names))
-             (define column-types   (map name->type column-names))
-             (define ss.columns     (map name->ss   column-names))
+             (define key-name     (alist-ref info 'key-name #f))
+             (define column-names (alist-ref info 'column-names))
+             (define column-types (map name->type column-names))
+             (define ss.columns   (map name->ss   column-names))
              (define index-src
                (cond (primary-key-name
                        (define transform
