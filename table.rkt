@@ -396,13 +396,8 @@
                    (match-define (list #,@ss.in) row)
                    (list #,@ss.out))))
 
-(define (table-materializer kwargs)
-  (define source-names   (alist-ref kwargs 'source-names))
-  (define path.dir       (alist-ref kwargs 'directory))
-  (define fprefix        (alist-ref kwargs 'file-prefix))
-  (define column-names   (alist-ref kwargs 'column-names))
-  (define column-types   (alist-ref kwargs 'column-types))
-  (define key-name       (alist-ref kwargs 'key-name #f))
+(define (table-materializer source-names path.dir fprefix
+                            column-names column-types key-name)
   (define t (tabulator path.dir fprefix column-names column-types key-name))
   (define transform (list-arranger source-names column-names))
   (method-lambda
@@ -417,13 +412,8 @@
            (define fprefix      (alist-ref td 'file-prefix))
            (define column-names (alist-ref td 'column-names))
            (define column-types (map name->type column-names))
-           (table-materializer
-             `((source-names   . ,source-names)
-               (directory      . ,path.dir)
-               (file-prefix    . ,fprefix)
-               (column-names   . ,column-names)
-               (column-types   . ,column-types)
-               (key-name       . #f))))
+           (table-materializer source-names path.dir fprefix
+                               column-names column-types #f))
          index-descriptions))
   (logf "Materializing ~s index table(s) from primary:\n" (length index-ms))
   (let/files ((in (value-table-file-name source-fprefix))) ()
@@ -436,16 +426,8 @@
   (logf "Processing all rows\n")
   (map (lambda (m) (m 'close)) index-ms))
 
-(define (materializer kwargs)
-  (define source-info        (alist-ref kwargs 'source-info))
-  (define attribute-names    (alist-ref kwargs 'attribute-names))
-  (define attribute-types    (alist-ref kwargs 'attribute-types
-                                        (map (lambda (_) #f) attribute-names)))
-  (define key                (alist-ref kwargs 'key-name #t))
-  (define index-descriptions (map (lambda (cols) (append cols (list key)))
-                                  (alist-ref kwargs 'indexes '())))
-  (define table-descriptions
-    (append (alist-ref kwargs 'tables `(,attribute-names)) index-descriptions))
+(define (materializer path.dir source-info attribute-names attribute-types key
+                      table-descriptions)
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
                           (error "duplicates:" as)))
   (unique?! attribute-names)
@@ -468,7 +450,6 @@
            (set->list (list->set primary-column-names))))
   (define primary-column-types (map (lambda (n) (hash-ref name=>type n))
                                     primary-column-names))
-  (define path.dir (alist-ref kwargs 'path))
   (make-directory* path.dir)
   (define metadata-fname
     (path->string (build-path path.dir metadata-file-name)))
@@ -514,18 +495,14 @@
   (when (eof-object? info) (error "corrupt relation metadata:" path))
   info)
 
-(define (extend-materialization kwargs)
+(define (extend-materialization path.dir attribute-names attribute-types
+                                primary-info index-infos table-descriptions)
   ;; TODO: validate existing relation against kwargs?
-  (define path.dir             (alist-ref kwargs 'path))
   (define path.metadata        (path->string
                                  (build-path path.dir metadata-file-name)))
   (define path.metadata.backup (string-append path.metadata ".backup"))
   (define info-alist           (read-metadata path.metadata))
   (define info                 (make-immutable-hash info-alist))
-  (define primary-info         (hash-ref info 'primary-table))
-  (define index-infos          (hash-ref info 'index-tables))
-  (define attribute-names      (hash-ref info 'attribute-names))
-  (define attribute-types      (hash-ref info 'attribute-types))
   (define primary-key-name     (alist-ref primary-info 'key-name))
   (define primary-column-names (alist-ref primary-info 'column-names))
   (define source-fprefix
@@ -538,11 +515,6 @@
       (if primary-key-name (hash-set name=>type primary-key-name key-type)
         name=>type)))
   (define (name->type n) (hash-ref name=>type n))
-  (define index-descriptions
-    (map (lambda (cols) (append cols (list primary-key-name)))
-         (alist-ref kwargs 'indexes '())))
-  (define table-descriptions
-    (append (alist-ref kwargs 'tables `(,attribute-names)) index-descriptions))
   (define index-tds (cdr table-descriptions))
   (define existing-index-column-names
     (list->set (map (lambda (ii) (alist-ref ii 'column-names)) index-infos)))
@@ -664,13 +636,21 @@
                                    (plist->alist (cddr kvs)))))
 
 (define (materialize-relation . pargs)
-  (define kwargs    (plist->alist pargs))
-  (define path      (alist-ref kwargs 'path))
-  (define fn.in     (alist-ref kwargs 'source-file-path   #f))
-  (define format.in (alist-ref kwargs 'source-file-format #f))
-  (define header.in (alist-ref kwargs 'source-file-header '()))
-  (define transform (alist-ref kwargs 'transform          #f))
-  (define stream.in (alist-ref kwargs 'source-stream      #f))
+  (define kwargs          (plist->alist pargs))
+  (define path            (alist-ref kwargs 'path))
+  (define fn.in           (alist-ref kwargs 'source-file-path   #f))
+  (define format.in       (alist-ref kwargs 'source-file-format #f))
+  (define header.in       (alist-ref kwargs 'source-file-header '()))
+  (define transform       (alist-ref kwargs 'transform          #f))
+  (define stream.in       (alist-ref kwargs 'source-stream      #f))
+  (define attribute-names (alist-ref kwargs 'attribute-names))
+  (define attribute-types (alist-ref kwargs 'attribute-types
+                                     (map (lambda (_) #f) attribute-names)))
+  (define key-name        (alist-ref kwargs 'key-name #t))
+  (define table-descriptions
+    (append (alist-ref kwargs 'tables `(,attribute-names))
+            (map (lambda (cols) (append cols (list key-name)))
+                 (alist-ref kwargs 'indexes '()))))
   (define threshold (current-config-ref 'progress-logging-threshold))
   (define path.in   (and fn.in (current-config-relation-path fn.in)))
   (define path.dir  (current-config-relation-path path))
@@ -691,9 +671,9 @@
           (else (error "materialize-relation missing file or stream source:"
                        kwargs))))
   (define (materialize-stream source-info stream)
-    (let ((mat (materializer `((path        . ,path.dir)
-                               (source-info . ,source-info)
-                               . ,(alist-remove kwargs 'path)))))
+    (let ((mat (materializer path.dir source-info
+                             attribute-names attribute-types key-name
+                             table-descriptions)))
       (define count 0)
       (time (s-each (lambda (x)
                       (when (= 0 (remainder count threshold))
