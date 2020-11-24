@@ -473,8 +473,7 @@
     ((close) (define primary-info (primary-t 'close))
              (define key-type (nat-type/max (alist-ref primary-info 'length)))
              (define name->type
-               (let ((name=>type (if key (hash-set name=>type key key-type)
-                                   name=>type)))
+               (let ((name=>type (hash-set name=>type key key-type)))
                  (lambda (n) (hash-ref name=>type n))))
              (define index-infos
                (materialize-index-tables
@@ -509,11 +508,9 @@
     (path->string (build-path path.dir (alist-ref primary-info 'file-prefix))))
   (define source-names (cons primary-key-name primary-column-names))
   (define key-type (nat-type/max (alist-ref primary-info 'length)))
-  (define name=>type
-    (let ((name=>type (make-immutable-hash
-                        (map cons attribute-names attribute-types))))
-      (if primary-key-name (hash-set name=>type primary-key-name key-type)
-        name=>type)))
+  (define name=>type (make-immutable-hash
+                       (cons (cons primary-key-name key-type)
+                             (map cons attribute-names attribute-types))))
   (define (name->type n) (hash-ref name=>type n))
   (define index-tds (cdr table-descriptions))
   (define existing-index-column-names
@@ -647,6 +644,7 @@
   (define attribute-types (alist-ref kwargs 'attribute-types
                                      (map (lambda (_) #f) attribute-names)))
   (define key-name        (alist-ref kwargs 'key-name #t))
+  (unless key-name (error "key-name cannot be #f:" kwargs))
   (define table-descriptions
     (append (alist-ref kwargs 'tables `(,attribute-names))
             (map (lambda (cols) (append cols (list key-name)))
