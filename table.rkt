@@ -719,20 +719,18 @@
                  ;; TODO: more general matching for table descriptions
                  (primary-table   ,primary-columns.new
                                   ,primary-columns.old)))))
+      (define update-policy  (current-config-ref 'update-policy))
+      (define cleanup-policy (current-config-ref 'cleanup-policy))
       (unless (or (null? stale-fields)
-                  (case (current-config-ref 'update-policy)
-                    ((interactive)
-                     (printf "Existing data for relation ~s is stale:\n" path)
-                     (pretty-write stale-fields)
-                     (printf "Update ~s? [y/n]: " path)
-                     (case (read)
-                       ((y Y yes Yes YES) #t)
-                       (else              #f)))
-                    ((always) #t)
-                    (else     #f)))
+                  (policy-allow?
+                    update-policy
+                    (lambda ()
+                      (printf "Existing data for relation ~s is stale:\n" path)
+                      (pretty-write stale-fields))
+                    "Update ~s?"
+                    (list path)))
         (error "Cannot rematerialize relation due to stale data:"
                path stale-fields))
-      (define cleanup-policy (current-config-ref 'cleanup-policy))
       (cond ((pair? stale-fields)
              (printf "Updating ~s\n" path)
              (define path.backup (string-append path.dir ".backup"))

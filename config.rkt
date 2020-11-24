@@ -1,7 +1,7 @@
 #lang racket/base
 (provide current-config config.default file->config current-config-ref
          current-config-relation-path config-ref config-set config-set/alist
-         logf logf/date)
+         policy-allow? logf logf/date)
 (require racket/date)
 
 (define config.default
@@ -47,6 +47,17 @@
   (define relation-root-path (current-config-ref 'relation-root-path))
   (if relation-root-path (path->string (build-path relation-root-path path))
     path))
+
+(define (policy-allow? policy describe prompt-message prompt-args)
+  (case policy
+    ((interactive)
+     (describe)
+     (apply printf (string-append prompt-message " [y/n]: ") prompt-args)
+     (case (read)
+       ((y Y yes Yes YES) #t)
+       (else              #f)))
+    ((always) #t)
+    (else     #f)))
 
 (define (pad2 n) (let ((s (number->string n)))
                    (if (<= 2 (string-length s)) s
