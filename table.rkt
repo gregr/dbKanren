@@ -457,11 +457,6 @@
     (path->string (build-path path.dir metadata-file-name)))
   (define primary-fprefix "primary")
   (define primary-fname (path->string (build-path path.dir primary-fprefix)))
-  ;; TODO: caller should decide whether to materialize a fresh relation, or
-  ;; to materialize additional indexes for an existing relation.
-  ;; * check directory for available fprefixes
-  ;; * also, check metadata to see which index descriptions have already
-  ;;   been satisfied, and which need to be added
   (define index-fprefixes
     (map (lambda (i) (string-append "index." (number->string i)))
          (range (length index-tds))))
@@ -470,8 +465,6 @@
                                primary-column-names primary-column-types key))
   (method-lambda
     ((put x) (primary-t 'put x))
-    ;; TODO: factor out index building to allow incrementally adding new ones
-    ;; (incremental builds need to be initiated by caller, not here)
     ((close) (define primary-info (primary-t 'close))
              (define key-type (nat-type/max (alist-ref primary-info 'length)))
              (define name->type
@@ -738,7 +731,6 @@
                `((source-info     ,source-info     ,source-info.old)
                  (attribute-types ,attribute-types ,attribute-types.old)
                  (key-name        ,key-name        ,key-name.old)
-                 ;; TODO: more general matching for table descriptions
                  (primary-table   ,primary-columns.new
                                   ,primary-columns.old)))))
       (define update-policy  (current-config-ref 'update-policy))

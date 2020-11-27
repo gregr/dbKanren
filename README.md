@@ -12,20 +12,6 @@ Typical use:
 
 ## TODO
 
-* dynamically-scoped config system (use parameters) to provide defaults
-  * logging (levels, output locations, and verbosity (what also gets printed))
-    * e.g., warnings, materialization progress
-  * error-handling mechanism (halt, warn/log, or interact)
-    * e.g., materialized relation already exists
-  * buffer-size for sorter
-  * base-path for storage
-  * background worker threads/places for materialization
-  * mk search strategy
-  * metadata.scm protocol versioning for automatic update/migration
-  * data staleness detection
-    * timestamps for source data (file modification) and materialization time
-    * interactive prompting for whether to update
-
 * `state-pending-run` before splitting search on any disj
   * instead, maybe even go so far as to `state-enumerate` before?
 
@@ -71,6 +57,14 @@ Typical use:
 * floating point numbers are not valid terms
   * reordering operations endangers soundness
   * detect float literals when doing so won't hurt performance
+
+* parameterized dryrun blocks
+  * dryrun uses of materialize-relation only describe hypothetical actions
+* tee/piping output logs to file
+* background worker threads/places for materialization
+* metadata.scm protocol versioning for automatic update/migration
+
+* small tsv data example for testing materialization
 
 
 ### Data processing
