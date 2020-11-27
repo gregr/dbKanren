@@ -416,6 +416,8 @@
                                column-names column-types #f))
          index-descriptions))
   (logf "Materializing ~s index table(s) from primary:\n" (length index-ms))
+  (for-each (lambda (td) (pretty-write (alist-ref td 'column-names)))
+            index-descriptions)
   (let/files ((in (value-table-file-name source-fprefix))) ()
     (define src (s-decode in (map name->type (cdr source-names))))
     (s-each (lambda (x) (let ((count (car x)))
@@ -746,7 +748,7 @@
                     update-policy
                     (lambda ()
                       (printf "Existing data for relation ~s is stale:\n" path)
-                      (pretty-write stale-fields))
+                      (for-each pretty-write stale-fields))
                     "Update ~s?"
                     (list path)))
         (error "Cannot rematerialize relation due to stale data:"
