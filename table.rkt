@@ -1,5 +1,5 @@
 #lang racket/base
-(provide materialize-relation extend-materialization materialization
+(provide materialize-relation materialization
          vector-table? call/files let/files encoder s-encode s-decode)
 (require "codec.rkt" "config.rkt" "dsv.rkt" "method.rkt" "order.rkt"
          "stream.rkt"
@@ -494,14 +494,15 @@
   (when (eof-object? info) (error "corrupt relation metadata:" path))
   info)
 
-(define (extend-materialization path.dir attribute-names attribute-types
-                                primary-info index-infos table-descriptions)
-  ;; TODO: validate existing relation against kwargs?
+(define (update-materialization path.dir info tables.added tables.removed)
   (define path.metadata        (path->string
                                  (build-path path.dir metadata-file-name)))
   (define path.metadata.backup (string-append path.metadata ".backup"))
-  (define info-alist           (read-metadata path.metadata))
-  (define info                 (make-immutable-hash info-alist))
+  (define attribute-names      (alist-ref info 'attribute-names))
+  (define attribute-types      (alist-ref info 'attribute-types))
+  (define source-info          (alist-ref info 'source-info))
+  (define primary-info         (alist-ref info 'primary-table))
+  (define index-infos          (alist-ref info 'index-tables))
   (define primary-key-name     (alist-ref primary-info 'key-name))
   (define primary-column-names (alist-ref primary-info 'column-names))
   (define source-fprefix
@@ -512,27 +513,48 @@
                        (cons (cons primary-key-name key-type)
                              (map cons attribute-names attribute-types))))
   (define (name->type n) (hash-ref name=>type n))
-  (define index-tds (cdr table-descriptions))
-  (define existing-index-column-names
-    (list->set (map (lambda (ii) (alist-ref ii 'column-names)) index-infos)))
-  (define new-index-tds
-    (filter (lambda (cs) (not (set-member? existing-index-column-names cs)))
-            index-tds))
-  (define index-fprefixes
-    (map (lambda (i) (string-append "index." (number->string i)))
-         (range    (length index-infos)
-                   (+ (length index-infos) (length new-index-tds)))))
-  (define new-index-infos
-    (materialize-index-tables
-      path.dir source-fprefix name->type source-names
-      (map (lambda (fprefix td) `((file-prefix . ,fprefix) . ,td))
-           index-fprefixes new-index-tds)))
-  (rename-file-or-directory path.metadata path.metadata.backup #t)
+  (define cols=>info
+    (make-immutable-hash
+      (map (lambda (info.it) (cons (alist-ref info.it 'column-names) info.it))
+           (alist-ref info 'index-tables))))
+  (define index-infos.current
+    (hash-values (foldl (lambda (cols c=>i) (hash-remove c=>i cols))
+                        cols=>info tables.removed)))
+  (rename-file-or-directory path.metadata path.metadata.backup)
+  (for-each
+    (lambda (cols)
+      (define info    (hash-ref cols=>info cols))
+      (define fprefix (alist-ref info 'file-prefix))
+      (define fname.v
+        (path->string (build-path path.dir (value-table-file-name  fprefix))))
+      (define fname.o
+        (path->string (build-path path.dir (offset-table-file-name fprefix))))
+      (logf "Deleting ~s\n" fname.v)
+      (delete-file fname.v)
+      (when (alist-ref info 'offset-file)
+        (logf "Deleting ~s\n" fname.o)
+        (delete-file fname.o)))
+    tables.removed)
+  (define index-descriptions.added
+    (let loop ((colss tables.added) (i 0))
+      (if (null? colss) '()
+        (let ((fprefix (string-append "index." (number->string i))))
+          (if (file-exists?
+                (build-path path.dir (value-table-file-name fprefix)))
+            (loop colss (+ i 1))
+            (cons `((file-prefix  . ,fprefix) (column-names . ,(car colss)))
+                  (loop (cdr colss) (+ i 1))))))))
+  (define index-infos.new
+    (if (null? index-descriptions.added) '()
+      (materialize-index-tables path.dir source-fprefix name->type source-names
+                                index-descriptions.added)))
   (let/files () ((metadata-out path.metadata))
     (pretty-write `((attribute-names . ,attribute-names)
                     (attribute-types . ,attribute-types)
                     (primary-table   . ,primary-info)
-                    (index-tables    . ,(append index-infos new-index-infos)))
+                    (index-tables    . ,(append index-infos.current
+                                                index-infos.new))
+                    (source-info     . ,source-info))
                   metadata-out))
   (delete-file path.metadata.backup))
 
