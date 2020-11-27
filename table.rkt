@@ -772,5 +772,38 @@
                  (begin (printf "Deleting ~s\n" path.backup)
                         (delete-directory/files path.backup #:must-exist? #f))
                  (printf "Not deleting ~s\n" path.backup))))
-            (else (printf "TODO: add/remove index tables ~s\n" path))))
+            (else
+              (define colss.current
+                (map (lambda (info.it) (alist-ref info.it 'column-names))
+                     (alist-ref info 'index-tables)))
+              (define colss.new (cdr table-descriptions))
+              (define (cols-current? cols) (member cols colss.current))
+              (define (cols-new?     cols) (member cols colss.new))
+              (define added   (filter-not cols-current? colss.new))
+              (define removed (filter-not cols-new?     colss.current))
+              (define add?
+                (and (pair? added)
+                     (policy-allow?
+                       update-policy
+                       (lambda ()
+                         (printf "New index tables included for relation ~s:\n"
+                                 path)
+                         (for-each pretty-write added))
+                       "Add these new index tables to ~s?"
+                       (list path))))
+              (define remove?
+                (and (pair? removed)
+                     (policy-allow?
+                       cleanup-policy
+                       (lambda ()
+                         (printf
+                           "Index tables no longer included for relation ~s:\n"
+                           path)
+                         (for-each pretty-write removed))
+                       "Remove these old index tables from ~s?"
+                       (list path))))
+              (when (or add? remove?)
+                (update-materialization path.dir info
+                                        (if add?    added   '())
+                                        (if remove? removed '()))))))
     (materialize-file)))
