@@ -105,12 +105,12 @@
 
 (define-materialized-relation
   tripleo
-  `((attribute-names i x y z)
-    (primary-table (key-name . i)
-                   (column-names x y z))
-    (source . ,(vector #(a b c)
-                       #(d e f)
-                       #(g h i)))))
+  'attribute-names '(i x y z)
+  'primary-table   '((key-name . i)
+                     (column-names x y z))
+  'source          (vector #(a b c)
+                           #(d e f)
+                           #(g h i)))
 
 (test 'tripleo.all
   (run* (i x y z) (tripleo i x y z))
@@ -174,23 +174,23 @@
 
 (define-materialized-relation
   triple2o
-  `((attribute-names x y z)
-    (primary-table (key-name . #t)
-                   (column-names y z x))
-    (index-tables ((column-names x #t)))
-    (source . ,(vector #(a b  0)
-                       #(a b  1)
-                       #(a b  2)
-                       #(a b  3)
-                       #(a c  4)
-                       #(a c  5)
-                       #(a c  6)
-                       #(b a  7)
-                       #(b d  8)
-                       #(b f  9)
-                       #(b q 10)
-                       #(c a 11)
-                       #(c d 12)))))
+  'attribute-names '(x y z)
+  'primary-table   '((key-name . #t)
+                     (column-names y z x))
+  'index-tables    '(((column-names x #t)))
+  'source          (vector #(a b  0)
+                           #(a b  1)
+                           #(a b  2)
+                           #(a b  3)
+                           #(a c  4)
+                           #(a c  5)
+                           #(a c  6)
+                           #(b a  7)
+                           #(b d  8)
+                           #(b f  9)
+                           #(b q 10)
+                           #(c a 11)
+                           #(c d 12)))
 
 (test 'triple2o.all
   (run* (x y z) (triple2o x y z))
@@ -570,12 +570,11 @@
 (define intersected-tables
   (map (lambda (i v)
          (materialized-relation
-           `((relation-name
-               . ,(string->symbol (format "intersected-table.~v" i)))
-             (attribute-names i n m x)
-             (primary-table (key-name . i)
-                            (column-names n m x))
-             (source . ,v))))
+           'relation-name   (string->symbol (format "intersected-table.~v" i))
+           'attribute-names '(i n m x)
+           'primary-table   '((key-name . i)
+                              (column-names n m x))
+           'source          v))
        (range (length intersected-vectors))
        intersected-vectors))
 
