@@ -555,34 +555,36 @@
   (delete-file path.metadata.backup))
 
 (define (materialization/vector vector.in kwargs)
-  (define info             (make-immutable-hash kwargs))
-  (define name             (hash-ref info 'relation-name))
-  (define sort?            (hash-ref info 'sort?  #t))
-  (define dedup?           (hash-ref info 'dedup? #t))
-  (define attribute-names  (hash-ref info 'attribute-names))
-  (define attribute-types  (hash-ref info 'attribute-types
-                                     (map (lambda (_) #f) attribute-names)))
-  (define primary-key-name (hash-ref info 'key-name #t))
+  (define info            (make-immutable-hash kwargs))
+  (define name            (hash-ref info 'relation-name))
+  (define sort?           (hash-ref info 'sort?  #t))
+  (define dedup?          (hash-ref info 'dedup? #t))
+  (define key             (hash-ref info 'key-name #t))
+  (define attribute-names (hash-ref info 'attribute-names))
+  (define attribute-types (hash-ref info 'attribute-types
+                                    (map (lambda (n)
+                                           (if (equal? n key) 'nat #f))
+                                         attribute-names)))
   (define table-descriptions
-    (append (hash-ref info 'tables `(,attribute-names))
-            (map (lambda (cols) (append cols (list primary-key-name)))
+    (append (hash-ref info 'tables `(,(remove key attribute-names)))
+            (map (lambda (cols) (append cols (list key)))
                  (hash-ref info 'indexes '()))))
   (define name=>type.0 (make-immutable-hash
                          (map cons attribute-names attribute-types)))
-  (let ((kt (hash-ref name=>type.0 primary-key-name 'nat)))
+  (let ((kt (hash-ref name=>type.0 key 'nat)))
     (unless (or (not kt) (eq? kt 'nat)
                 (and (vector? kt) (eq? (vector-ref kt 0) 'nat)))
       (error "invalid key type:" kt kwargs)))
-  (define name=>type (hash-set name=>type.0 primary-key-name 'nat))
+  (define name=>type (hash-set name=>type.0 key 'nat))
   (define (name->type n) (hash-ref name=>type n))
   (define primary-column-names (car table-descriptions))
   (define primary-column-types (map name->type primary-column-names))
-  (define primary-source-names (cons primary-key-name primary-column-names))
+  (define primary-source-names (cons key primary-column-names))
   (unless (vector? vector.in)
     (error "invalid source vector:" kwargs vector.in))
   (when sort? (vector-table-sort! primary-column-types vector.in))
   (define primary-v (if dedup? (vector-dedup vector.in) vector.in))
-  (define primary-t (table/vector primary-key-name primary-column-names
+  (define primary-t (table/vector key primary-column-names
                                   primary-column-types primary-v))
   (define index-ts
     (let* ((ss.sources (generate-temporaries primary-source-names))
@@ -607,7 +609,7 @@
              (table/vector #f column-names column-types
                            (vector-dedup index-src)))
            (cdr table-descriptions))))
-  (list name attribute-names primary-key-name (cons primary-t index-ts)))
+  (list name attribute-names key (cons primary-t index-ts)))
 
 (define (materialization/path directory-path kwargs)
   (define name           (alist-ref kwargs 'relation-name))

@@ -107,7 +107,6 @@
   tripleo
   'attribute-names '(i x y z)
   'key-name        'i
-  'tables          '((x y z))
   'source-vector   (vector #(a b c)
                            #(d e f)
                            #(g h i)))
@@ -572,7 +571,6 @@
            'relation-name   (string->symbol (format "intersected-table.~v" i))
            'attribute-names '(i n m x)
            'key-name        'i
-           'tables          '((n m x))
            'source-vector   v))
        (range (length intersected-vectors))
        intersected-vectors))
