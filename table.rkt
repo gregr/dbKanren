@@ -429,6 +429,11 @@
   (logf "Processing all rows\n")
   (map (lambda (m) (time (m 'close))) index-ms))
 
+(define (valid-key-type? t)
+  (match t
+    ((or #f 'nat 'number `#(nat ,_)) #t)
+    (_                               #f)))
+
 (define (materializer path.dir source-info attribute-names attribute-types key
                       table-descriptions)
   (define (unique?! as) (unless (= (length (remove-duplicates as)) (length as))
@@ -453,6 +458,8 @@
            (set->list (list->set primary-column-names))))
   (define primary-column-types (map (lambda (n) (hash-ref name=>type n))
                                     primary-column-names))
+  (unless (valid-key-type? (hash-ref name=>type key #f))
+    (error "invalid key type:" (hash-ref name=>type key #f) key))
   (make-directory* path.dir)
   (define metadata-fname
     (path->string (build-path path.dir metadata-file-name)))
@@ -571,10 +578,8 @@
                  (hash-ref info 'indexes '()))))
   (define name=>type.0 (make-immutable-hash
                          (map cons attribute-names attribute-types)))
-  (let ((kt (hash-ref name=>type.0 key 'nat)))
-    (unless (or (not kt) (eq? kt 'nat)
-                (and (vector? kt) (eq? (vector-ref kt 0) 'nat)))
-      (error "invalid key type:" kt kwargs)))
+  (unless (valid-key-type? (hash-ref name=>type.0 key 'nat))
+    (error "invalid key type:" (hash-ref name=>type.0 key 'nat) kwargs))
   (define name=>type (hash-set name=>type.0 key 'nat))
   (define (name->type n) (hash-ref name=>type n))
   (define primary-column-names (car table-descriptions))
@@ -645,21 +650,23 @@
 (define (materialize-relation . pargs)
   (define kwargs          (plist->alist pargs))
   (define path            (alist-ref kwargs 'path))
+  (define key-name        (alist-ref kwargs 'key-name #t))
   (define attribute-names (alist-ref kwargs 'attribute-names))
   (define attribute-types (alist-ref kwargs 'attribute-types
-                                     (map (lambda (_) #f) attribute-names)))
-  (define key-name        (alist-ref kwargs 'key-name #t))
+                                     (map (lambda (n)
+                                            (if (equal? n key-name) 'nat #f))
+                                          attribute-names)))
   (define fn.in           (alist-ref kwargs 'source-file-path    #f))
   (define format.in       (alist-ref kwargs 'source-file-format  #f))
   (define header.in       (alist-ref kwargs 'source-file-header  '()))
   (define names.in        (alist-ref kwargs 'source-file-columns
-                                     attribute-names))
+                                     (remove key-name attribute-names)))
   (define stream.in       (alist-ref kwargs 'source-stream       #f))
   (define transform       (alist-ref kwargs 'transform           #f))
   (define filter?         (alist-ref kwargs 'filter              #f))
   (unless key-name (error "key-name cannot be #f:" kwargs))
   (define table-descriptions
-    (append (alist-ref kwargs 'tables `(,attribute-names))
+    (append (alist-ref kwargs 'tables `(,(remove key-name attribute-names)))
             (map (lambda (cols) (append cols (list key-name)))
                  (alist-ref kwargs 'indexes '()))))
   (define threshold (current-config-ref 'progress-logging-threshold))
