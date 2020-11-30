@@ -620,6 +620,8 @@
   (define name           (alist-ref kwargs 'relation-name))
   (define retrieval-type (alist-ref kwargs 'retrieval-type 'disk))
   (define path.dir       (current-config-relation-path directory-path))
+  (unless (directory-exists? path.dir)
+    (error "materialized relation directory does not exist:" path.dir))
   (define path.metadata  (path->string
                            (build-path path.dir metadata-file-name)))
   (define info           (make-immutable-hash (read-metadata path.metadata)))
@@ -640,7 +642,11 @@
   (define kwargs          (plist->alist pargs))
   (define directory-path? (alist-ref kwargs 'path          #f))
   (define source-vector?  (alist-ref kwargs 'source-vector #f))
-  (cond (directory-path? (materialization/path   directory-path? kwargs))
+  (cond (directory-path?
+          (when (or (alist-ref kwargs 'source-file-path #f)
+                    (alist-ref kwargs 'source-stream    #f))
+            (apply materialize-relation pargs))
+          (materialization/path directory-path? kwargs))
         (source-vector?  (materialization/vector source-vector?  kwargs))
         (else (error "missing relation path or source:" kwargs))))
 
