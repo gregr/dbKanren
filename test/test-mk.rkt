@@ -106,9 +106,9 @@
 (define-materialized-relation
   tripleo
   'attribute-names '(i x y z)
-  'primary-table   '((key-name . i)
-                     (column-names x y z))
-  'source          (vector #(a b c)
+  'key-name        'i
+  'tables          '((x y z))
+  'source-vector   (vector #(a b c)
                            #(d e f)
                            #(g h i)))
 
@@ -175,10 +175,9 @@
 (define-materialized-relation
   triple2o
   'attribute-names '(x y z)
-  'primary-table   '((key-name . #t)
-                     (column-names y z x))
-  'index-tables    '(((column-names x #t)))
-  'source          (vector #(a b  0)
+  'tables          '((y z x))
+  'indexes         '((x))
+  'source-vector   (vector #(a b  0)
                            #(a b  1)
                            #(a b  2)
                            #(a b  3)
@@ -572,9 +571,9 @@
          (materialized-relation
            'relation-name   (string->symbol (format "intersected-table.~v" i))
            'attribute-names '(i n m x)
-           'primary-table   '((key-name . i)
-                              (column-names n m x))
-           'source          v))
+           'key-name        'i
+           'tables          '((n m x))
+           'source-vector   v))
        (range (length intersected-vectors))
        intersected-vectors))
 

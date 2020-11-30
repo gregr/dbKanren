@@ -940,13 +940,9 @@
 (define ((dfs:==/use u k)  st) (dfs:return k (use st u)))
 (define ((dfs:=/= t1 t2 k) st) (dfs:return k (disunify st t1 t2)))
 
-(define (plist->alist kvs) (if (null? kvs) '()
-                             (cons (cons (car kvs) (cadr kvs))
-                                   (plist->alist (cddr kvs)))))
-
 (define (materialized-relation . pargs)
   (match-define (list name attribute-names primary-key-name ts)
-    (materialization (plist->alist pargs)))
+    (apply materialization pargs))
   (relation/tables name attribute-names primary-key-name ts))
 
 (define-syntax define-materialized-relation
