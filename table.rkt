@@ -693,7 +693,7 @@
                        (stats     . ,(file-stats path.in))
                        (transform . ,(code->info transform-code))
                        (filter    . ,(code->info filter-code))))
-          (stream.in `((stream    . ,(code->info #t))  ;; TODO:
+          (stream.in `((stream    . ,(code->info stream.in))
                        (transform . ,(code->info transform-code))
                        (filter    . ,(code->info filter-code))))
           (else (error "materialize-relation missing file or stream source:"
@@ -716,12 +716,15 @@
       (logf "Processing ~s rows\n" count)
       (time (mat 'close))
       (logf "Finished processing ~s rows\n" count)))
-  (define (materialize-file)
-    (let/files ((in path.in)) ()
-      (logf/date "Materializing relation ~s from ~s file ~s\n"
-                 path format fn.in)
-      (define stream ((format->header/port->stream format) header in))
-      (materialize-stream source-info stream)))
+  (define (materialize-source)
+    (if path.in
+      (let/files ((in path.in)) ()
+        (logf/date "Materializing relation ~s from ~s file ~s\n"
+                   path format fn.in)
+        (define stream ((format->header/port->stream format) header in))
+        (materialize-stream source-info stream))
+      (begin (logf/date "Materializing relation ~s from stream\n" path)
+             (materialize-stream source-info (code->value stream.in)))))
 
   (if (directory-exists? path.dir)
     (let* ((path.metadata       (path->string
@@ -768,7 +771,7 @@
              (when (directory-exists? path.backup)
                (error "backup path already exists:" path.backup))
              (rename-file-or-directory path.dir path.backup)
-             (materialize-file)
+             (materialize-source)
              (printf "Rematerialization of ~s finished\n" path)
              (when (directory-exists? path.backup)
                (if (or (equal? cleanup-policy 'always)
@@ -815,4 +818,4 @@
                 (update-materialization path.dir info
                                         (if add?    added   '())
                                         (if remove? removed '()))))))
-    (materialize-file)))
+    (materialize-source)))
