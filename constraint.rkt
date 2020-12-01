@@ -765,7 +765,7 @@
            (define name (string->symbol
                           (string-append (symbol->string relation-name) "."
                                          (number->string i))))
-           (relation/table name t))
+           (and t (relation/table name t)))
          (range (length ts)) ts))
   (define (expand . args)
     (unless (= (length attribute-names) (length args))
@@ -774,13 +774,13 @@
     (define attr=>arg
       (if (member primary-key-name attribute-names) attr=>arg.0
         (hash-set attr=>arg.0 primary-key-name (var primary-key-name))))
-    (apply conj*
-           (map (lambda (r t)
-                  (relate r (map (lambda (c)
-                                   (define arg (hash-ref attr=>arg c (void)))
-                                   (if (void? arg) (var '_) arg))
-                                 (t 'columns))))
-                rs ts)))
+    (define (t->args t)
+      (map (lambda (c)
+             (define arg (hash-ref attr=>arg c (void)))
+             (if (void? arg) (var '_) arg))
+           (t 'columns)))
+    (apply conj* (map (lambda (r t) (if r (relate r (t->args t)) (== #f #t)))
+                      rs ts)))
   (relations-set! r 'expand expand)
   r)
 

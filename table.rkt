@@ -104,7 +104,8 @@
   (define (ref i)
     (file-position in (table-ref table.offsets #t i 'offset))
     (decode in type))
-  (table ref key-col cols types (table-length table.offsets #t)))
+  (and table.offsets
+       (table ref key-col cols types (table-length table.offsets #t))))
 
 (define (table/bytes/offsets table.offsets key-col cols types bs)
   (define in (open-input-bytes bs))
@@ -173,29 +174,27 @@
     (unless (set=? fstat.offset (hash-ref info 'offset-file))
       (error "offset file stats do not match metadata:" fname.offset
              'file: fstat.offset 'metadata: (hash-ref info 'offset-file))))
-  (define t.value
-    (case retrieval-type
-      ((disk) (define in.value (open-input-file fname.value))
-              (if offset-type
-                (table/port/offsets
-                  (table/port len #t '(offset) `(,offset-type)
-                              (open-input-file fname.offset))
-                  key-name column-names column-types in.value)
-                (table/port len key-name column-names column-types in.value)))
-      ((bytes) (define bs.value (file->bytes2 fname.value))
-               (if offset-type
-                 (table/bytes/offsets
-                   (table/bytes #t '(offset) `(,offset-type)
-                                (file->bytes2 fname.offset))
-                   key-name column-names column-types bs.value)
-                 (table/bytes key-name column-names column-types bs.value)))
-      ((scm) (let/files ((in.value fname.value)) ()
-               (table/vector
-                 key-name column-names column-types
-                 (list->vector
-                   (s-take #f (s-decode in.value `#(tuple ,@column-types)))))))
-      (else (error "unknown retrieval type:" retrieval-type))))
-  t.value)
+  (case retrieval-type
+    ((disk) (define in.value (open-input-file fname.value))
+            (if offset-type
+              (table/port/offsets
+                (table/port len #t '(offset) `(,offset-type)
+                            (open-input-file fname.offset))
+                key-name column-names column-types in.value)
+              (table/port len key-name column-names column-types in.value)))
+    ((bytes) (define bs.value (file->bytes2 fname.value))
+             (if offset-type
+               (table/bytes/offsets
+                 (table/bytes #t '(offset) `(,offset-type)
+                              (file->bytes2 fname.offset))
+                 key-name column-names column-types bs.value)
+               (table/bytes key-name column-names column-types bs.value)))
+    ((scm) (let/files ((in.value fname.value)) ()
+             (table/vector
+               key-name column-names column-types
+               (list->vector
+                 (s-take #f (s-decode in.value `#(tuple ,@column-types)))))))
+    (else (error "unknown retrieval type:" retrieval-type))))
 
 (define (bisect start end i<)
   (let loop ((start start) (end end))
@@ -625,14 +624,13 @@
   (define path.metadata  (path->string
                            (build-path path.dir metadata-file-name)))
   (define info           (make-immutable-hash (read-metadata path.metadata)))
-  (define attribute-names      (hash-ref info 'attribute-names))
-  (define attribute-types      (hash-ref info 'attribute-types))
-  (define primary-info-alist   (hash-ref info 'primary-table))
-  (define primary-info         (make-immutable-hash primary-info-alist))
-  (define primary-t            (table/metadata
-                                 retrieval-type path.dir primary-info-alist))
-  (define primary-key-name     (hash-ref primary-info 'key-name))
-  (define primary-column-names (primary-t 'columns))
+  (define attribute-names    (hash-ref info 'attribute-names))
+  (define attribute-types    (hash-ref info 'attribute-types))
+  (define primary-info-alist (hash-ref info 'primary-table))
+  (define primary-info       (make-immutable-hash primary-info-alist))
+  (define primary-t          (table/metadata
+                               retrieval-type path.dir primary-info-alist))
+  (define primary-key-name   (hash-ref primary-info 'key-name))
   (define index-ts
     (map (lambda (info) (table/metadata retrieval-type path.dir info))
          (hash-ref info 'index-tables '())))
