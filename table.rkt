@@ -29,9 +29,8 @@
   (call/files (list fin ...) (list fout ...)
               (lambda (in ... out ...) body ...)))
 
-;; TODO: multiple accessible columns, and order of revealing, expressed by dependency chains
-;; TODO: support multiple sorted columns
-;;       (wait until column-oriented tables are implemented for simplicity)
+;; TODO: support multiple sorted columns using tables that share key columns
+;;       (wait until column-oriented tables are implemented for simplicity?)
 
 (define (table vref key-col cols.all types row-count)
   (let table ((cols  cols.all)
@@ -111,7 +110,6 @@
   (define in (open-input-bytes bs))
   (table/port/offsets table.offsets key-col cols types in))
 
-;; TODO: table/file that does len calculation via file-size?
 (define (table/port len key-col cols types in)
   (define type `#(tuple ,@types))
   (define width (sizeof type (void)))
@@ -237,7 +235,7 @@
   (unique?! column-names)
   (when (member key-name column-names)
     (error "key name must be distinct:" key-name column-names))
-  (define row-type column-types)  ;; TODO: possibly change this to tuple?
+  (define row-type column-types)
   (define row<     (compare-><? (type->compare row-type)))
   (define row-size (sizeof row-type (void)))
   (define path-prefix (path->string (build-path directory-path file-prefix)))
@@ -319,7 +317,6 @@
                       (vector (+ item-count i) (+ chunk-count 1) #f))
                      (else (vector i 0 v)))))))
 
-;; TODO: separate chunk streaming from merging
 (define (multi-merge
           dedup? out out-offset type otype v< chunk-count in in-offset)
   (define (s< sa sb) (v< (car sa) (car sb)))

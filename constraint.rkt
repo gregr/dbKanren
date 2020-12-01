@@ -8,13 +8,9 @@
 ;; TODO:
 
 ;; implementation phases:
-;;   pre-minimal implementation:
-;;     ==: values as constraints
-;;     =/=: =/=.atom, =/=.rhs, =/=*, optional subsumption checking
-;;   minimal implementation must support:
-;;     tables: ub, lb, lb-inclusive? ub-inclusive?, table-domains table-arcs
-;;       also, subsumption and functional dependencies
 ;;   extended implementations may support:
+;;     subsumption and functional dependencies
+;;     =/=: =/=.atom, =/=.rhs, =/=* using disjunction constraints
 ;;     recursions and disjunctions as constraints: can replace =/=*
 ;;       recursion approximations
 ;;       watching 2 disjunction branches
@@ -810,7 +806,7 @@
 ;; * uniqueness (functional dependency to full set of of attributes)
 
 ;; example degree constraints
-;; TODO: are range lower bounds useful?
+;; TODO: are range lower bounds useful? probably not
 ;'#(1 1 #(w x y z) #(pos))
 ;'#(1 1 #(x y z)   #(pos))  ;; even after truncating w, there are no duplicates
 

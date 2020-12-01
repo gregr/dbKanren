@@ -82,3 +82,13 @@
   (define d (current-date))
   (define stamp (list (date-hour d) (date-minute d) (date-second d)))
   (apply printf msg (append (map pad2 stamp) args)))
+
+;; TODO: job system
+;; single worker thread
+;; jobs w/ independent loggers (port, file, in-memory, or null)
+
+;(define (thread/wait proc)
+;  (define t (thread proc))
+;  (plumber-add-flush! (current-plumber)
+;                      (lambda (h) (thread-wait t)))
+;  t)
