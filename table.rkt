@@ -758,17 +758,15 @@
                                   ,primary-columns.old)))))
       (define update-policy  (current-config-ref 'update-policy))
       (define cleanup-policy (current-config-ref 'cleanup-policy))
-      (unless (or (null? stale-fields)
-                  (policy-allow?
-                    update-policy
-                    (lambda ()
-                      (printf "Existing data for relation ~s is stale:\n" path)
-                      (for-each pretty-write stale-fields))
-                    "Update ~s?"
-                    (list path)))
-        (error "Cannot rematerialize relation due to stale data:"
-               path stale-fields))
-      (cond ((pair? stale-fields)
+      (define allow-update?
+        (or (null? stale-fields)
+            (policy-allow?
+              update-policy
+              (lambda ()
+                (printf "Existing data for relation ~s is stale:\n" path)
+                (for-each pretty-write stale-fields))
+              "Update ~s?" (list path))))
+      (cond ((and (pair? stale-fields) allow-update?)
              (printf "Updating ~s\n" path)
              (define path.backup (string-append path.dir ".backup"))
              (when (directory-exists? path.backup)
@@ -787,6 +785,8 @@
                  (begin (printf "Deleting ~s\n" path.backup)
                         (delete-directory/files path.backup #:must-exist? #f))
                  (printf "Not deleting ~s\n" path.backup))))
+            ((not allow-update?)
+             (printf "Due to stale data, will not rematerialize ~s\n" path))
             (else
               (define colss.current
                 (map (lambda (info.it) (alist-ref info.it 'column-names))
