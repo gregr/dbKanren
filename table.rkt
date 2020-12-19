@@ -666,7 +666,7 @@
   (define names.in        (alist-ref kwargs 'source-file-columns
                                      (remove key-name attribute-names)))
   (define stream.in       (alist-ref kwargs 'source-stream       #f))
-  (define transform-code  (alist-ref kwargs 'transform           #f))
+  (define map-code        (alist-ref kwargs 'map                 #f))
   (define filter-code     (alist-ref kwargs 'filter              #f))
   (unless key-name (error "key-name cannot be #f:" kwargs))
   (define table-descriptions
@@ -694,15 +694,15 @@
                        (format    . ,format)
                        (header    . ,header)
                        (stats     . ,(file-stats path.in))
-                       (transform . ,(code->info transform-code))
+                       (map       . ,(code->info map-code))
                        (filter    . ,(code->info filter-code))))
           (stream.in `((stream    . ,(code->info stream.in))
-                       (transform . ,(code->info transform-code))
+                       (map       . ,(code->info map-code))
                        (filter    . ,(code->info filter-code))))
           (else (error "materialize-relation missing file or stream source:"
                        kwargs))))
-  (define transform (code->value transform-code))
-  (define filter?   (code->value filter-code))
+  (define map?    (code->value map-code))
+  (define filter? (code->value filter-code))
   (define (materialize-stream source-info stream)
     (let ((mat (materializer path.dir source-info
                              attribute-names attribute-types key-name
@@ -714,7 +714,7 @@
                         (logf "ingested ~s rows\n" count))
                       (mat 'put (arrange x))
                       (set! count (+ count 1)))
-                    (let ((s (if transform (s-map transform stream) stream)))
+                    (let ((s (if map? (s-map map? stream) stream)))
                       (if filter? (s-filter filter? s) s))))
       (logf "Processing ~s rows\n" count)
       (time (mat 'close))
