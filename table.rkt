@@ -403,27 +403,31 @@
 
 (define (materialize-index-tables!
           path.dir source-fprefix name->type source-names index-descriptions)
-  (define threshold (current-config-ref 'progress-logging-threshold))
-  (define index-ms
-    (map (lambda (td)
-           (define fprefix      (alist-ref td 'file-prefix))
-           (define column-names (alist-ref td 'column-names))
-           (define column-types (map name->type column-names))
-           (table-materializer source-names path.dir fprefix
-                               column-names column-types #f))
-         index-descriptions))
-  (logf "Materializing ~s index table(s) from primary:\n" (length index-ms))
-  (for-each (lambda (td) (pretty-write (alist-ref td 'column-names)))
-            index-descriptions)
-  (let/files ((in (value-table-file-name source-fprefix))) ()
-    (define src (s-decode in (map name->type (cdr source-names))))
-    (time (s-each (lambda (x) (let ((count (car x)))
-                                (when (= 0 (remainder count threshold))
-                                  (logf "ingested ~s rows\n" count))
-                                (for-each (lambda (m) (m 'put! x)) index-ms)))
-                  (s-enumerate 0 src))))
-  (logf "Processing all rows\n")
-  (map (lambda (m) (time (m 'close))) index-ms))
+  (cond ((null? index-descriptions) '())
+        (else
+          (define threshold (current-config-ref 'progress-logging-threshold))
+          (define index-ms
+            (map (lambda (td)
+                   (define fprefix      (alist-ref td 'file-prefix))
+                   (define column-names (alist-ref td 'column-names))
+                   (define column-types (map name->type column-names))
+                   (table-materializer source-names path.dir fprefix
+                                       column-names column-types #f))
+                 index-descriptions))
+          (logf "Materializing ~s index table(s) from primary:\n"
+                (length index-ms))
+          (for-each (lambda (td) (pretty-write (alist-ref td 'column-names)))
+                    index-descriptions)
+          (let/files ((in (value-table-file-name source-fprefix))) ()
+            (define src (s-decode in (map name->type (cdr source-names))))
+            (time (s-each (lambda (x)
+                            (let ((count (car x)))
+                              (when (= 0 (remainder count threshold))
+                                (logf "ingested ~s rows\n" count))
+                              (for-each (lambda (m) (m 'put! x)) index-ms)))
+                          (s-enumerate 0 src))))
+          (logf "Processing all rows\n")
+          (map (lambda (m) (time (m 'close))) index-ms))))
 
 (define (valid-key-type? t)
   (match t
@@ -544,9 +548,8 @@
             (cons `((file-prefix  . ,fprefix) (column-names . ,(car colss)))
                   (loop (cdr colss) (+ i 1))))))))
   (define index-infos.new
-    (if (null? index-descriptions.added) '()
-      (materialize-index-tables! path.dir source-fprefix name->type
-                                 source-names index-descriptions.added)))
+    (materialize-index-tables! path.dir source-fprefix name->type
+                               source-names index-descriptions.added))
   (let/files () ((metadata-out path.metadata))
     (pretty-write `((attribute-names . ,attribute-names)
                     (attribute-types . ,attribute-types)
