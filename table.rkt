@@ -678,7 +678,7 @@
   (define path.in   (and fn.in (current-config-relation-path fn.in)))
   (define path.dir  (current-config-relation-path path))
   (define path.log  (build-path path.dir "progress.log"))
-  (define format    (or format.in (path->format fn.in)))
+  (define format    (or format.in (and fn.in (path->format fn.in))))
   (define header    (if (pair? header.in)
                       (map (lambda (s) (if (symbol? s) (symbol->string s) s))
                            header.in)
