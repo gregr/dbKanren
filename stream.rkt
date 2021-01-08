@@ -1,7 +1,7 @@
 #lang racket/base
 (provide s-next s-force s-split s-take s-drop s-each s-foldr s-foldl s-scan
          s-append s-append* s-map/append s-map s-filter s-group s-memo
-         s-enumerate s-dedup s-limit)
+         s-length s-enumerate s-dedup s-limit)
 (require racket/function racket/match)
 
 (define (s-next  s) (if (procedure? s)          (s)  s))
@@ -65,6 +65,11 @@
   (cons acc (cond ((null? s) '())
                   ((pair? s) (s-scan (cdr s) (f (car s) acc) f))
                   (else      (thunk (s-scan (s) acc f))))))
+
+(define (s-length s) (let loop ((s s) (l 0))
+                       (cond ((null? s) l)
+                             ((procedure? s) (loop (s) l))
+                             (else (loop (cdr s) (+ l 1))))))
 
 (define (s-group s ? @)
   (let ((@ (or @ (lambda (x) x))))
