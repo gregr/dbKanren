@@ -12,21 +12,109 @@ Typical use:
 
 ## TODO
 
+* prioritize support for general `any<=o`
+
+* redesign tables, indexing, variable ordering heuristics
+  * stop using implicit key columns/variables
+    * key column variables are ineffective mediators of constraint information
+    * no more indexes (whose final column is the key), just tables
+      * for unclustered indexing, specify the primary table's first column as
+        the index's last column, naturally activating primary table
+    * to get array-based lookup, specify appropriate column constraints
+    * also, define tables that use column-oriented layout
+  * identify most-constrained-variable more appropriately
+    * simple cardinality (minimum-remaining-values) heuristic is not effective
+    * cardinality is innaccurate since we only track bounds and don't eagerly
+      maintain arc consistency
+    * instead of MRV heuristic, a better heuristic considers how variables
+      constrain relations
+      * rank relation constraints by the ratio of rows `remaining/total`
+        * a constraint's remaining rows are those whose first column value
+          falls within the constraint's corresponding variable's bounds
+        * smallest ratio wins, choose that constraint's first column variable
+      * it may also make sense to consider all the ratios a variable
+        participates in, and rank variables by some function on these ratios
+        * e.g., could take minimum (described above), could multiply, etc.
+    * we can speculatively compute a fixed number of members of a variable's
+      finite domain, working inward from its bounds, to improve accuracy
+      * helps accuracy of both MRV and most-constrained-relation heuristic
+    * maybe augment this heuristic with consideration of a variable's
+      index-path effectiveness (i.e., starting at this variable makes it easy
+      to efficiently use other indexes)
+      * see index-based path-finding below
+  * maybe support intra-table/inter-table selectivity hints
+    * intra: how many values of attr A do you get when setting attrs B, C, etc.?
+      * degree constraints
+      * could also declare that a column's values appear frequently
+        * if they appear frequently, constraints to that column should not
+          constrain other columns much
+    * inter: `(conj (P a b c) (Q c d e))`
+      * a form of join dependency
+      * what proportion of distinct values `c` from each of `P` and `Q` remain
+        after taking their intersection? e.g., maybe `(3/4 in P . 1/2 in Q)`
+  * analyze, simplify, and plan with query structure
+    * index-based path-finding to find candidate variable orderings
+      * stick with one variable choice order until invalidation is possible
+        * only long-distance constraints can invalidate assumptions
+          * this includes monotone dependencies
+      * when appropriate index paths aren't available, or query can be
+        decomposed, consider materializing/indexing results for subqueries
+    * articulation vertices for fast recognition of decomposable queries
+      * may store intermediate results per subquery for faster integration
+
+* redesign states, strategies to support adaptive analysis and optimization
+  * augment states
+    * with query parameter term
+      * if it's not known (could be anything), provide a worst-case term?
+        * e.g., if optimizing a relation body, use relation parameter variables
+    * with general conjunction of propositions (table constraints are propositions)
+      * maybe just call it a formula and let it take any formula shape?
+        * no, we need a map of `id=>prop`
+        * and optionally a semi-normalized prop set to check for duplicates
+    * states that can be transformed back into a formula
+      * quantifier scope stack
+      * explicit table constraints that maintain table state for efficiency?
+  * hypothetical states for analyzing and transforming disjunction components
+    * should also use this approach for transforming arbitrary formulas
+    * process a disjunct's constraints in the usual way, but retain simplified
+      residual constraints
+      * optionally expand user-defined relations
+    * failure eliminates the disjunct
+    * if constraint affects no variables, it is subsumed and can be discarded
+      * pending queue can identify affected variables
+    * may detect more opportunities for subsumption by reordering
+    * may drop constraints for eliminated disjunct-local variables
+      * e.g., simple equality constraints that have fully propagated
+    * extract shared constraints from disjunction components via lattice-join
+      * e.g., to implement efficient union of table constraints
+    * if a disjunct simplifies to True (no affected variables), then entire
+      disjunction is satisfied and simplifies to True
+    * for an unsatisfied disjunction, register to watch affected variables of
+      two of its disjuncts
+      * analogous to 2-watching in SMT solvers
+    * when resuming disjunction's parent, throw away hypothetical state, but
+      keep the simplified disjunction constraints
+  * decorate unexpanded user-defined relation constraints with the chain of
+    already-expanded parent/caller relations that led to this constraint
+    * to identify nonterminating loops
+    * to help measure progress
+  * optional bottom-up evaluation strategy
+    * safety analysis of relations referenced during query/materialization
+  * randomized variants of interleaving or depth-first search
+
 * place-based concurrency/parallelism?
 
 * `state-pending-run` before splitting search on any disj
   * instead, maybe even go so far as to `state-enumerate` before?
 
-* properly 2-watch `=/=*` constraints to make sure inclusiveness trimming
-  opportunities are not missed
-  * possibly also switch to eager disunify processing
-* implement simple `any<=o` constraints (at most one term is non-ground)
-* support branchless disjunctions when all leaf constraints are simple?
-  * no user-defined relations for now
-* re-express bounds-apply using branchless disjunctions
-* recognize finite domains and express using branchless disjunctions?
-
-* define tables that use column-oriented layout
+* these would be supported by redesigned state (above)
+  * properly 2-watch `=/=*` constraints to make sure inclusiveness trimming
+    opportunities are not missed
+    * possibly also switch to eager disunify processing
+  * support branchless disjunctions when all leaf constraints are simple?
+    * no user-defined relations for now
+  * re-express bounds-apply using branchless disjunctions
+  * recognize finite domains and express using branchless disjunctions?
 
 * eventually, make sure relation metadata contains information for analysis
   * e.g., degree constraints, fast column ordering, subsumption tag/rules
@@ -64,7 +152,8 @@ Typical use:
 * background worker threads/places for materialization
 * metadata.scm protocol versioning for automatic update/migration
 
-* small tsv data example for testing materialization
+* documentation and examples
+  * small tsv data example for testing materialization
 
 
 ### Data processing
@@ -149,7 +238,8 @@ Typical use:
         * in relation R, given (A B C), how many (D E F)s are there?
           * lower and upper bounds, i.e., 0 to 2, exactly 1, at least 5, etc.
         * maybe support more precise constraints given specific field values
-      * sorted-columns: C is nondecreasing when sorting by (A B C D)
+      * monotone dependencies
+        * e.g., C is nondecreasing when sorting by (A B C D)
         * implies sorted rows for (C A B D) appear in same order as (A B C D)
           * one index can support either ordering
         * generalized: (sorted-columns (A B . C) (B . D) B) means:
