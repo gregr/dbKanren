@@ -625,7 +625,8 @@
       (else (error "any<=o currently requires at least one ground argument:"
                    st t1 t2)))))
 
-(define (reify st term)
+(define (reify st)
+  (define term (state-qterm st))
   (define t.0 (walk* st term))
   (define xs (term-vars t.0))
   (define v=>cx (state-var=>cx st))
@@ -849,12 +850,12 @@
 ;; satisfiable.  Existential-only paths can stop after satisfiability check.
 
 
-(define ((enumerate-and-reify x) st)
-  (s-map (lambda (st) (reify st x)) (state-enumerate st)))
+(define (enumerate-and-reify st)
+  (s-map (lambda (st) (reify st)) (state-enumerate st)))
 
 (define (bis:query->stream q)
   (match-define `#s(query ,x ,g) q)
-  (s-append* (s-map (enumerate-and-reify x) ((bis:goal g) (state.new x)))))
+  (s-append* (s-map enumerate-and-reify ((bis:goal g) (state.new x)))))
 (define (bis:bind s k)
   (cond ((null?      s) '())
         ((procedure? s) (thunk (bis:bind (s) k)))
@@ -903,7 +904,7 @@
 (define (dfs:query->stream q) ((dfs:query q) (state.new (query-term q))))
 (define (dfs:query q)
   (match-define `#s(query ,x ,g) q)
-  (dfs:goal g (enumerate-and-reify x)))
+  (dfs:goal g enumerate-and-reify))
 (define ((dfs:mplus k1 k2) st) (s-append (k1 st) (thunk (k2 st))))
 (define ((dfs:retrieve s args k) st)
   (let loop ((s (s-next s)))
