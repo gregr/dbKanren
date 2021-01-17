@@ -343,10 +343,15 @@
 (define queue.empty (queue seteq.empty '() '()))
 ;; tables: any finite       relations where a row    *must* be chosen
 ;; disjs:  any search-based relations where a branch *must* be chosen
-(record state (var=>cx store tables disjs uses pending))
-(define state.empty
-  (state (var=>cx hasheq.empty) (store hasheq.empty) (tables seteq.empty)
-         (disjs seteq.empty) (uses seteq.empty) (pending queue.empty)))
+(record state (qterm vars.nonlocal vars.local
+               formula.pending formula.slow formula.simplified
+               var=>cx store tables disjs uses pending))
+(define (state.new qterm)
+  (state
+    (qterm qterm) (vars.nonlocal (term-vars qterm)) (vars.local seteq.empty)
+    (formula.pending '()) (formula.slow '()) (formula.simplified '())
+    (var=>cx hasheq.empty) (store hasheq.empty) (tables seteq.empty)
+    (disjs seteq.empty) (uses seteq.empty) (pending queue.empty)))
 (define (state-var=>cx-ref st x) (hash-ref (state-var=>cx st) x vcx.empty))
 (define (state-var=>cx-set st x t)
   (state:set st (var=>cx (hash-set (state-var=>cx st) x t))))
@@ -845,7 +850,7 @@
 
 (define (bis:query->stream q)
   (match-define `#s(query ,x ,g) q)
-  (s-append* (s-map (enumerate-and-reify x) ((bis:goal g) state.empty))))
+  (s-append* (s-map (enumerate-and-reify x) ((bis:goal g) (state.new x)))))
 (define (bis:bind s k)
   (cond ((null?      s) '())
         ((procedure? s) (thunk (bis:bind (s) k)))
@@ -891,7 +896,7 @@
 (define ((bis:=/=    t1 t2) st) (bis:return (disunify st t1 t2)))
 (define ((bis:any<=o t1 t2) st) (bis:return (<=ify    st t1 t2)))
 
-(define (dfs:query->stream q) ((dfs:query q) state.empty))
+(define (dfs:query->stream q) ((dfs:query q) (state.new (query-term q))))
 (define (dfs:query q)
   (match-define `#s(query ,x ,g) q)
   (dfs:goal g (enumerate-and-reify x)))
