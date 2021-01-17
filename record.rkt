@@ -8,13 +8,16 @@
   (define (id/suffix id str)
     (define str.id (symbol->string (syntax->datum id)))
     (datum->syntax id (string->symbol (string-append str.id str))))
-  (define (syntax-permute keys stx.alist)
+  (define (syntax-permute keys stx.alist blame)
     (define kvs
       (syntax-case stx.alist ()
         (((key . value) ...) (map cons
                                   (syntax->datum #'(key ...))
                                   (syntax->list #'((key . value) ...))))))
-    (map (lambda (k) (cdr (assoc k kvs))) keys))
+    (map (lambda (k) (let ((kv (assoc k kvs)))
+                       (if kv (cdr kv)
+                         (error "missing record field:" k blame))))
+         keys))
   (define-syntax with-syntax*
     (syntax-rules ()
       ((_ ()                  body ...) (with-syntax () body ...))
@@ -60,7 +63,8 @@
                      ((_ (f e) ...)
                       (with-syntax ((((f e) ...) (syntax-permute
                                                    'ids.field-names
-                                                   #'((f e) ...))))
+                                                   #'((f e) ...)
+                                                   stx)))
                         #'(let ((f e) ...) (id.struct f ...))))))
                  (define-syntax (id.set stx)
                    (syntax-case stx ()
