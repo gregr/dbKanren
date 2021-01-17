@@ -352,6 +352,9 @@
     (formula.pending '()) (formula.slow '()) (formula.simplified '())
     (var=>cx hasheq.empty) (store hasheq.empty) (tables seteq.empty)
     (disjs seteq.empty) (uses seteq.empty) (pending queue.empty)))
+(define (state-vars-simplify st)
+  (define vars (term-vars (walk* st (set->list (state-vars.nonlocal st)))))
+  (state:set st (vars.nonlocal vars)))
 (define (state-var=>cx-ref st x) (hash-ref (state-var=>cx st) x vcx.empty))
 (define (state-var=>cx-set st x t)
   (state:set st (var=>cx (hash-set (state-var=>cx st) x t))))
@@ -418,7 +421,8 @@
                  (let*/and ((st (if (var? t) (var-update st t) st)))
                    (state-pending-run st)))))
 
-(define (state-choose st xstatss xs.observable)
+(define (state-choose st xstatss)
+  (define xs.observable (state-vars.nonlocal st))
   (define x=>stats
     (foldl
       (lambda (xstats x=>stats)
@@ -463,7 +467,7 @@
                      (if st.skip (list st.skip) '())))
   (if st.new (cons st.new s-rest) s-rest))
 
-(define (state-enumerate st.0 term)
+(define (state-enumerate st.0)
   (define st (state-pending-run st.0))
   (if st
     (let* ((tcxs (set->list (state-tables st)))
@@ -473,13 +477,13 @@
                         st tcxs xss)))
       (if (set-empty? (state-tables st))
         (begin (state-uses-empty?! st) (list st))
-        ;; TODO: term-vars walk* efficiency
-        (let* ((xs.observable (set->list (term-vars (walk* st term))))
+        (let* ((st            (state-vars-simplify st))
+               (xs.observable (state-vars.nonlocal st))
                (xstats        (filter pair? xss))
                (sts.all (s-append*
-                          (s-map (lambda (st) (state-enumerate st xs.observable))
-                                 (state-choose st xstats xs.observable)))))
-          (if (null? xs.observable) (s-limit 1 sts.all) sts.all))))
+                          (s-map (lambda (st) (state-enumerate st))
+                                 (state-choose st xstats)))))
+          (if (set-empty? xs.observable) (s-limit 1 sts.all) sts.all))))
     '()))
 
 (define (assign st x t)
@@ -846,7 +850,7 @@
 
 
 (define ((enumerate-and-reify x) st)
-  (s-map (lambda (st) (reify st x)) (state-enumerate st x)))
+  (s-map (lambda (st) (reify st x)) (state-enumerate st)))
 
 (define (bis:query->stream q)
   (match-define `#s(query ,x ,g) q)
