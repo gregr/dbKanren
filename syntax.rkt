@@ -6,11 +6,10 @@
   (struct-out constrain)
   (struct-out ==/use)
   (struct-out var)
-  relate retrieve
+  relate
 
   make-relation relations relations-ref relations-set! relations-set*!
   relation letrec-relation define-relation
-  relation/stream letrec-relation/stream define-relation/stream
   conj* disj* fresh conde :== query
   == =/= any<=o flooro +o *o string==byteso symbol==stringo functiono
   vector-lengtho vector-refo bytes-lengtho bytes-refo
@@ -46,7 +45,6 @@
 (define-constraint (symbol==stringo t1 t2))
 (define-constraint (string==byteso  t1 t2))  ;; as utf-8
 (define-constraint (functiono       t1 t2))  ;; uninterpreted functional dependency
-(define (retrieve stream args) (constrain `(retrieve ,stream) args))
 (define (relate proc args) (constrain proc args))
 
 (define relation-registry          (make-weak-hasheq '()))
@@ -80,19 +78,6 @@
   (syntax-rules ()
     ((_ (name param ...) g ...)
      (define name (relation name (param ...) g ...)))))
-(define-syntax relation/stream
-  (syntax-rules ()
-    ((_ name (param ...) stream)
-     (relation name (param ...) (retrieve stream param ...)))))
-(define-syntax letrec-relation/stream
-  (syntax-rules ()
-    ((_ (((name param ...) stream) ...) body ...)
-     (letrec ((name (relation/stream name (param ...) stream)) ...)
-       body ...))))
-(define-syntax define-relation/stream
-  (syntax-rules ()
-    ((_ (name param ...) stream)
-     (define name (relation/stream name (param ...) stream)))))
 (define success (== #t #t))
 (define failure (== #f #t))
 (define (conj* . gs)
