@@ -6,6 +6,7 @@
   (struct-out constrain)
   (struct-out ==/use)
   (struct-out var)
+  (struct-out term/vars)
   relate
 
   make-relation relations relations-ref relations-set! relations-set*!
@@ -18,14 +19,17 @@
   make-pretty pretty)
 (require racket/match racket/set racket/vector)
 
-(struct query     (term g)                      #:prefab #:name make-query
+(struct query     (term formula)                #:prefab #:name make-query
                                                 #:constructor-name make-query)
-;; goals
-(struct disj      (g1 g2)                       #:prefab)
-(struct conj      (g1 g2)                       #:prefab)
+;; formulas
+(struct disj      (f1 f2)                       #:prefab)
+(struct conj      (f1 f2)                       #:prefab)
 (struct constrain (op terms)                    #:prefab)
 (struct ==/use    (lhs-term args rhs-proc desc) #:prefab)
 ;; terms
+; term: pair or vector with embedded variables
+; vars: optional; set of variables found somewhere within term
+(struct term/vars (term vars))
 (struct var       (name))
 
 (define-syntax define-constraint
@@ -66,48 +70,48 @@
 
 (define-syntax relation
   (syntax-rules ()
-    ((_ name (param ...) g ...)
+    ((_ name (param ...) f ...)
      (let ((r (make-relation 'name '(param ...))))
-       (relations-set! r 'expand (lambda (param ...) (fresh () g ...)))
+       (relations-set! r 'expand (lambda (param ...) (fresh () f ...)))
        r))))
 (define-syntax letrec-relation
   (syntax-rules ()
-    ((_ (((name param ...) g ...) ...) body ...)
-     (letrec ((name (relation name (param ...) g ...)) ...) body ...))))
+    ((_ (((name param ...) f ...) ...) body ...)
+     (letrec ((name (relation name (param ...) f ...)) ...) body ...))))
 (define-syntax define-relation
   (syntax-rules ()
-    ((_ (name param ...) g ...)
-     (define name (relation name (param ...) g ...)))))
+    ((_ (name param ...) f ...)
+     (define name (relation name (param ...) f ...)))))
 (define success (== #t #t))
 (define failure (== #f #t))
-(define (conj* . gs)
-  (if (null? gs) success
-    (foldl (lambda (g2 g1) (conj g1 g2)) (car gs) (cdr gs))))
-(define (disj* . gs)
-  (if (null? gs) failure
-    (let loop ((g (car gs)) (gs (cdr gs)))
-      (if (null? gs) g
-        (disj g (loop (car gs) (cdr gs)))))))
+(define (conj* . fs)
+  (if (null? fs) success
+    (foldl (lambda (f2 f1) (conj f1 f2)) (car fs) (cdr fs))))
+(define (disj* . fs)
+  (if (null? fs) failure
+    (let loop ((f (car fs)) (fs (cdr fs)))
+      (if (null? fs) f
+        (disj f (loop (car fs) (cdr fs)))))))
 (define-syntax let/fresh
   (syntax-rules ()
     ((_ (x ...) e ...) (let ((x (var 'x)) ...) e ...))))
 (define-syntax fresh
   (syntax-rules ()
-    ((_ (x ...) g0 gs ...) (let/fresh (x ...) (conj* g0 gs ...)))))
+    ((_ (x ...) f0 fs ...) (let/fresh (x ...) (conj* f0 fs ...)))))
 (define-syntax conde
   (syntax-rules ()
-    ((_ (g gs ...) (h hs ...) ...)
-     (disj* (conj* g gs ...) (conj* h hs ...) ...))))
+    ((_ (f fs ...) (h hs ...) ...)
+     (disj* (conj* f fs ...) (conj* h hs ...) ...))))
 (define-syntax :==
   (syntax-rules ()
     ((_ t (x ...) body ...) (==/use t (list x ...) (lambda (x ...) body ...)
                                     `((x ...) body ...)))))
 (define-syntax query
   (syntax-rules ()
-    ((_ (x ...) g0 gs ...)
-     (let/fresh (x ...) (make-query (list x ...) (conj* g0 gs ...))))
-    ((_ x       g0 gs ...)
-     (let/fresh (x)     (make-query x            (conj* g0 gs ...))))))
+    ((_ (x ...) f0 fs ...)
+     (let/fresh (x ...) (make-query (list x ...) (conj* f0 fs ...))))
+    ((_ x       f0 fs ...)
+     (let/fresh (x)     (make-query x            (conj* f0 fs ...))))))
 
 (define seteq.empty (seteq))
 (define (term-vars t)
@@ -130,21 +134,22 @@
                                       (c  (hash-count var=>id)))
                                   (or id (begin (hash-set! var=>id t c) c)))))
           (else        t)))
-  (define (pretty-goal g)
-    (match g
-      (`#s(disj ,g1 ,g2)         `#s(disj ,(pretty-goal g1) ,(pretty-goal g2)))
-      (`#s(conj ,g1 ,g2)         `#s(conj ,(pretty-goal g1) ,(pretty-goal g2)))
+  (define (pretty-formula f)
+    (match f
+      (`#s(disj ,f1 ,f2)         `#s(disj ,(pretty-formula f1)
+                                          ,(pretty-formula f2)))
+      (`#s(conj ,f1 ,f2)         `#s(conj ,(pretty-formula f1)
+                                          ,(pretty-formula f2)))
       (`#s(constrain ,op ,terms) `(,op ,(map pretty-term terms)))
       (`#s(==/use ,lhs ,args ,rhs ,desc)
-        ;(define (pretty-arg t) `',(pretty-term t))
         (define (pretty-arg t) (pretty-term t))
         `(:== ,(pretty-term lhs)
               #s(let ,(map list (car desc) (map pretty-arg args))
                   ,@(cdr desc))))))
   (lambda (x)
     (match x
-      (`#s(query ,t ,g)
-        `#s(query ,(pretty-term t) ,(pretty-goal g)))
+      (`#s(query ,t ,f)
+        `#s(query ,(pretty-term t) ,(pretty-formula f)))
       (_ (if (or (disj? x) (conj? x) (constrain? x) (==/use? x))
-           (pretty-goal x) (pretty-term x))))))
+           (pretty-formula x) (pretty-term x))))))
 (define (pretty x) ((make-pretty) x))

@@ -281,16 +281,16 @@ Typical use:
     * by default, `:==` will stratify based on dependencies
 
 * relations
-  * `(define-relation (name param ...) goal ...) => (define name (relation (param ...) goal ...))`
+  * `(define-relation (name param ...) formula ...) => (define name (relation (param ...) formula ...))`
   * `(define-relation/data (name param ...) data-description)`
-  * `(relation (param-name ...) goal ...)`
+  * `(relation (param-name ...) formula ...)`
   * `(:== term (var-name ...) term-computation ...)`
     * computed term that indicates its logic variable dependencies
     * force vars to be grounded so that embedded Racket computation succeeds
     * result is equated with left-hand term (first argument to `:==`)
   * local relation definitions to share work (cached results) during aggregation
-    * `(let-relations (((name param ...) goal ...) ...) goal ...)`
-  * usual mk operators for forming goals:
+    * `(let-relations (((name param ...) formula ...) ...) formula ...)`
+  * usual mk formula constructors:
     * `fresh`, `conde`, and constraints such as `==`, `=/=`, `symbolo`, etc.
     * `(r arg+ ...)` where `r` is a relation and `arg+ ...` are terms
   * if `r` is a relation:
