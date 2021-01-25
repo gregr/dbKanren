@@ -135,6 +135,8 @@
 (define hasheq.empty (hash))
 (define seteq.empty  (set))
 
+(define (uid:new) (gensym))
+
 ;; TODO: domain trimming means explicitly testing endpoint assignments, and
 ;; narrowing the domain bounds when they fail (setting inclusiveness to #f,
 ;; or incrementing if possible).  Domain trimming should actually be
@@ -352,7 +354,7 @@
     (qterm qterm) (vars.nonlocal (term-vars qterm)) (vars.local seteq.empty)
     (formula.pending '()) (formula.slow '()) (formula.simplified '())
     (var=>cx hasheq.empty) (store hasheq.empty) (tables seteq.empty)
-    (disjs seteq.empty) (uses seteq.empty) (pending queue.empty)))
+    (disjs seteq.empty) (uses (hash)) (pending queue.empty)))
 (define (state-vars-simplify st)
   (define vars (term-vars (walk* st (set->list (state-vars.nonlocal st)))))
   (state:set st (vars.nonlocal vars)))
@@ -366,16 +368,20 @@
   (state:set st (tables (set-add (state-tables st) t))))
 (define (state-tables-remove st t)
   (state:set st (tables (set-remove (state-tables st) t))))
-(define (state-uses-add st u)
-  (state:set st (uses (set-add (state-uses st) u))))
+(define (state-uses-add st uid u)
+  (state:set st (uses (hash-set (state-uses st) uid u))))
 (define (state-uses-remove* st us)
-  (state:set st (uses (foldl (lambda (u us) (set-remove us u))
+  (state:set st (uses (foldl (lambda (u us) (hash-remove us u))
                              (state-uses st) us))))
 (define (state-uses-empty?! st)
-  (unless (set-empty? (state-uses st))
-    (match-define `#s(==/use ,l ,deps ,r ,desc) (set-first (state-uses st)))
+  (unless (hash-empty? (state-uses st))
     (error ":== dependencies are not ground:"
-           (pretty (==/use (walk* st l) (walk* st deps) r desc)))))
+           (map (lambda (u)
+                  (match-define `#s(==/use ,l ,deps ,r ,desc) u)
+                  (pretty (==/use (walk* st l) (walk* st deps) r desc))
+                  (error ":== dependencies are not ground:"
+                         (pretty (==/use (walk* st l) (walk* st deps) r desc))))
+                (hash-values (state-uses st))))))
 
 (define (state-vcx-update st x update)
   (state-var=>cx-set st x (update (state-var=>cx-ref st x))))
@@ -490,14 +496,17 @@
 (define (assign st x t)
   (define v=>cx (state-var=>cx st))
   (and (not (occurs? st x t))
-       (let* ((vcx.x                (hash-ref v=>cx x vcx.empty))
-              (vcx.t   (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty))
-              (=/=**   (append (vcx-=/=* vcx.t) (vcx-=/=* vcx.x)))
-              (==/use* (vcx-==/use vcx.x))
-              (st      (if (eq? vcx.empty vcx.t) st
-                         (state-var=>cx-set st t (vcx-=/=*-clear vcx.t))))
-              (st      (state-uses-remove* st ==/use*))
-              (st      (state-var=>cx-set st x t)))
+       (let* ((vcx.x                 (hash-ref v=>cx x vcx.empty))
+              (vcx.t    (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty))
+              (=/=**    (append (vcx-=/=* vcx.t) (vcx-=/=* vcx.x)))
+              (uids.use (vcx-==/use vcx.x))
+              (uses     (state-uses st))
+              (==/use*  (map (lambda (uid) (hash-ref uses uid))
+                             (vcx-==/use vcx.x)))
+              (st       (if (eq? vcx.empty vcx.t) st
+                          (state-var=>cx-set st t (vcx-=/=*-clear vcx.t))))
+              (st       (state-uses-remove* st uids.use))
+              (st       (state-var=>cx-set st x t)))
          (let*/and ((st (bounds-apply st (vcx-bounds vcx.x) t))
                     (st (foldl/and cx-apply st (set->list (vcx-domain vcx.x))))
                     (st (foldl/and cx-apply st (set->list (vcx-arc    vcx.x))))
@@ -515,9 +524,10 @@
       (unify st lhs (apply rhs t))
       (let* ((y     (set-first xs))
              (u     (==/use lhs t rhs desc))
+             (uid   (uid:new))
              (vcx.y (state-var=>cx-ref st y))
-             (vcx.y (vcx-==/use-add vcx.y u))
-             (st    (state-uses-add st u)))
+             (vcx.y (vcx-==/use-add vcx.y uid))
+             (st    (state-uses-add st uid u)))
         (state-var=>cx-set st y vcx.y)))))
 (define (use* st ==/use*) (foldl/and (lambda (u st) (use st u)) st ==/use*))
 
@@ -673,8 +683,6 @@
   ;; constraints such that later ones wouldn't subsume those already
   ;; contributing to the impossible set.
   (if (null? =/=**) t `#s(cx ,t (=/=** . ,=/=**))))
-
-(define (uid:new) (gensym))
 
 (define (relation/table table-name t)
   (define (cx:new st args.0)
