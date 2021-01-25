@@ -347,7 +347,7 @@
 (record state (qterm vars.nonlocal vars.local
                formula.pending formula.slow formula.simplified
                var=>cx store tables disjs uses pending))
-(define (state.new qterm)
+(define (state:new qterm)
   (state
     (qterm qterm) (vars.nonlocal (term-vars qterm)) (vars.local seteq.empty)
     (formula.pending '()) (formula.slow '()) (formula.simplified '())
@@ -856,7 +856,7 @@
 
 (define (bis:query->stream q)
   (match-define `#s(query ,t ,f) q)
-  (s-append* (s-map enumerate-and-reify ((bis:goal f) (state.new t)))))
+  (s-append* (s-map enumerate-and-reify ((bis:goal f) (state:new t)))))
 (define (bis:bind s k)
   (cond ((null?      s) '())
         ((procedure? s) (thunk (bis:bind (s) k)))
@@ -904,7 +904,7 @@
 
 (define (dfs:query->stream q)
   ((dfs:goal (query-formula q) enumerate-and-reify)
-   (state.new (query-term q))))
+   (state:new (query-term q))))
 (define ((dfs:mplus k1 k2) st) (s-append (k1 st) (thunk (k2 st))))
 (define ((dfs:retrieve s args k) st)
   (let loop ((s (s-next s)))
