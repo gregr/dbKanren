@@ -122,10 +122,11 @@
 
 ;;; TODO: occurs check for vector-ref
 
-(define (foldl/and f acc xs)
-  (let loop ((acc acc) (xs xs))
+(define (foldl/and f acc xs . yss)
+  (let loop ((acc acc) (xs xs) (yss yss))
     (if (null? xs) acc
-      (and acc (loop (f (car xs) acc) (cdr xs))))))
+      (and acc (loop (apply f (car xs) (append (map car yss) (list acc)))
+                     (cdr xs) (map cdr yss))))))
 (define-syntax let*/and
   (syntax-rules ()
     ((_ () body ...) (let () body ...))
