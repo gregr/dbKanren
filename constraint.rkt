@@ -312,9 +312,9 @@
         ((var? t) (vcx-bounds (state-var=>cx-ref st t)))
         (else     t)))
 
-(record vcx (bounds domain arc =/=* ==/use))
+(record vcx (bounds domain arc =/=* simple))
 (define vcx.empty (vcx (bounds bounds.any) (domain seteq.empty)
-                       (arc seteq.empty) (=/=* '()) (==/use seteq.empty)))
+                       (arc seteq.empty) (=/=* '()) (simple seteq.empty)))
 (define (vcx-domain-clear x)  (vcx:set x (domain seteq.empty)))
 (define (vcx-arc-clear x)     (vcx:set x (arc seteq.empty)))
 (define (vcx-update x b d a)  (vcx:set x (bounds b) (domain d) (arc a)))
@@ -323,7 +323,7 @@
 (define (vcx-arc-add    x cx) (vcx:set x (arc (set-add (vcx-arc x) cx))))
 (define (vcx-=/=*-clear x)    (vcx:set x (=/=* '())))
 (define (vcx-=/=*-add x =/=*) (vcx:set x (=/=* (cons =/=* (vcx-=/=* x)))))
-(define (vcx-==/use-add x u)  (vcx:set x (==/use (set-add (vcx-==/use x) u))))
+(define (vcx-simple-add x c)  (vcx:set x (simple (set-add (vcx-simple x) c))))
 
 (define (var-update st x)
   (define xcx (state-var=>cx-ref st x))
@@ -349,13 +349,14 @@
 ;; disjs:  any search-based relations where a branch *must* be chosen
 (record state (qterm vars.nonlocal vars.local
                formula.pending formula.slow formula.simplified
-               var=>cx store tables disjs uses pending))
+               var=>cx store simple tables disjs pending))
 (define (state:new qterm)
   (state
     (qterm qterm) (vars.nonlocal (term-vars qterm)) (vars.local seteq.empty)
     (formula.pending '()) (formula.slow '()) (formula.simplified '())
-    (var=>cx hasheq.empty) (store hasheq.empty) (tables seteq.empty)
-    (disjs seteq.empty) (uses (hash)) (pending queue.empty)))
+    (var=>cx hasheq.empty) (store hasheq.empty)
+    (simple (hash)) (tables seteq.empty)
+    (disjs seteq.empty) (pending queue.empty)))
 (define (state-vars-simplify st)
   (define vars (term-vars (walk* st (set->list (state-vars.nonlocal st)))))
   (state:set st (vars.nonlocal vars)))
@@ -369,20 +370,21 @@
   (state:set st (tables (set-add (state-tables st) t))))
 (define (state-tables-remove st t)
   (state:set st (tables (set-remove (state-tables st) t))))
-(define (state-uses-add st uid u)
-  (state:set st (uses (hash-set (state-uses st) uid u))))
-(define (state-uses-remove* st us)
-  (state:set st (uses (foldl (lambda (u us) (hash-remove us u))
-                             (state-uses st) us))))
+(define (state-simple-add st uid c)
+  (state:set st (simple (hash-set (state-simple st) uid c))))
+(define (state-simple-remove* st cs)
+  (state:set st (simple (foldl (lambda (u uid=>c) (hash-remove uid=>c u))
+                               (state-simple st) cs))))
 (define (state-uses-empty?! st)
-  (unless (hash-empty? (state-uses st))
+  (define uses (filter c:use? (hash-values (state-simple st))))
+  (unless (null? uses)
     (error ":== dependencies are not ground:"
            (map (lambda (u)
                   (match-define `#s(c:use ,vs ,l ,deps ,r ,desc) u)
                   (pretty (==/use (walk* st l) (walk* st deps) r desc))
                   (error ":== dependencies are not ground:"
                          (pretty (==/use (walk* st l) (walk* st deps) r desc))))
-                (hash-values (state-uses st))))))
+                uses))))
 
 (define (state-vcx-update st x update)
   (state-var=>cx-set st x (update (state-var=>cx-ref st x))))
@@ -503,21 +505,27 @@
               (st    (if (eq? vcx.empty vcx.t) st
                        (state-var=>cx-set st t (vcx-=/=*-clear vcx.t))))
               (st    (state-var=>cx-set st x t)))
-         (let*/and ((st (state-uses-update st (set->list (vcx-==/use vcx.x))))
+         (let*/and ((st (state-simple-update st (set->list (vcx-simple vcx.x))))
                     (st (bounds-apply st (vcx-bounds vcx.x) t))
                     (st (foldl/and cx-apply st (set->list (vcx-domain vcx.x))))
                     (st (foldl/and cx-apply st (set->list (vcx-arc    vcx.x)))))
            (disunify** st =/=**)))))
 
+(define (c/new st c)
+  (match c
+    (`#s(==/use ,lhs ,args ,proc ,desc)
+      (use st (uid:new) (c:use args lhs args proc desc)))
+    ;; TODO: other simple constraints
+    ;; TODO: simple disjunctions
+    ;; TODO: tables?
+    ;; TODO: simple conjunctions too, for convenience
+    ))
+
 (struct c:use (vars.pending lhs args proc desc) #:prefab)
-(define (use/new st u)
-  (match-define `#s(==/use ,lhs ,args ,proc ,desc) u)
-  (define uid    (uid:new))
-  (use st uid (c:use args lhs args proc desc)))
 (define (use st uid u)
   (define (watch-var st x)
     (let* ((vcx.x (state-var=>cx-ref st x))
-           (vcx.x (vcx-==/use-add vcx.x uid)))
+           (vcx.x (vcx-simple-add vcx.x uid)))
       (state-var=>cx-set st x vcx.x)))
   (match-define `#s(c:use ,t.vs ,lhs ,args ,proc ,d) u)
   ;; TODO: performance
@@ -528,12 +536,17 @@
     ;; future policy option: watch all vars instead of just one
     ;(let ((st (foldl (lambda (x st) (watch-var st x)) st vars.pending)))
     (let ((st (watch-var st (car vars.pending))))
-      (state-uses-add st uid `#s(c:use ,vars.pending ,lhs ,args ,proc ,d)))))
-(define (state-uses-update st uids)
-  (define uid=>u (state-uses st))
-  (define u* (map (lambda (uid) (hash-ref uid=>u uid)) uids))
-  (foldl/and (lambda (uid u st) (use st uid u))
-             (state-uses-remove* st uids) uids u*))
+      (state-simple-add st uid `#s(c:use ,vars.pending ,lhs ,args ,proc ,d)))))
+
+(define (state-simple-update st uids)
+  (define uid=>c (state-simple st))
+  (define c* (map (lambda (uid) (hash-ref uid=>c uid #f)) uids))
+  (foldl/and (lambda (uid c st)
+               (cond ((not    c) st)
+                     ((c:use? c) (use st uid c))
+                     ;; TODO: update other simple constraints
+                     (else (error "unknown simple constraint:" c))))
+             (state-simple-remove* st uids) uids c*))
 
 (define (walk st t)
   (if (var? t)
@@ -910,7 +923,7 @@
     (`#s(constrain any<=o        (,t1 ,t2)) (bis:any<=o t1 t2))))
 (define (bis:return st)         (if st (list st) '()))
 (define ((bis:==     t1 t2) st) (bis:return (unify    st t1 t2)))
-(define ((bis:==/use u)     st) (bis:return (use/new  st u)))
+(define ((bis:==/use u)     st) (bis:return (c/new    st u)))
 (define ((bis:=/=    t1 t2) st) (bis:return (disunify st t1 t2)))
 (define ((bis:any<=o t1 t2) st) (bis:return (<=ify    st t1 t2)))
 
@@ -949,7 +962,7 @@
     (`#s(constrain any<=o        (,t1 ,t2)) (dfs:any<=o t1 t2 k))))
 (define (dfs:return k st)      (if st (k st) '()))
 (define ((dfs:==     t1 t2 k) st) (dfs:return k (unify    st t1 t2)))
-(define ((dfs:==/use u     k) st) (dfs:return k (use/new  st u)))
+(define ((dfs:==/use u     k) st) (dfs:return k (c/new    st u)))
 (define ((dfs:=/=    t1 t2 k) st) (dfs:return k (disunify st t1 t2)))
 (define ((dfs:any<=o t1 t2 k) st) (dfs:return k (<=ify    st t1 t2)))
 
