@@ -312,9 +312,9 @@
         ((var? t) (vcx-bounds (state-var=>cx-ref st t)))
         (else     t)))
 
-(record vcx (bounds domain arc =/=* simple))
-(define vcx.empty (vcx (bounds bounds.any) (domain seteq.empty)
-                       (arc seteq.empty) (=/=* '()) (simple seteq.empty)))
+(record vcx (bounds domain arc =/=* simple disj))
+(define vcx.empty (vcx (bounds bounds.any) (domain seteq.empty) (arc seteq.empty)
+                       (=/=* '()) (simple seteq.empty) (disj seteq.empty)))
 (define (vcx-domain-clear x)  (vcx:set x (domain seteq.empty)))
 (define (vcx-arc-clear x)     (vcx:set x (arc seteq.empty)))
 (define (vcx-update x b d a)  (vcx:set x (bounds b) (domain d) (arc a)))
@@ -324,6 +324,7 @@
 (define (vcx-=/=*-clear x)    (vcx:set x (=/=* '())))
 (define (vcx-=/=*-add x =/=*) (vcx:set x (=/=* (cons =/=* (vcx-=/=* x)))))
 (define (vcx-simple-add x c)  (vcx:set x (simple (set-add (vcx-simple x) c))))
+(define (vcx-disj-add   x c)  (vcx:set x (disj   (set-add (vcx-disj   x) c))))
 
 (define (var-update st x)
   (define xcx (state-var=>cx-ref st x))
@@ -346,17 +347,14 @@
 (struct queue (recent high low))
 (define queue.empty (queue seteq.empty '() '()))
 ;; tables: any finite       relations where a row    *must* be chosen
-;; disjs:  any search-based relations where a branch *must* be chosen
-(record state (qterm vars.nonlocal vars.local
-               formula.pending formula.slow formula.simplified
-               var=>cx store simple tables disjs pending))
+;; disj:   any search-based relations where a branch *must* be chosen
+(record state (qterm vars.nonlocal vars.local log
+               var=>cx store simple tables disj pending))
 (define (state:new qterm)
   (state
     (qterm qterm) (vars.nonlocal (term-vars qterm)) (vars.local seteq.empty)
-    (formula.pending '()) (formula.slow '()) (formula.simplified '())
-    (var=>cx hasheq.empty) (store hasheq.empty)
-    (simple (hash)) (tables seteq.empty)
-    (disjs seteq.empty) (pending queue.empty)))
+    (log '()) (var=>cx hasheq.empty) (store hasheq.empty)
+    (simple (hash)) (tables seteq.empty) (disj (hash)) (pending queue.empty)))
 (define (state-vars-simplify st)
   (define vars (term-vars (walk* st (set->list (state-vars.nonlocal st)))))
   (state:set st (vars.nonlocal vars)))
@@ -523,7 +521,7 @@
 
 (struct c:use (vars.pending lhs args proc desc) #:prefab)
 (define (use st uid u)
-  (define (watch-var st x)
+  (define (watch-var x st)
     (let* ((vcx.x (state-var=>cx-ref st x))
            (vcx.x (vcx-simple-add vcx.x uid)))
       (state-var=>cx-set st x vcx.x)))
@@ -534,8 +532,8 @@
   (if (null? vars.pending)
     (unify st lhs (apply proc (walk* st args)))
     ;; future policy option: watch all vars instead of just one
-    ;(let ((st (foldl (lambda (x st) (watch-var st x)) st vars.pending)))
-    (let ((st (watch-var st (car vars.pending))))
+    ;(let ((st (foldl watch-var st vars.pending)))
+    (let ((st (watch-var (car vars.pending) st)))
       (state-simple-add st uid `#s(c:use ,vars.pending ,lhs ,args ,proc ,d)))))
 
 (define (state-simple-update st uids)
