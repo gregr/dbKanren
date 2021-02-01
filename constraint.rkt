@@ -257,7 +257,7 @@
                            (loop (bounds (vector->list lb) lbi
                                          (vector->list ub) ubi)
                                  (vector->list t)))))))
-            (else (define vcx.old (state-var=>cx-ref st t))
+            (else (define vcx.old (state-vcx-ref st t))
                   (define b.0     (vcx-bounds vcx.old))
                   (define lb?     (any<? (bounds-lb b.0) (bounds-lb b)))
                   (define ub?     (any<? (bounds-ub b) (bounds-ub b.0)))
@@ -277,7 +277,7 @@
                                     (vcx-arc-add vcx.old cx.rest.lb) vcx.old))
                          (vcx.old (if (and cx.rest.ub (equal? ub ub^))
                                     (vcx-arc-add vcx.old cx.rest.ub) vcx.old))
-                         (st (state-var=>cx-set st t vcx.old)))
+                         (st (state-vcx-set st t vcx.old)))
                     (if (or lb? ub? lbi? ubi?)
                       (state-vcx-update-bounds st t vcx.old
                                                (bounds lb^ lbi^ ub^ ubi^))
@@ -300,7 +300,7 @@
          (define b (term-bounds st (vector->list t)))
          (bounds (list->vector (bounds-lb b)) (bounds-lb-inclusive? b)
                  (list->vector (bounds-ub b)) (bounds-ub-inclusive? b)))
-        ((var? t) (vcx-bounds (state-var=>cx-ref st t)))
+        ((var? t) (vcx-bounds (state-vcx-ref st t)))
         (else     t)))
 
 (record vcx (bounds domain arc =/=* simple disj))
@@ -318,15 +318,15 @@
 (define (vcx-disj-add   x c)  (vcx:set x (disj   (set-add (vcx-disj   x) c))))
 
 (define (var-update st x)
-  (define xcx (state-var=>cx-ref st x))
+  (define xcx (state-vcx-ref st x))
   (define b.0 (vcx-bounds xcx))
   (let*/and ((st (foldl/and cx-apply
-                            (state-var=>cx-set st x (vcx-domain-clear xcx))
+                            (state-vcx-set st x (vcx-domain-clear xcx))
                             (set->list (vcx-domain xcx)))))
     (let* ((t   (walk st x))
-           (xcx (if (var? t) (state-var=>cx-ref st t) vcx.empty)))
+           (xcx (if (var? t) (state-vcx-ref st t) vcx.empty)))
       (if (or (not (var? t)) (eq? (vcx-bounds xcx) b.0)) st
-        (foldl/and cx-apply (state-var=>cx-set st t (vcx-arc-clear xcx))
+        (foldl/and cx-apply (state-vcx-set st t (vcx-arc-clear xcx))
                    (set->list (vcx-arc xcx)))))))
 
 (define (cx-apply cx st) (cx st))
@@ -349,8 +349,8 @@
 (define (state-vars-simplify st)
   (define vars (term-vars (walk* st (set->list (state-vars.nonlocal st)))))
   (state:set st (vars.nonlocal vars)))
-(define (state-var=>cx-ref st x) (hash-ref (state-var=>cx st) x vcx.empty))
-(define (state-var=>cx-set st x t)
+(define (state-vcx-ref st x) (hash-ref (state-var=>cx st) x vcx.empty))
+(define (state-vcx-set st x t)
   (state:set st (var=>cx (hash-set (state-var=>cx st) x t))))
 (define (state-store-ref st k _) (hash-ref (state-store st) k _))
 (define (state-store-set st k v)
@@ -376,13 +376,13 @@
                 uses))))
 
 (define (state-vcx-update st x update)
-  (state-var=>cx-set st x (update (state-var=>cx-ref st x))))
+  (state-vcx-set st x (update (state-vcx-ref st x))))
 (define (state-schedule st x)
   (define q (state-pending st))
   (if (or (member x (queue-high q)) (member x (queue-low q))) st
     (state-pending-push st x)))
 (define (state-schedule-update st x vcx.new)
-  (state-schedule (state-var=>cx-set st x vcx.new) x))
+  (state-schedule (state-vcx-set st x vcx.new) x))
 (define (state-vcx-update-bounds st x vcx.old b.new)
   (match-define (bounds lb lbi ub ubi) b.new)
   (cond ((any<?  ub lb) #f)
@@ -460,7 +460,7 @@
   ;; TODO: it might be better to loop the entire state-choose.  Pruning the
   ;; domain of x.best could affect stats of other variables.
   (define v=>cx (state-var=>cx st))
-  (define t (bounds-lb (vcx-bounds (state-var=>cx-ref st x.best))))
+  (define t (bounds-lb (vcx-bounds (state-vcx-ref st x.best))))
   (define st.new (assign st x.best t))
   (define (s-rest) (let ((st.skip (disunify st x.best t)))
                      (if st.skip (list st.skip) '())))
@@ -492,8 +492,8 @@
               (vcx.t (if (var? t) (hash-ref v=>cx t vcx.empty) vcx.empty))
               (=/=** (append (vcx-=/=* vcx.t) (vcx-=/=* vcx.x)))
               (st    (if (eq? vcx.empty vcx.t) st
-                       (state-var=>cx-set st t (vcx-=/=*-clear vcx.t))))
-              (st    (state-var=>cx-set st x t)))
+                       (state-vcx-set st t (vcx-=/=*-clear vcx.t))))
+              (st    (state-vcx-set st x t)))
          (let*/and ((st (state-simple-update st (set->list (vcx-simple vcx.x))))
                     (st (bounds-apply st (vcx-bounds vcx.x) t))
                     (st (foldl/and cx-apply st (set->list (vcx-domain vcx.x))))
@@ -513,9 +513,9 @@
 (struct c:use (vars.pending lhs args proc desc) #:prefab)
 (define (use st uid u)
   (define (watch-var x st)
-    (let* ((vcx.x (state-var=>cx-ref st x))
+    (let* ((vcx.x (state-vcx-ref st x))
            (vcx.x (vcx-simple-add vcx.x uid)))
-      (state-var=>cx-set st x vcx.x)))
+      (state-vcx-set st x vcx.x)))
   (match-define `#s(c:use ,t.vs ,lhs ,args ,proc ,d) u)
   ;; TODO: performance
   ;; * can interleave walk* and term-vars
@@ -576,9 +576,9 @@
 
 (define (assign/log st ==* x t)
   (and (not (occurs? st x t))
-       (let*/and ((st (bounds-apply st (vcx-bounds (state-var=>cx-ref st x))
+       (let*/and ((st (bounds-apply st (vcx-bounds (state-vcx-ref st x))
                                     t)))
-         (cons (state-var=>cx-set st x t)
+         (cons (state-vcx-set st x t)
                (cons (cons x t) ==*)))))
 (define (unify/log st ==* t1 t2)
   (let ((t1 (walk st t1)) (t2 (walk st t2)))
@@ -605,9 +605,9 @@
                  ((null? (cdr st+)) (loop (cdr =/=*)))
                  (else (define =/=*.new (append (cdr st+) (cdr =/=*)))
                        (define y        (caar =/=*.new))
-                       (define vcx.y    (state-var=>cx-ref st y))
+                       (define vcx.y    (state-vcx-ref st y))
                        (define (add-=/=*)
-                         (state-var=>cx-set
+                         (state-vcx-set
                            st y (vcx-=/=*-add vcx.y =/=*.new)))
                        (match =/=*.new
                          (`((,_ . ,(? ground? value)))
