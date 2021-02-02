@@ -5,7 +5,7 @@
          term.vector.min term.vector.max
          domain.any domain.null domain.number domain.symbol
          domain.string domain.bytes domain.pair domain.vector domain.boolean
-         any-increment any-decrement
+         any-increment any-decrement finite-interval?
          (struct-out interval)
          type->compare compare-term compare-any compare-null compare-boolean
          compare-nat compare-number
@@ -107,6 +107,14 @@
                  (define xs.new (list-decrement xs))
                  (if (eq? xs xs.new) x (list->vector xs.new)))
     (_           x)))
+
+(define (finite-interval? lb ub)
+  (let loop ((lb lb) (acc '()))
+    (if (equal? lb ub)
+      (reverse (cons ub acc))
+      (let ((lb.new (any-increment lb)))
+        (and (not (equal? lb lb.new))
+             (loop lb.new (cons lb acc)))))))
 
 (define ((compare-><?  compare) a b)      (eqv? (compare a b) -1))
 (define ((compare-><=? compare) a b) (not (eqv? (compare a b)  1)))
