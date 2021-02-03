@@ -301,7 +301,13 @@
          (bounds (list->vector (bounds-lb b)) (bounds-lb-inclusive? b)
                  (list->vector (bounds-ub b)) (bounds-ub-inclusive? b)))
         ((var? t) (vcx-bounds (state-vcx-ref st t)))
-        (else     t)))
+        (else     (bounds t #t t #t))))
+
+;; Input bounds must first be validated as a non-empty interval
+(define (bounds-simplify b)
+  (if (equal? (bounds-lb b) (bounds-ub b))
+    (bounds-lb b)
+    b))
 
 (record vcx (bounds domain arc =/=* simple disj))
 (define vcx.empty (vcx (bounds bounds.any) (domain seteq.empty) (arc seteq.empty)
@@ -710,7 +716,7 @@
         (match-define (cons col=>b t) (state-store-ref st id #f))
         (define b.0  (hash-ref col=>b col bounds.any))
         (define term (walk* st (hash-ref col=>arg col)))
-        (define b.t  (term-bounds st term))
+        (define b.t  (bounds-simplify (term-bounds st term)))
         (if (bounds? b.t)
           (if (equal? b.0 b.t) (add-cx st term)
             (let*/and ((t (t (if (bounds-lb-inclusive? b.t) '>= '>)
