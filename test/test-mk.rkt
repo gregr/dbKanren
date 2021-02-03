@@ -604,24 +604,86 @@
       (9 1 o0   o1.1 o2)
       (9 5 q0   q1   q2))))
 
-(test '<=-1
+(test '<=.1
   (run* (n)
     (membero n '(0 1 2 3 4 5 6 7 8 9))
     (<=o 2 n)
     (<o  n 8))
   '((2) (3) (4) (5) (6) (7)))
-(test '<=-2
+(test '<=.2
   (run* (n)
     (<=o 2 n)
     (<o  n 8)
     (membero n '(0 1 2 3 4 5 6 7 8 9)))
   '((2) (3) (4) (5) (6) (7)))
-(test '<=-3
+(test '<=.3
   (run* (n)
     (<o  n 8)
     (<=o 2 n)
     (membero n '(0 1 2 3 4 5 6 7 8 9)))
   '((2) (3) (4) (5) (6) (7)))
+;; TODO:
+;(test 'any<=.fd.1
+;  (run* (x)
+;    (any<=o '(#t . #f) x)
+;    (any<=o x '#(())))
+;  '?)
+;(test 'any<=.fd.2
+;  (run* (x)
+;    (any<=o '(#f . #f) x)
+;    (any<=o x '(#t . ())))
+;  '?)
+;(test 'any<=.fd.3
+;  (run* (x)
+;    (any<=o '#(5 #f #f #f) x)
+;    (any<=o x '#(5 #f #t ())))
+;  '?)
+;(test 'any<=.fd.4
+;  (run* (x)
+;    (any<=o '#(#t #t #f) x)
+;    (any<=o x '#(() () () ())))
+;  '?)
+;(test 'any<=.cycle.0
+;  (run* (a b c)
+;    (any<=o a b)
+;    (any<=o b c)
+;    (any<=o c a))
+;  '(#s(cx (#s(var 0) #s(var 0) #s(var 0)))))
+;(test 'any<=.cycle.1
+;  (run* (a b c d e)
+;    (any<=o a b)
+;    (any<=o b c)
+;    (any<=o c d)
+;    (any<=o d e)
+;    (any<=o e a))
+;  '(#s(cx (#s(var 0) #s(var 0) #s(var 0) #s(var 0) #s(var 0)))))
+;(test 'any<=.cycle.2
+;  (run* (a b c d e)
+;    (=/= b d)
+;    (any<=o a b)
+;    (any<=o b c)
+;    (any<=o c d)
+;    (any<=o d e)
+;    (any<=o e a))
+;  '())
+;(test 'any<=.cycle.3
+;  (run* (a b c d e)
+;    (any<=o a b)
+;    (any<=o b c)
+;    (any<=o c d)
+;    (any<=o d e)
+;    (any<=o e a)
+;    (=/= b d))
+;  '())
+;(test 'any<=.cycle.4
+;  (run* (a b c d e f)
+;    (any<=o a b)
+;    (any<=o b c)
+;    (any<=o c d)
+;    (any<=o d e)
+;    (any<=o e f)
+;    (any<=o d b))
+;  '(#s(cx (#s(var 0) #s(var 1) #s(var 1) #s(var 1) #s(var 2) #s(var 3)))))
 
 
 ;; Simple relational interpreter tests
