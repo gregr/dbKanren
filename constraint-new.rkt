@@ -23,7 +23,10 @@
 
 (define (uid:new) (gensym))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Interval bounds for describing a (potentially-infinite) set of terms
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (struct bounds (lb lb-inclusive? ub ub-inclusive?) #:prefab)
 (define bounds.any (bounds term.min #t term.max #t))
 
@@ -47,7 +50,10 @@
         ((var? t) (vcx-bounds (state-vcx-ref st t)))
         (else     (bounds t #t t #t))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Variable constraints
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (record vcx (bounds simple table disj))
 (define vcx.empty (vcx (bounds bounds.any) (simple (set)) (table (set)) (disj (set))))
 
@@ -58,11 +64,17 @@
 (define (vcx-disj-clear  x)   (vcx:set x (disj   (set))))
 (define (vcx-disj-add    x c) (vcx:set x (disj   (set-add (vcx-disj   x) c))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Work queue with recency-based prioritization
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (struct queue (recent high low))
 (define queue.empty (queue (set) '() '()))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Partially-satisfied state of a query's constraints
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (record state (qterm vars log var=>cx cx pending))
 (define (state:new qterm) (state (qterm qterm) (vars (term-vars qterm)) (log '())
                                  (var=>cx (hash)) (cx (hash)) (pending queue.empty)))
@@ -177,7 +189,10 @@
       st
       (state-enforce-local-consistency st))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Internal constraint algebra
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (struct c:conj  (cs)                              #:prefab)
 (struct c:disj  (cs)                              #:prefab)
 (struct c:==    (l r)                             #:prefab)
@@ -228,6 +243,10 @@
      (use st uid? vars.pending lhs args proc desc))
     ;; TODO: table and procedure constraints
     ))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Constraint operations
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (unify st t1 t2)
   (let ((t1 (walk st t1)) (t2 (walk st t2)))
@@ -342,13 +361,15 @@
 (define (conjoin st cs) (foldl/and (lambda (c st) (c-apply st #f c)) st cs))
 
 (define (use st uid? t.vs lhs args proc desc)
-  ;; TODO: performance
-  ;; * can interleave walk* and term-vars
   (define vars.pending (set->list (term-vars (walk* st t.vs))))
   (if (null? vars.pending)
     (unify st lhs (apply proc (walk* st args)))
     (state-cx-add st vars.pending vcx-simple-add uid?
                   `#s(c:use ,vars.pending ,lhs ,args ,proc ,desc))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Variable-centric constraint operations
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (var-update st x)
   (define vcx.x (state-vcx-ref st x))
@@ -415,6 +436,10 @@
                 ;; TODO: instead, produce a table constraint for efficiency?
                 (disjoin st.new #f (map (lambda (t) (c:== x t)) domain?))
                 st.new))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Other utilities
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (walk st t)
   (if (var? t)
