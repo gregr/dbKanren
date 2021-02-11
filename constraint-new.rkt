@@ -141,7 +141,7 @@
                     (cons (set-remove pending.0 source) order.0)
                     (hash-ref graph source)))
            (cons pending (cons source order)))
-          (else (cons pending order))))
+          (else (cons pending.0 order.0))))
   (define order.<=
     (let loop ((pending (list->set (hash-keys a<=b))) (order '()))
       (if (set-empty? pending)
@@ -182,6 +182,7 @@
                               (car high.new)))
         (else               (state:set st (pending queue.empty)))))
 
+;; TODO: include a parameter to specify the degree of locality
 (define (state-enforce-local-consistency st)
   (let*/and ((st (state-schedule-run     st))
              (st (state-solve-lte-cycles st)))
@@ -189,23 +190,30 @@
       st
       (state-enforce-local-consistency st))))
 
+(define (state->satisfied-states st.0)
+  (define st (state-enforce-local-consistency st.0))
+  (if st
+    ;; TODO: enumerate each globally consistent state.
+    ;; Each table and disjunction constraint must be satisfied and
+    ;; state-uses-empty?! must succeed.
+    (list st)
+    '()))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Internal constraint algebra
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(struct c:conj  (cs)                              #:prefab)
-(struct c:disj  (cs)                              #:prefab)
-(struct c:==    (l r)                             #:prefab)
-(struct c:=/=   (l r)                             #:prefab)
-(struct c:<=    (l r)                             #:prefab)
-(struct c:use   (vars.pending lhs args proc desc) #:prefab)
-;; TODO: store args and v=>i* directly in t controller?
-(struct c:table (t args v=>i*)                    #:prefab)
-(struct c:proc  (proc args parents)               #:prefab)
+(struct c:conj  (cs)                      #:prefab)
+(struct c:disj  (cs)                      #:prefab)
+(struct c:==    (l r)                     #:prefab)
+(struct c:=/=   (l r)                     #:prefab)
+(struct c:<=    (l r)                     #:prefab)
+(struct c:use   (vars lhs args proc desc) #:prefab)
+(struct c:table (t)                       #:prefab)
+(struct c:proc  (proc args parents)       #:prefab)
 
 (define (f->c f)
   (match f
-    (`#s(==/use ,lhs ,args ,proc ,desc) (c:use args lhs args proc desc))
     (`#s(conj ,f1 ,f2) (define (f->cs f) (match (f->c f)
                                            ((c:conj cs) cs)
                                            (c           (list c))))
@@ -214,13 +222,11 @@
                                            ((c:disj cs) cs)
                                            (c           (list c))))
                        (c:disj (append (f->cs f1) (f->cs f2))))
-    (`#s(constrain =/=    (,lhs ,rhs))  (c:=/= lhs rhs))
-    (`#s(constrain ==     (,lhs ,rhs))  (c:==  lhs rhs))
-    (`#s(constrain any<=o (,lhs ,rhs))  (c:<=  lhs rhs))
-    ;; TODO: table and procedure constraints
-    ))
-
-;; TODO: choosing/enumerating table and disjunction search space
+    (`#s(==/use ,lhs ,args ,proc ,desc) (c:use args lhs args proc desc))
+    (`#s(constrain =/=    (,lhs ,rhs))  (c:=/=   lhs rhs))
+    (`#s(constrain ==     (,lhs ,rhs))  (c:==    lhs rhs))
+    (`#s(constrain any<=o (,lhs ,rhs))  (c:<=    lhs rhs))
+    (`#s(constrain ,proc  ,args)        (c:proc  proc args (set)))))
 
 (define (c-success? c) (and (c:conj? c) (null? (c:conj-cs c))))
 
@@ -234,15 +240,14 @@
 
 (define (c-apply st uid? c)
   (match c
-    ((c:==  l r) (unify    st      l r))
-    ((c:=/= l r) (disunify st uid? l r))
-    ((c:<=  l r) (ltunify  st uid? l r))
-    ((c:disj cs) (disjoin  st uid? cs))
-    ((c:conj cs) (conjoin  st      cs))
-    ((c:use vars.pending lhs args proc desc)
-     (use st uid? vars.pending lhs args proc desc))
-    ;; TODO: table and procedure constraints
-    ))
+    ((c:==  l r)                     (unify        st      l r))
+    ((c:=/= l r)                     (disunify     st uid? l r))
+    ((c:<=  l r)                     (ltunify      st uid? l r))
+    ((c:disj cs)                     (disjoin      st uid? cs))
+    ((c:conj cs)                     (conjoin      st      cs))
+    ((c:table t)                     (table-update st uid? t))
+    ((c:proc proc args parents)      (proc-apply   st uid? proc args parents))
+    ((c:use vars lhs args proc desc) (use          st uid? vars lhs args proc desc))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Constraint operations
@@ -343,8 +348,8 @@
       ((c:disj cs)        (set-union (c-vars (car cs)) (c-vars (cadr cs))))
       ((c:conj cs)        (apply set-union (map c-vars cs)))
       ((c:use vs _ _ _ _) (term-vars vs))
-      ;; TODO: table and procedure constraints
-      ))
+      ((c:table t)        (table-vars t))
+      ((c:proc  _ args _) (term-vars args))))
   (let loop ((cs cs) (cs.new '()))
     (if (null? cs)
       (match cs.new
@@ -366,6 +371,19 @@
     (unify st lhs (apply proc (walk* st args)))
     (state-cx-add st vars.pending vcx-simple-add uid?
                   `#s(c:use ,vars.pending ,lhs ,args ,proc ,desc))))
+
+(define (proc-apply st uid? proc args parents)
+  ;; TODO: determine whether to expand instead of adding a c:proc
+  (state-cx-add st (term-vars args) vcx-simple-add uid? (c:proc proc args parents)))
+
+(define (table-update st uid? t)
+  (let*/and ((result (t 'update st)))
+    (match-define (cons t.new c) result)
+    (c-apply (state-cx-add st (table-vars t.new) vcx-table-add uid? (c:table t.new))
+             #f c)))
+
+;; TODO: should we make use of current state?
+(define (table-vars t) (t 'vars))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Variable-centric constraint operations
