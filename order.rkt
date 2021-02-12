@@ -3,6 +3,7 @@
          term.symbol.min term.symbol.max term.string.min term.string.max
          term.bytes.min term.bytes.max term.pair.min term.pair.max
          term.vector.min term.vector.max
+         (struct-out bounds) bounds.any
          domain.any domain.null domain.number domain.symbol
          domain.string domain.bytes domain.pair domain.vector domain.boolean
          any-increment any-decrement finite-interval?
@@ -54,6 +55,9 @@
 (define domain.pair    `#((() .()) ,(interval '(() . ()) '(#t . #t)) '(#t . #t)))
 (define domain.vector  `#(#()      ,(interval '#()       #f)))
 (define domain.boolean `#(#f                             #t))
+
+(struct bounds (lb lb-inclusive? ub ub-inclusive?) #:prefab)
+(define bounds.any (bounds term.min #t term.max #t))
 
 (define (any-increment x)
   (define (list-increment xs)

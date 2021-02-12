@@ -27,9 +27,6 @@
 ;; Interval bounds for describing a (potentially-infinite) set of terms
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(struct bounds (lb lb-inclusive? ub ub-inclusive?) #:prefab)
-(define bounds.any (bounds term.min #t term.max #t))
-
 (define (term-bounds st t.0)
   (define t (walk st t.0))
   (cond ((pair? t)

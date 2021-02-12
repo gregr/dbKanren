@@ -189,8 +189,6 @@
 ;; Also, vector comparisons can be converted to analogous list comparisons, as
 ;; currently done by bounds-apply.
 
-(struct bounds (lb lb-inclusive? ub ub-inclusive?) #:prefab)
-(define bounds.any (bounds term.min #t term.max #t))
 (define (bounds-apply st b t (cx.rest.lb #f) (cx.rest.ub #f))
   (if (and (equal? b bounds.any) (not cx.rest.lb) (not cx.rest.ub)) st
     (let loop ((b b) (t (walk* st t)))
