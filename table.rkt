@@ -32,7 +32,7 @@
 ;; TODO: support multiple sorted columns using tables that share key columns
 ;;       (wait until column-oriented tables are implemented for simplicity?)
 
-(define (table vref key-col cols.all types row-count)
+(define (table.old vref key-col cols.all types row-count)
   (let table ((cols  cols.all)
               (types types)
               (key-bound? #f) (bound '()) (mask 0) (start 0) (end row-count))
@@ -104,7 +104,7 @@
     (file-position in (table-ref table.offsets #t i 'offset))
     (decode in type))
   (and table.offsets
-       (table ref key-col cols types (table-length table.offsets #t))))
+       (table.old ref key-col cols types (table-length table.offsets #t))))
 
 (define (table/bytes/offsets table.offsets key-col cols types bs)
   (define in (open-input-bytes bs))
@@ -114,7 +114,7 @@
   (define type `#(tuple ,@types))
   (define width (sizeof type (void)))
   (define (ref i) (file-position in (* i width)) (decode in type))
-  (table ref key-col cols types len))
+  (table.old ref key-col cols types len))
 
 (define (table/bytes key-col cols types bs)
   (define in (open-input-bytes bs))
@@ -122,7 +122,7 @@
               key-col cols types in))
 
 (define (table/vector key-col cols types v)
-  (table (lambda (i) (vector-ref v i)) key-col cols types (vector-length v)))
+  (table.old (lambda (i) (vector-ref v i)) key-col cols types (vector-length v)))
 
 (define (vector-table? types v)
   (define v< (compare-><? (type->compare types)))
