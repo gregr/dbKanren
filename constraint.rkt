@@ -2,8 +2,8 @@
 (provide bis:query->stream dfs:query->stream
          materialized-relation define-materialized-relation
          relation/stream letrec-relation/stream define-relation/stream)
-(require "method.rkt" "order.rkt" "record.rkt" "stream.rkt" "syntax.rkt"
-         "table.rkt" (except-in racket/match ==)
+(require "method.rkt" "misc.rkt" "order.rkt" "record.rkt" "stream.rkt"
+         "syntax.rkt" "table.rkt" (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
 
 ;; TODO:
@@ -121,17 +121,6 @@
 ;;     if any subgraph failed completely, composition also fails
 
 ;;; TODO: occurs check for vector-ref
-
-(define (foldl/and f acc xs . yss)
-  (let loop ((acc acc) (xs xs) (yss yss))
-    (if (null? xs) acc
-      (and acc (loop (apply f (car xs) (append (map car yss) (list acc)))
-                     (cdr xs) (map cdr yss))))))
-(define-syntax let*/and
-  (syntax-rules ()
-    ((_ () body ...) (let () body ...))
-    ((_ ((lhs rhs) rest ...) body ...)
-     (let ((lhs rhs)) (and lhs (let*/and (rest ...) body ...))))))
 
 (define hasheq.empty (hash))
 (define seteq.empty  (set))
