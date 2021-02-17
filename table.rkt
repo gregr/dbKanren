@@ -1,5 +1,5 @@
 #lang racket/base
-(provide materialize-relation! materialization value/syntax
+(provide materialize-relation! materialization value/syntax table
          vector-table? call/files let/files encoder s-encode s-decode)
 (require "codec.rkt" "config.rkt" "dsv.rkt" "method.rkt" "misc.rkt"
          "order.rkt" "stream.rkt"
@@ -35,10 +35,19 @@
 (define (table ixs)
   (and (not (ormap not ixs))
        (let table ((ixs         (filter (lambda (ix) (not (ix 'done?))) ixs))
-                   (col=>bounds (foldl (lambda (ix c=>b) (hash-union c=>b (ix 'bounds)
-                                                                     #:combine bounds-intersect))
+                   (col=>bounds (foldl (lambda (ix c=>b)
+                                         (hash-union c=>b (ix 'bounds)
+                                                     ;; TODO: verify no errors during testing.
+                                                     ;;       Should be able to replace this with:
+                                                     ;;       #:combine (lambda (b.0 b.1) b.0)
+                                                     #:combine/key
+                                                     (lambda (k b.0 b.1)
+                                                       (if (equal? b.0 b.1)
+                                                         b.0
+                                                         (error "incompatible initial bounds:" k b.0 b.1)))))
                                        (hash) ixs)))
          (method-lambda
+           ((done?)       (null? ixs))
            ((bounds)      col=>bounds)
            ;; TODO: gather all statistics at once
            ((size-ratios) (apply hash-union (hash)
