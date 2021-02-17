@@ -366,14 +366,41 @@
   ;; TODO: determine whether to expand instead of adding a c:proc
   (state-cx-add st (term-vars args) vcx-simple-add uid? (c:proc proc args parents)))
 
-(define (table-update st uid? t)
-  (let*/and ((result (t 'update st)))
-    (match-define (cons t.new c) result)
-    (c-apply (state-cx-add st (table-vars t.new) vcx-table-add uid? (c:table t.new))
-             #f c)))
+(define (table-update st uid? tc) (tc 'update st uid?))
+(define (table-vars           tc) (tc 'vars))
 
-;; TODO: should we make use of current state?
-(define (table-vars t) (t 'vars))
+;; TODO: this should be renamed to relation/table
+(define (materialized-relation . pargs)
+  ;; TODO: we don't need primary-key-name anymore
+  (match-define (list name attribute-names primary-key-name ixs)
+    (apply materialization pargs))
+  (define t.0 (table ixs))
+  (define (apply st . args.0)
+    (define (update-state st t)
+      (define c=>b (t 'bounds))
+      (foldl/and (lambda (c a st)
+                   (c-apply st #f (c:bounds (hash-ref c=>b c bounds.any) a)))
+                 st attribute-names args.0))
+    (let*/and ((st (update-state st t.0)))
+      (define args (walk* st args.0))
+      (define tc
+        (let controller ((t  t.0)
+                         (vs (set->list (term-vars args))))
+          (method-lambda
+            ((vars) vs)
+            ((update st uid?)
+             (let*/and ((t (t 'update (map (lambda (c a) (cons c (term-bounds st a)))
+                                           attribute-names args))))
+               (define tc (controller t (set->list (term-vars (walk* st vs)))))
+               (update-state
+                 (state-cx-add st (tc 'vars) vcx-table-add uid? (c:table tc))
+                 t))))))
+      (c-apply st #f (c:table tc))))
+  (define r (make-relation name attribute-names))
+  (if t.0
+    (relations-set! r 'apply  apply)
+    (relations-set! r 'expand (lambda args (== (cons name args) 'nothing))))
+  r)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Variable-centric constraint operations
@@ -467,3 +494,5 @@
   (define t.0  (walk* st term))
   ;; TODO: reify both =/= and <= constraints
   (pretty t.0))
+
+;; TODO: define-relation/table instead of define-materialized-relation
