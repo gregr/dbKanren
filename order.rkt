@@ -3,7 +3,7 @@
          term.symbol.min term.symbol.max term.string.min term.string.max
          term.bytes.min term.bytes.max term.pair.min term.pair.max
          term.vector.min term.vector.max
-         (struct-out bounds) bounds.any
+         (struct-out bounds) bounds.any bounds-intersect
          domain.any domain.null domain.number domain.symbol
          domain.string domain.bytes domain.pair domain.vector domain.boolean
          any-increment any-decrement finite-interval?
@@ -58,6 +58,19 @@
 
 (struct bounds (lb lb-inclusive? ub ub-inclusive?) #:prefab)
 (define bounds.any (bounds term.min #t term.max #t))
+
+(define (bounds-intersect x y)
+  (cond ((eq? x y) x)
+        (else (match-define (bounds lb.x lbi.x ub.x ubi.x) x)
+              (match-define (bounds lb.y lbi.y ub.y ubi.y) y)
+              (apply bounds (append (match (compare-any lb.x lb.y)
+                                      (-1 (list lb.y lbi.y))
+                                      ( 0 (list lb.x (and lbi.x lbi.y)))
+                                      ( 1 (list lb.x lbi.x)))
+                                    (match (compare-any ub.y ub.x)
+                                      (-1 (list ub.y ubi.y))
+                                      ( 0 (list ub.x (and ubi.x ubi.y)))
+                                      ( 1 (list ub.x ubi.x))))))))
 
 (define (any-increment x)
   (define (list-increment xs)
