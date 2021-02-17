@@ -195,6 +195,13 @@
 (struct c:table (t)                       #:prefab)
 (struct c:proc  (proc args parents)       #:prefab)
 
+(define (c:bounds b t)
+  (match b
+    ((bounds lb lbi ub ubi) (c:conj (append (list (c:<= lb t) (c:<= t ub))
+                                            (if lbi '() (list (c:=/= lb t)))
+                                            (if ubi '() (list (c:=/= t ub))))))
+    (v                      (c:== t v))))
+
 (define (f->c f)
   (match f
     (`#s(conj ,f1 ,f2) (define (f->cs f) (match (f->c f)
@@ -392,11 +399,8 @@
               (vcx.t (if (var? t) (state-vcx-ref st t) vcx.empty))
               (st    (state-log-add st (c:== x t)))
               (st    (state-vcx-set st x t)))
-         (match-define (bounds lb lbi ub ubi) (vcx-bounds vcx.x))
          (foldl/and (lambda (uids st) (state-cx-update* st uids))
-                    (c-apply st #f (c:conj (append (list (c:<= lb t) (c:<= t ub))
-                                                   (if lbi '() (list (c:=/= lb t)))
-                                                   (if ubi '() (list (c:=/= t ub))))))
+                    (c-apply st #f (c:bounds (vcx-bounds vcx.x) t))
                     (list (vcx-simple vcx.x)  ;; the least expensive constraints
                           (vcx-table  vcx.x)
                           (vcx-disj   vcx.x))))))
