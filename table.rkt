@@ -1,10 +1,10 @@
 #lang racket/base
 (provide materialize-relation! materialization value/syntax
          vector-table? call/files let/files encoder s-encode s-decode)
-(require "codec.rkt" "config.rkt" "dsv.rkt" "method.rkt" "order.rkt"
-         "stream.rkt"
-         racket/file racket/function racket/list racket/match racket/pretty
-         racket/set racket/vector)
+(require "codec.rkt" "config.rkt" "dsv.rkt" "method.rkt" "misc.rkt"
+         "order.rkt" "stream.rkt"
+         racket/file racket/function racket/hash racket/list racket/match
+         racket/pretty racket/set racket/vector)
 
 (define (s-encode out type s) (s-each (lambda (v) (encode out type v)) s))
 (define (s-decode in type)
@@ -31,6 +31,122 @@
 
 ;; TODO: support multiple sorted columns using tables that share key columns
 ;;       (wait until column-oriented tables are implemented for simplicity?)
+
+(define (table ixs)
+  (and (not (ormap not ixs))
+       (let table ((ixs         (filter (lambda (ix) (not (ix 'done?))) ixs))
+                   (col=>bounds (foldl (lambda (ix c=>b) (hash-union c=>b (ix 'bounds)
+                                                                     #:combine bounds-intersect))
+                                       (hash) ixs)))
+         (method-lambda
+           ((bounds)      col=>bounds)
+           ;; TODO: gather all statistics at once
+           ((size-ratios) (apply hash-union (hash)
+                                 (map (lambda (ix) (ix 'size-ratios)) ixs)
+                                 #:combine min))
+           ((max-counts)  (apply hash-union (hash)
+                                 (map (lambda (ix) (ix 'max-counts))  ixs)
+                                 #:combine min))
+           ((update cbs)
+            (let loop ((c=>b (foldl (lambda (cb c=>b) (hash-set c=>b (car cb) (cdr cb)))
+                                    col=>bounds cbs))
+                       (ixs.pending ixs)
+                       (ixs.updated '()))
+              (if (null? ixs.pending)
+                (table (reverse ixs.updated) c=>b)
+                (let*/and ((ix.new ((car ixs.pending) 'update c=>b))
+                           (c=>b   (hash-union c=>b (ix.new 'bounds)
+                                               #:combine (lambda (v.0 v.1) v.1))))
+                  (cond ((not (ix.new 'done?))    (loop c=>b (cdr ixs.pending) (cons ix.new ixs.updated)))
+                        ((not (ix.new 'primary?)) (loop c=>b (cdr ixs.pending)              ixs.updated))
+                        (else                     (table '() c=>b)))))))))))
+
+(define (tabular-trie vref key-column nonkey-columns types row-count)
+  (define (ref mask i)          (vector-ref (vref i) mask))
+  (define ((make-i<  mask v) i) (any<?  (ref mask i) v))
+  (define ((make-i<= mask v) i) (any<=? (ref mask i) v))
+  (define ((make-i>  mask v) i) (any<?  v (ref mask i)))
+  (define ((make-i>= mask v) i) (any<=? v (ref mask i)))
+  (define (update/pending c=>b.new cols.pending col=>bounds mask start end)
+    (define c.next (car cols.pending))
+    (define b      (hash-ref c=>b.new c.next bounds.any))
+    (define (update/bounds lb lbi? ub ubi?)
+      (define start.new (bisect-next start end ((if lbi? make-i<= make-i<) mask lb)))
+      (define end.new (if (< start.new end)
+                        (bisect-prev start end ((if ubi? make-i>= make-i>) mask ub))
+                        start.new))
+      (update/trim #f c=>b.new cols.pending col=>bounds mask start.new end.new))
+    (cond ((equal? b (hash-ref col=>bounds (car cols.pending) bounds.any))
+           (new cols.pending col=>bounds mask start end))
+          ((not (bounds? b)) (update/bounds b #t b #t))
+          (else              (update/bounds (bounds-lb b)
+                                            (bounds-lb-inclusive? b)
+                                            (bounds-ub b)
+                                            (bounds-ub-inclusive? b)))))
+  (define (update/trim advanced? c=>b.new cols.pending col=>bounds mask start end)
+    (if (null? cols.pending)
+      (new '() (hash-set col=>bounds key-column (bounds start #t (- end 1) #t))
+           mask start end)
+      (and (< start end)
+           (let ((c.next (car cols.pending))
+                 (lb     (ref mask start))
+                 (ub     (ref mask (- end 1))))
+             (if (equal? lb ub)
+               (update/trim #t c=>b.new (cdr cols.pending)
+                            (hash-set col=>bounds c.next lb)
+                            (+ mask 1) start end)
+               (let ((col=>bounds (hash-set (hash-set col=>bounds c.next (bounds lb #t ub #t))
+                                            key-column (if (= start (- end 1))
+                                                         start
+                                                         (bounds start #t (- end 1) #t)))))
+                 (if advanced?
+                   (update/pending c=>b.new cols.pending col=>bounds mask start end)
+                   (new cols.pending col=>bounds mask start end))))))))
+  (define (new cols.pending col=>bounds mask start end)
+    (method-lambda
+      ((done?)    (null? cols.pending))
+      ((primary?) (not (not key-column)))
+      ((bounds)   col=>bounds)
+      ;; TODO: gather all statistics at once
+      ((size-ratios)
+       (define ratio (/ (- end start) row-count))
+       (make-immutable-hash
+         (cons (cons (car cols.pending) ratio)
+               (if key-column
+                 (list (cons key-column ratio))
+                 '()))))
+      ((max-counts)
+       (make-immutable-hash
+         (cons (cons (car cols.pending) (let ((v.lb (ref mask start))
+                                              (v.ub (ref mask (- end 1))))
+                                          (if (equal? v.lb v.ub)
+                                            1
+                                            (+ 2 (- (bisect-prev start end (make-i>= mask v.ub))
+                                                    (bisect-next start end (make-i<= mask v.lb)))))))
+               (if key-column
+                 (list (cons key-column (- end start)))
+                 '()))))
+      ((update c=>b)
+       (cond (key-column
+               (define b.key.0 (hash-ref col=>bounds key-column bounds.any))
+               (define b       (hash-ref c=>b        key-column bounds.any))
+               (cond ((not (bounds? b))
+                      (and (integer? b) (<= start b) (< b end)
+                           (update/trim #f c=>b cols.pending col=>bounds mask b (+ b 1))))
+                     ((not (equal? b b.key.0))
+                      (let ((lb (let ((lb.0 (bounds-lb b)))
+                                  (cond ((not (integer? lb.0))    (ceiling lb.0))
+                                        ((bounds-lb-inclusive? b)          lb.0)
+                                        (else                           (+ lb.0 1)))))
+                            (ub (let ((ub.0 (bounds-ub b)))
+                                  (cond ((not (integer? ub.0))    (floor ub.0))
+                                        ((bounds-ub-inclusive? b)        ub.0)
+                                        (else                         (- ub.0 1))))))
+                        (and (<= lb ub)
+                             (update/trim #f c=>b cols.pending col=>bounds mask lb (+ ub 1)))))
+                     (else (update/pending c=>b cols.pending col=>bounds start end))))
+             (else         (update/pending c=>b cols.pending col=>bounds start end))))))
+  (update/trim #f (hash) nonkey-columns (hash) 0 0 row-count))
 
 (define (table.old vref key-col cols.all types row-count)
   (let table ((cols  cols.all)
