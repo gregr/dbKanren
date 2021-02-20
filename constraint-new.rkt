@@ -175,14 +175,70 @@
       st
       (state-enforce-local-consistency st))))
 
-(define (state->satisfied-states st.0)
-  (define st (state-enforce-local-consistency st.0))
-  (if st
-    ;; TODO: enumerate each globally consistent state.
-    ;; Each table and disjunction constraint must be satisfied and
-    ;; state-uses-empty?! must succeed.
-    (list st)
-    '()))
+;; TODO: factor out table constraint satisfaction to support pre-branch global satisfiability checking
+;;       in cases where we want to split a disjunction before committing to all table constraints
+(define (state->satisfied-states st)
+  (define (d<? d.0 d.1)
+    ;; TODO: figure out a better ordering heuristic for most-constrainedness
+    (< (length (cdr d.0)) (length (cdr d.1))))
+  (define (choose-branch st.0 uid cs)
+    (define (k st?) (if st? (state->satisfied-states st?) '()))
+    (define st (state-cx-remove* st.0 (list uid)))
+    (s-append*        (k (c-apply st #f          (car cs)))
+                      ;; TODO: negate (car cs) if possible, for better subsumption
+               (thunk (k (c-apply st uid (c:disj (cdr cs)))))))
+  (define (choose-variable st xs.observable xss)
+    (define x=>c&s
+      (foldl (lambda (x=>s x=>c&s)
+               (foldl (lambda (x&s x=>c&s)
+                        (match-define (cons x s) x&s)
+                        (match (hash-ref x=>c&s x #f)
+                          (#f (hash-set x=>c&s x (cons 1 s)))
+                          ((cons count s.0)
+                           (hash-set x=>c&s x (cons (+ count 1)
+                                                    (statistics-intersect s.0 s))))))
+                      x=>c&s (hash->list x=>s)))
+             (hash) xss))
+    ;; TODO: also consider paths provided by available table indexes, maybe via
+    ;; prioritized topological sort of SCCs.
+    (define (xcs<? a b)
+      (match-define (cons x.a (cons count.a (statistics ratio.a card.a))) a)
+      (match-define (cons x.b (cons count.b (statistics ratio.b card.b))) b)
+      ;; Order by increasing size-ratio, cardinality and decreasing ref count
+      ;; Prefer members of xs.observable
+      (or (< ratio.a ratio.b)
+          (and (= ratio.a ratio.b)
+               (or (< card.a card.b)
+                   (and (= card.a card.b)
+                        (or (> count.a count.b)
+                            (and (= count.a count.b)
+                                 (set-member? xs.observable x.a)
+                                 (not (set-member? xs.observable x.b)))))))))
+    (define xcss   (hash->list x=>c&s))
+    (define x.best (car (foldl (lambda (xcs xcs.min) (if (xcs<? xcs xcs.min) xcs xcs.min))
+                               (car xcss) (cdr xcss))))
+    (define t (bounds-lb (vcx-bounds (state-vcx-ref st x.best))))
+    (define (k st?) (if st? (state->satisfied-states st?) '()))
+    (s-append*        (k (var-assign    st    x.best t))
+               (thunk (k (var-disassign st #f x.best t)))))
+  (match (state-enforce-local-consistency st)
+    (#f   '())
+    (st.0 (define cxs (hash->list (state-cx st)))
+          (match (map c:table-t (filter c:table? (map cdr cxs)))
+            ;; If there are no more table constraints, pick a disjunction to split
+            ('() (match (map (lambda (uid&c) (cons (car uid&c) (c:disj-cs (cdr uid&c))))
+                             (filter (lambda (uid&c) (c:disj? (cdr uid&c))) cxs))
+                   ;; If there are no more disjunctions either, we should be done
+                   ('() (state-uses-empty?! st) (list st))
+                   (ds  (define d.min (foldl (lambda (d d.min) (if (d<? d d.min) d d.min))
+                                             (car ds) (cdr ds)))
+                        (choose-branch st (car d.min) (cdr d.min)))))
+            (ts (define st            (state-vars-simplify st.0))
+                (define xs.observable (state-vars          st))
+                (define xss           (map (lambda (t) (table-statistics st t)) ts))
+                (define sts.all       (s-append* (s-map state->satisfied-states
+                                                        (choose-variable st xs.observable xss))))
+                (if (set-empty? xs.observable) (s-limit 1 sts.all) sts.all))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Internal constraint algebra
