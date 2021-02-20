@@ -366,8 +366,9 @@
   ;; TODO: determine whether to expand instead of adding a c:proc
   (state-cx-add st (term-vars args) vcx-simple-add uid? (c:proc proc args parents)))
 
-(define (table-update st uid? tc) (tc 'update st uid?))
-(define (table-vars           tc) (tc 'vars))
+(define (table-update     st uid? tc) (tc 'update st uid?))
+(define (table-vars               tc) (tc 'variables))
+(define (table-statistics st      tc) (tc 'variable-statistics))
 
 ;; TODO: this should be renamed to relation/table
 (define (materialized-relation . pargs)
@@ -387,13 +388,25 @@
         (let controller ((t  t.0)
                          (vs (set->list (term-vars args))))
           (method-lambda
-            ((vars) vs)
+            ((constraint st) (c:proc r (walk* st args) (set)))
+            ((variables)     vs)
+            ((variable-statistics st)
+             (define c=>stats (t 'statistics))
+             (foldl (lambda (c a x=>stats)
+                      (match (hash-ref c=>stats c #f)
+                        (#f  x=>stats)
+                        (s.x (define (merge s.0) (statistics-intersect s.0 s.x))
+                             (foldl (lambda (x x=>stats) (hash-update x=>stats x merge s.x))
+                                    x=>stats (set->list (term-vars (walk* st a)))))))
+                    (hash) attribute-names args))
             ((update st uid?)
              (let*/and ((t (t 'update (map (lambda (c a) (cons c (term-bounds st a)))
                                            attribute-names args))))
-               (define tc (controller t (set->list (term-vars (walk* st vs)))))
                (update-state
-                 (state-cx-add st (tc 'vars) vcx-table-add uid? (c:table tc))
+                 (if (t 'done?)
+                   st
+                   (let ((tc (controller t (set->list (term-vars (walk* st vs))))))
+                     (state-cx-add st (tc 'variables) vcx-table-add uid? (c:table tc))))
                  t))))))
       (c-apply st #f (c:table tc))))
   (define r (make-relation name attribute-names))
