@@ -1,5 +1,6 @@
 #lang racket/base
 (provide materialize-relation! materialization value/syntax table
+         (struct-out statistics) statistics-intersect
          vector-table? call/files let/files encoder s-encode s-decode)
 (require "codec.rkt" "config.rkt" "dsv.rkt" "method.rkt" "misc.rkt"
          "order.rkt" "stream.rkt"
@@ -29,6 +30,12 @@
   (call/files (list fin ...) (list fout ...)
               (lambda (in ... out ...) body ...)))
 
+(struct statistics (ratio cardinality) #:prefab)
+(define (statistics-intersect a b)
+  (match-define (statistics r.a c.a) a)
+  (match-define (statistics r.b c.b) b)
+  (statistics (min r.a r.b) (min c.a c.b)))
+
 ;; TODO: support multiple sorted columns using tables that share key columns
 ;;       (wait until column-oriented tables are implemented for simplicity?)
 
@@ -47,15 +54,11 @@
                                                          (error "incompatible initial bounds:" k b.0 b.1)))))
                                        (hash) ixs)))
          (method-lambda
-           ((done?)       (null? ixs))
-           ((bounds)      col=>bounds)
-           ;; TODO: gather all statistics at once
-           ((size-ratios) (apply hash-union (hash)
-                                 (map (lambda (ix) (ix 'size-ratios)) ixs)
-                                 #:combine min))
-           ((max-counts)  (apply hash-union (hash)
-                                 (map (lambda (ix) (ix 'max-counts))  ixs)
-                                 #:combine min))
+           ((done?)      (null? ixs))
+           ((bounds)     col=>bounds)
+           ((statistics) (apply hash-union (hash)
+                                (map (lambda (ix) (ix 'statistics))  ixs)
+                                #:combine statistics-intersect))
            ((update cbs)
             (let loop ((c=>b (foldl (lambda (cb c=>b) (hash-set c=>b (car cb) (cdr cb)))
                                     col=>bounds cbs))
@@ -116,24 +119,19 @@
       ((done?)    (null? cols.pending))
       ((primary?) (not (not key-column)))
       ((bounds)   col=>bounds)
-      ;; TODO: gather all statistics at once
-      ((size-ratios)
+      ((statistics)
        (define ratio (/ (- end start) row-count))
        (make-immutable-hash
-         (cons (cons (car cols.pending) ratio)
+         (cons (cons (car cols.pending)
+                     (statistics ratio
+                                 (let ((v.lb (ref mask start))
+                                       (v.ub (ref mask (- end 1))))
+                                   (if (equal? v.lb v.ub)
+                                     1
+                                     (+ 2 (- (bisect-prev start end (make-i>= mask v.ub))
+                                             (bisect-next start end (make-i<= mask v.lb))))))))
                (if key-column
-                 (list (cons key-column ratio))
-                 '()))))
-      ((max-counts)
-       (make-immutable-hash
-         (cons (cons (car cols.pending) (let ((v.lb (ref mask start))
-                                              (v.ub (ref mask (- end 1))))
-                                          (if (equal? v.lb v.ub)
-                                            1
-                                            (+ 2 (- (bisect-prev start end (make-i>= mask v.ub))
-                                                    (bisect-next start end (make-i<= mask v.lb)))))))
-               (if key-column
-                 (list (cons key-column (- end start)))
+                 (list (cons key-column (statistics ratio (- end start))))
                  '()))))
       ((update c=>b)
        (cond (key-column
