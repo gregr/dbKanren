@@ -152,6 +152,15 @@
         ((set-member? recent x) (st/q          recent            high (cons x low)))
         (else                   (st/q (set-add recent x) (cons x high)        low))))
 
+;; TODO: improve constraint propagation scheduling:
+;;       - gather variables with updated bounds
+;;       - then iterate through these vars and batch up their registered cxs
+;;       - then update all cxs in a strategic order
+;;         - disjs containing only ==, =/=, and <= constraints are very-high priority
+;;         - tables are high priority
+;;         - other disjs are mid priority
+;;         - ==/uses are low priority (in case the aggregate computations are expensive)
+;;       - loop
 (define (state-schedule-run st)
   (define (update-and-loop st x)
     (define t (walk st x))

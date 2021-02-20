@@ -15,13 +15,8 @@ Typical use:
 * prioritize support for general `any<=o`
 
 * redesign tables, indexing, variable ordering heuristics
-  * stop using implicit key columns/variables
-    * key column variables are ineffective mediators of constraint information
-    * no more indexes (whose final column is the key), just tables
-      * for unclustered indexing, specify the primary table's first column as
-        the index's last column, naturally activating primary table
-    * to get array-based lookup, specify appropriate column constraints
-    * also, define tables that use column-oriented layout
+  * to get array-based lookup, specify appropriate column constraints
+  * also, define tables that use column-oriented layout
   * identify most-constrained-variable more appropriately
     * simple cardinality (minimum-remaining-values) heuristic is not effective
     * cardinality is innaccurate since we only track bounds and don't eagerly
@@ -63,37 +58,16 @@ Typical use:
       * may store intermediate results per subquery for faster integration
 
 * redesign states, strategies to support adaptive analysis and optimization
-  * augment states
-    * with query parameter term
-      * if it's not known (could be anything), provide a worst-case term?
-        * e.g., if optimizing a relation body, use relation parameter variables
-    * with general conjunction of propositions (table constraints are propositions)
-      * maybe just call it a formula and let it take any formula shape?
-        * no, we need a map of `id=>prop`
-        * and optionally a semi-normalized prop set to check for duplicates
-    * states that can be transformed back into a formula
-      * quantifier scope stack
-      * explicit table constraints that maintain table state for efficiency?
   * hypothetical states for analyzing and transforming disjunction components
     * should also use this approach for transforming arbitrary formulas
     * process a disjunct's constraints in the usual way, but retain simplified
       residual constraints
       * optionally expand user-defined relations
-    * failure eliminates the disjunct
-    * if constraint affects no variables, it is subsumed and can be discarded
-      * pending queue can identify affected variables
     * may detect more opportunities for subsumption by reordering
     * may drop constraints for eliminated disjunct-local variables
       * e.g., simple equality constraints that have fully propagated
     * extract shared constraints from disjunction components via lattice-join
       * e.g., to implement efficient union of table constraints
-    * if a disjunct simplifies to True (no affected variables), then entire
-      disjunction is satisfied and simplifies to True
-    * for an unsatisfied disjunction, register to watch affected variables of
-      two of its disjuncts
-      * analogous to 2-watching in SMT solvers
-    * when resuming disjunction's parent, throw away hypothetical state, but
-      keep the simplified disjunction constraints
   * decorate unexpanded user-defined relation constraints with the chain of
     already-expanded parent/caller relations that led to this constraint
     * to identify nonterminating loops
@@ -103,18 +77,10 @@ Typical use:
   * randomized variants of interleaving or depth-first search
 
 * place-based concurrency/parallelism?
+* thread-safe table retrieval
 
 * `state-pending-run` before splitting search on any disj
   * instead, maybe even go so far as to `state-enumerate` before?
-
-* these would be supported by redesigned state (above)
-  * properly 2-watch `=/=*` constraints to make sure inclusiveness trimming
-    opportunities are not missed
-    * possibly also switch to eager disunify processing
-  * support branchless disjunctions when all leaf constraints are simple?
-    * no user-defined relations for now
-  * re-express bounds-apply using branchless disjunctions
-  * recognize finite domains and express using branchless disjunctions?
 
 * eventually, make sure relation metadata contains information for analysis
   * e.g., degree constraints, fast column ordering, subsumption tag/rules

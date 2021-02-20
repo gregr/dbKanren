@@ -36,6 +36,21 @@
   (match-define (statistics r.b c.b) b)
   (statistics (min r.a r.b) (min c.a c.b)))
 
+;; TODO: can we simplify by virtually separating bisecting tries from random-access tries?
+;;       technically each prefix of a trie has either bisecting or random-access behavior
+;; virtualized tries can subsume each other when making progress: a kind of exclusive-or trie
+;; - exclusive-or (for grouping with subsumption)
+;; - random-access/position-key (each column value is a table position)
+;; - bisect-key                 (each column value has a unique entry)
+;; - bisect-multi               (each column value may have multiple entries)
+;(define (trie:xor ))
+;; TODO: this one is for monotone dependencies (grouping without subsumption)
+;(define (trie:or ))
+;; TODO: there could be tabular and columnar varieties of these
+;(define (trie:position-key ))
+;(define (trie:bisect-key ))
+;(define (trie:bisect-multi ))
+
 ;; TODO: support multiple sorted columns using tables that share key columns
 ;;       (wait until column-oriented tables are implemented for simplicity?)
 
