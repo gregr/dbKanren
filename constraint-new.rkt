@@ -82,13 +82,15 @@
                         (cx (hash-set (state-cx st) uid c)))
              vars))))
 
+(define (state-cx-remove* st uids)
+  (state:set st (cx (foldl (lambda (uid uid=>c) (hash-remove uid=>c uid))
+                           (state-cx st) uids))))
+
 (define (state-cx-update* st uids)
   (define uid=>c (state-cx st))
   (define c* (map (lambda (uid) (hash-ref uid=>c uid #f)) uids))
   (foldl/and (lambda (uid c st) (c-apply st uid c))
-             (state:set st (cx (foldl (lambda (uid uid=>c) (hash-remove uid=>c uid))
-                                      (state-cx st) uids)))
-             uids c*))
+             (state-cx-remove* st uids) uids c*))
 
 (define (state-uses-empty?! st)
   (define uses (filter c:use? (hash-values (state-cx st))))
