@@ -450,9 +450,6 @@
   ;; TODO: also consider paths provided by available table indexes, maybe via
   ;; prioritized topological sort of SCCs.
   (define x.best (caar xccs))
-  ;; TODO: it might be better to loop the entire state-choose.  Pruning the
-  ;; domain of x.best could affect stats of other variables.
-  (define v=>cx (state-var=>cx st))
   (define t (bounds-lb (vcx-bounds (state-vcx-ref st x.best))))
   (define st.new (assign st x.best t))
   (define (s-rest) (let ((st.skip (disunify st x.best t)))
