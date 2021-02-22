@@ -1,8 +1,6 @@
 #lang racket/base
-(provide ;bis:query->stream dfs:query->stream
-         ;materialized-relation define-materialized-relation
-         ;relation/stream letrec-relation/stream define-relation/stream
-         )
+(provide bis:query->stream dfs:query->stream
+         materialized-relation define-materialized-relation)
 (require "method.rkt" "misc.rkt" "order.rkt" "record.rkt" "stream.rkt"
          "syntax.rkt" "table.rkt" (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
@@ -190,6 +188,7 @@
   (define (d<? d.0 d.1)
     ;; TODO: figure out a better ordering heuristic for most-constrainedness
     (< (length (cdr d.0)) (length (cdr d.1))))
+  ;; TODO: how do we respect chosen search strategy, such as interleaving search?
   (define (choose-branch st.0 uid cs)
     (define (k st?) (if st? (state->satisfied-states st?) '()))
     (define st (state-cx-remove* st.0 (list uid)))
@@ -433,6 +432,10 @@
   ;; TODO: determine whether to expand instead of adding a c:proc
   (state-cx-add st (term-vars args) vcx-simple-add uid? (c:proc proc args parents)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Table interaction
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (define (table-update     st uid? tc) (tc 'update st uid?))
 (define (table-vars               tc) (tc 'variables))
 (define (table-statistics st      tc) (tc 'variable-statistics))
@@ -575,4 +578,77 @@
   ;; TODO: reify both =/= and <= constraints
   (pretty t.0))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Top-level search strategies
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (enumerate-and-reify st)
+  (s-map (lambda (st) (reify st)) (state->satisfied-states st)))
+
+(define (bis:query->stream q)
+  (match-define `#s(query ,t ,f) q)
+  (s-append* (s-map enumerate-and-reify ((bis:goal f) (state:new t)))))
+(define (bis:bind s k)
+  (cond ((null?      s) '())
+        ((procedure? s) (thunk (bis:bind (s) k)))
+        (else           (bis:mplus (k (car s)) (thunk (bis:bind (cdr s) k))))))
+(define (bis:mplus s1 s2)
+  (cond ((null?      s1) (s2))
+        ((procedure? s1) (thunk (bis:mplus (s2) s1)))
+        (else (define d1  (cdr s1))
+              (define s1^ (if (procedure? d1) d1 (thunk d1)))
+              (cons (car s1) (thunk (bis:mplus (s2) s1^))))))
+(define ((bis:apply/expand ex args) st)
+  ((bis:goal (apply ex (walk* st args))) st))
+(define ((bis:expand ex args) st) (thunk ((bis:goal (apply ex args)) st)))
+(define (bis:goal f)
+  (match f
+    (`#s(conj ,f1 ,f2) (let ((k1 (bis:goal f1)) (k2 (bis:goal f2)))
+                         (lambda (st) (bis:bind (k1 st) k2))))
+    (`#s(disj ,f1 ,f2) (let ((k1 (bis:goal f1)) (k2 (bis:goal f2)))
+                         (lambda (st) (bis:mplus (k1 st) (thunk (k2 st))))))
+    (`#s(constrain ,(? procedure? proc) ,args)
+      (define r (relations-ref proc))
+      (define apply/bis    (hash-ref r 'apply/bis    #f))  ; strategy-specific application
+      (define apply.r      (hash-ref r 'apply        #f))  ; strategy-agnostic application
+      (define expand       (hash-ref r 'expand       #f))  ; pure expansion
+      (cond (apply/bis    (apply/bis args))
+            (apply.r      (lambda (st) (bis:return (apply.r st args))))
+            (expand       (bis:expand       expand       args))
+            (else (error "no interpretation for:" proc args))))
+    (_ (define c (f->c f))
+       (lambda (st) (bis:return (c-apply st #f c))))))
+(define (bis:return st)         (if st (list st) '()))
+
+(define (dfs:query->stream q)
+  ((dfs:goal (query-formula q) enumerate-and-reify)
+   (state:new (query-term q))))
+(define ((dfs:mplus k1 k2) st) (s-append (k1 st) (thunk (k2 st))))
+(define ((dfs:expand ex args k) st) ((dfs:goal (apply ex args) k) st))
+(define (dfs:goal f k)
+  (define loop dfs:goal)
+  (match f
+    (`#s(conj ,f1 ,f2) (loop f1 (loop f2 k)))
+    (`#s(disj ,f1 ,f2) (dfs:mplus (loop f1 k) (loop f2 k)))
+    (`#s(constrain ,(? procedure? proc) ,args)
+      (define r (relations-ref proc))
+      (define apply/dfs    (hash-ref r 'apply/dfs    #f))  ; strategy-specific application
+      (define apply.r      (hash-ref r 'apply        #f))  ; strategy-agnostic application
+      (define expand       (hash-ref r 'expand       #f))  ; pure expansion
+      (cond (apply/dfs    (apply/dfs k args))
+            (apply.r      (lambda (st) (dfs:return k (apply.r st args))))
+            (expand       (dfs:expand       expand       args k))
+            (else (error "no interpretation for:" proc args))))
+    (_ (define c (f->c f))
+       (lambda (st) (dfs:return k (c-apply st #f c))))))
+(define (dfs:return k st)      (if st (k st) '()))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Syntax definitions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 ;; TODO: define-relation/table instead of define-materialized-relation
+(define-syntax define-materialized-relation
+  (syntax-rules ()
+    ((_ name pargs ...) (define name (materialized-relation
+                                       'relation-name 'name pargs ...)))))
