@@ -78,7 +78,7 @@
                (state-vcx-set st x (vcx-add (state-vcx-ref st x) uid)))
              (state:set (state-log-add st c)
                         (cx (hash-set (state-cx st) uid c)))
-             vars))))
+             (set->list vars)))))
 
 (define (state-cx-remove* st uids)
   (state:set st (cx (foldl (lambda (uid uid=>c) (hash-remove uid=>c uid))
@@ -87,7 +87,7 @@
 (define (state-cx-update* st uids)
   (define uid=>c (state-cx st))
   (define c* (map (lambda (uid) (hash-ref uid=>c uid #f)) uids))
-  (foldl/and (lambda (uid c st) (c-apply st uid c))
+  (foldl/and (lambda (uid c st) (if c (c-apply st uid c) st))
              (state-cx-remove* st uids) uids c*))
 
 (define (state-uses-empty?! st)
@@ -192,9 +192,9 @@
   (define (choose-branch st.0 uid cs)
     (define (k st?) (if st? (state->satisfied-states st?) '()))
     (define st (state-cx-remove* st.0 (list uid)))
-    (s-append*        (k (c-apply st #f          (car cs)))
-                      ;; TODO: negate (car cs) if possible, for better subsumption
-               (thunk (k (c-apply st uid (c:disj (cdr cs)))))))
+    (s-append        (k (c-apply st #f          (car cs)))
+                     ;; TODO: negate (car cs) if possible, for better subsumption
+              (thunk (k (c-apply st uid (c:disj (cdr cs)))))))
   (define (choose-variable st xs.observable xss)
     (define x=>c&s
       (foldl (lambda (x=>s x=>c&s)
@@ -227,26 +227,26 @@
                                (car xcss) (cdr xcss))))
     (define t (bounds-lb (vcx-bounds (state-vcx-ref st x.best))))
     (define (k st?) (if st? (state->satisfied-states st?) '()))
-    (s-append*        (k (var-assign    st    x.best t))
-               (thunk (k (var-disassign st #f x.best t)))))
+    (s-append        (k (var-assign    st    x.best t))
+              (thunk (k (var-disassign st #f x.best t)))))
   (match (state-enforce-local-consistency st)
-    (#f   '())
-    (st.0 (define cxs (hash->list (state-cx st)))
-          (match (map c:table-t (filter c:table? (map cdr cxs)))
-            ;; If there are no more table constraints, pick a disjunction to split
-            ('() (match (map (lambda (uid&c) (cons (car uid&c) (c:disj-cs (cdr uid&c))))
-                             (filter (lambda (uid&c) (c:disj? (cdr uid&c))) cxs))
-                   ;; If there are no more disjunctions either, we should be done
-                   ('() (state-uses-empty?! st) (list st))
-                   (ds  (define d.min (foldl (lambda (d d.min) (if (d<? d d.min) d d.min))
-                                             (car ds) (cdr ds)))
-                        (choose-branch st (car d.min) (cdr d.min)))))
-            (ts (define st            (state-vars-simplify st.0))
-                (define xs.observable (state-vars          st))
-                (define xss           (map (lambda (t) (table-statistics st t)) ts))
-                (define sts.all       (s-append* (s-map state->satisfied-states
-                                                        (choose-variable st xs.observable xss))))
-                (if (set-empty? xs.observable) (s-limit 1 sts.all) sts.all))))))
+    (#f '())
+    (st (define cxs (hash->list (state-cx st)))
+        (match (map c:table-t (filter c:table? (map cdr cxs)))
+          ;; If there are no more table constraints, pick a disjunction to split
+          ('() (match (map (lambda (uid&c) (cons (car uid&c) (c:disj-cs (cdr uid&c))))
+                           (filter (lambda (uid&c) (c:disj? (cdr uid&c))) cxs))
+                 ;; If there are no more disjunctions either, we should be done
+                 ('() (state-uses-empty?! st) (list st))
+                 (ds  (define d.min (foldl (lambda (d d.min) (if (d<? d d.min) d d.min))
+                                           (car ds) (cdr ds)))
+                      (choose-branch st (car d.min) (cdr d.min)))))
+          (ts (let* ((st            (state-vars-simplify st))
+                     (xs.observable (state-vars          st))
+                     (xss           (map (lambda (t) (table-statistics st t)) ts))
+                     (sts.all       (s-append* (s-map state->satisfied-states
+                                                      (choose-variable st xs.observable xss)))))
+                (if (set-empty? xs.observable) (s-limit 1 sts.all) sts.all)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Internal constraint algebra
@@ -287,7 +287,7 @@
 (define (c-success? c) (and (c:conj? c) (null? (c:conj-cs c))))
 
 (define (c-simplify st c)
-  (let*/and ((st (c-apply #f (state:set st (log '())) c))
+  (let*/and ((st (c-apply (state:set st (log '())) #f c))
              (st (state-enforce-local-consistency st)))
     (let ((log (state-log st)))
       (if (and (pair? log) (null? (cdr log)))
@@ -438,7 +438,7 @@
 
 (define (table-update     st uid? tc) (tc 'update st uid?))
 (define (table-vars               tc) (tc 'variables))
-(define (table-statistics st      tc) (tc 'variable-statistics))
+(define (table-statistics st      tc) (tc 'variable-statistics st))
 
 ;; TODO: this should be renamed to relation/table
 (define (materialized-relation . pargs)
@@ -446,7 +446,7 @@
   (match-define (list name attribute-names primary-key-name ixs)
     (apply materialization pargs))
   (define t.0 (table ixs))
-  (define (apply st . args.0)
+  (define (app st args.0)
     (define (update-state st t)
       (define c=>b (t 'bounds))
       (foldl/and (lambda (c a st)
@@ -481,7 +481,7 @@
       (c-apply st #f (c:table tc))))
   (define r (make-relation name attribute-names))
   (if t.0
-    (relations-set! r 'apply  apply)
+    (relations-set! r 'apply  app)
     (relations-set! r 'expand (lambda args (== (cons name args) 'nothing))))
   r)
 
@@ -491,10 +491,10 @@
 
 (define (var-update st x)
   (define vcx.x (state-vcx-ref st x))
-  (foldl/and (lambda (uids st) (state-cx-update* st uids))
-             (list (vcx-table  vcx.x)  ;; typically the strongest constraints
-                   (vcx-simple vcx.x)
-                   (vcx-disj   vcx.x))))
+  (foldl/and (lambda (uids st) (state-cx-update* st (set->list uids)))
+             st (list (vcx-table  vcx.x)  ;; typically the strongest constraints
+                      (vcx-simple vcx.x)
+                      (vcx-disj   vcx.x))))
 
 (define (var-assign st x t)
   ;; could replace occurs check with: (set-member? (term-vars (walk* st t)) x)
@@ -509,7 +509,7 @@
               (vcx.t (if (var? t) (state-vcx-ref st t) vcx.empty))
               (st    (state-log-add st (c:== x t)))
               (st    (state-vcx-set st x t)))
-         (foldl/and (lambda (uids st) (state-cx-update* st uids))
+         (foldl/and (lambda (uids st) (state-cx-update* st (set->list uids)))
                     (c-apply st #f (c:bounds (vcx-bounds vcx.x) t))
                     (list (vcx-simple vcx.x)  ;; the least expensive constraints
                           (vcx-table  vcx.x)
@@ -518,7 +518,8 @@
 (define (var-disassign st uid? x t)
   (let* ((t    (walk* st t))
          (vs.t (term-vars t)))
-    (define (add) (state-cx-add st (set->list vs.t) vcx-simple-add uid? (c:=/= x t)))
+    (define (add) (state-cx-add st (set->list (set-add vs.t x))
+                                vcx-simple-add uid? (c:=/= x t)))
     (cond ((set-member? vs.t x) st)  ;; simple occurs check
           ((set-empty?  vs.t)
            (match-define (bounds lb lbi ub ubi) (term-bounds st x))
