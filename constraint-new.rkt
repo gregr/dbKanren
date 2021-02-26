@@ -284,6 +284,17 @@
     (`#s(constrain any<=o (,lhs ,rhs))  (c:<=    lhs rhs))
     (`#s(constrain ,proc  ,args)        (c:proc  proc args (set)))))
 
+(define (c->f c)
+  (match c
+    ((c:==  l r)                     (==     l r))
+    ((c:=/= l r)                     (=/=    l r))
+    ((c:<=  l r)                     (any<=o l r))
+    ((c:disj cs)                     (apply disj* (map c->f cs)))
+    ((c:conj cs)                     (apply conj* (map c->f cs)))
+    ((c:table t)                     (c->f (t 'constraint)))
+    ((c:proc proc args parents)      (relate proc args))
+    ((c:use vars lhs args proc desc) (==/use lhs args proc desc))))
+
 (define (c-success? c) (and (c:conj? c) (null? (c:conj-cs c))))
 
 (define (c-simplify st c)
@@ -458,8 +469,8 @@
         (let controller ((t  t.0)
                          (vs (set->list (term-vars args))))
           (method-lambda
-            ((constraint st) (c:proc r (walk* st args) (set)))
-            ((variables)     vs)
+            ((constraint) (c:proc r args (set)))
+            ((variables)  vs)
             ((variable-statistics st)
              (define c=>stats (t 'statistics))
              (foldl (lambda (c a x=>stats)
