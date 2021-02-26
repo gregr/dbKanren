@@ -354,7 +354,7 @@
 
 (define (ltunify st uid? t1 t2)
   (let ((t1 (walk st t1)) (t2 (walk st t2)))
-    (cond ((or (null? t1) (eq? #t t2)) st)
+    (cond ((or (null? t1) (eq? #t t2) (eqv? t1 t2)) st)
           ((or (var? t1) (var? t2))
            (match-define (bounds lb.t1 lbi.t1 ub.t1 ubi.t1) (term-bounds st t1))
            (match-define (bounds lb.t2 lbi.t2 ub.t2 ubi.t2) (term-bounds st t2))
