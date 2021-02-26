@@ -197,7 +197,7 @@
   (not (eqv? ((compare-list compare-element) a b) 1)))
 
 (define ((compare-array compare-element) a b)
-  (let ((alen (vector-length a)) (blen (vector-length a)))
+  (let ((alen (vector-length a)) (blen (vector-length b)))
     (cond ((< alen blen) -1)
           ((< blen alen)  1)
           (else (let loop ((i 0))
