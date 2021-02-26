@@ -36,6 +36,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (record vcx (bounds simple table disj))
+;; TODO: consider using seteq for performance
 (define vcx.empty (vcx (bounds bounds.any) (simple (set)) (table (set)) (disj (set))))
 
 (define (vcx-bounds-set  x b) (vcx:set x (bounds b)))
@@ -413,7 +414,7 @@
       ((c:=/= l r)        (set-union (term-vars l)     (term-vars r)))
       ((c:<=  l r)        (set-union (term-vars l)     (term-vars r)))
       ((c:disj cs)        (set-union (c-vars (car cs)) (c-vars (cadr cs))))
-      ((c:conj cs)        (apply set-union (map c-vars cs)))
+      ((c:conj cs)        (apply set-union (seteq) (map c-vars cs)))
       ((c:use vs _ _ _ _) (term-vars vs))
       ((c:table t)        (table-vars t))
       ((c:proc  _ args _) (term-vars args))))

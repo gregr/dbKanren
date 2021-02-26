@@ -117,7 +117,7 @@
 (define (term-vars t)
   (cond ((var?    t) (seteq t))
         ((pair?   t) (set-union (term-vars (car t)) (term-vars (cdr t))))
-        ((vector? t) (apply set-union (map term-vars (vector->list t))))
+        ((vector? t) (apply set-union seteq.empty (map term-vars (vector->list t))))
         (else        seteq.empty)))
 (define (ground? t)
   (cond ((var?    t) #f)
