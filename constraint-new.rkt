@@ -36,14 +36,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (record vcx (bounds simple table disj))
-;; TODO: consider using seteq for performance
-(define vcx.empty (vcx (bounds bounds.any) (simple (set)) (table (set)) (disj (set))))
+(define vcx.empty (vcx (bounds bounds.any) (simple (seteq)) (table (seteq)) (disj (seteq))))
 
 (define (vcx-bounds-set  x b) (vcx:set x (bounds b)))
 (define (vcx-simple-add  x c) (vcx:set x (simple (set-add (vcx-simple x) c))))
-(define (vcx-table-clear x)   (vcx:set x (table  (set))))
+(define (vcx-table-clear x)   (vcx:set x (table  (seteq))))
 (define (vcx-table-add   x c) (vcx:set x (table  (set-add (vcx-table  x) c))))
-(define (vcx-disj-clear  x)   (vcx:set x (disj   (set))))
+(define (vcx-disj-clear  x)   (vcx:set x (disj   (seteq))))
 (define (vcx-disj-add    x c) (vcx:set x (disj   (set-add (vcx-disj   x) c))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -51,7 +50,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (struct queue (recent high low))
-(define queue.empty (queue (set) '() '()))
+(define queue.empty (queue (seteq) '() '()))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Partially-satisfied state of a query's constraints
@@ -595,7 +594,7 @@
                        (define vcx.x (state-vcx-ref st x))
                        (cons (vcx-bounds vcx.x) (vcx-simple vcx.x)))
                      xs))
-              (define uids (apply set-union (set) (map cdr b&uids)))
+              (define uids (apply set-union (seteq) (map cdr b&uids)))
               (define cxs  (walk* st (map c->f (filter-not
                                                  not (map (lambda (uid) (hash-ref (state-cx st) uid #f))
                                                           (set->list uids))))))
