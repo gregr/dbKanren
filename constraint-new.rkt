@@ -586,10 +586,30 @@
           (else        t))))
 
 (define (reify st)
-  (define term (state-qterm st))
-  (define t.0  (walk* st term))
-  ;; TODO: reify both =/= and <= constraints
-  (pretty t.0))
+  (define term (walk* st (state-qterm st)))
+  (define xs   (set->list (term-vars term)))
+  (cond ((null? xs) (pretty term))
+        (else (define b&uids
+                (map (lambda (x)
+                       (define vcx.x (state-vcx-ref st x))
+                       (cons (vcx-bounds vcx.x) (vcx-simple vcx.x)))
+                     xs))
+              (define uids (apply set-union (set) (map cdr b&uids)))
+              (define cxs  (walk* st (map c->f (filter-not
+                                                 not (map (lambda (uid) (hash-ref (state-cx st) uid #f))
+                                                          (set->list uids))))))
+              (define bs
+                (append* (map (lambda (x b)
+                                (if (equal? b bounds.any)
+                                  '()
+                                  (list (list (bounds-lb b)
+                                              (if (bounds-lb-inclusive? b) '<= '<)
+                                              x
+                                              (if (bounds-ub-inclusive? b) '<= '<)
+                                              (bounds-ub b)))))
+                              xs (map car b&uids))))
+              (match-define (cons t c) (pretty (cons term (append bs cxs))))
+              `#s(cx ,t (constraints: . ,c)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Top-level search strategies
