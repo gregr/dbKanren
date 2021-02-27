@@ -245,8 +245,7 @@
           (ts (let* ((st            (state-vars-simplify st))
                      (xs.observable (state-vars          st))
                      (xss           (map (lambda (t) (table-statistics st t)) ts))
-                     (sts.all       (s-append* (s-map state->satisfied-states
-                                                      (choose-variable st xs.observable xss)))))
+                     (sts.all       (choose-variable st xs.observable xss)))
                 (if (set-empty? xs.observable) (s-limit 1 sts.all) sts.all)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
