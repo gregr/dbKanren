@@ -49,10 +49,9 @@
 ;; Work queue with recency-based prioritization
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(struct queue (vars vcxs))
-(define queue.empty (queue (seteq) '()))
-(define (queue-empty? q) (and (set-empty? (queue-vars q))
-                              (null?      (queue-vcxs q))))
+(struct queue (recent high low))
+(define queue.empty (queue (seteq) '() '()))
+(define (queue-empty? q) (set-empty? (queue-recent q)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Partially-satisfied state of a query's constraints
@@ -145,13 +144,13 @@
                (foldl/and (lambda (t st) (unify st t t.0)) st (cdr scc)))
              st sccs))
 
-(define (state-schedule-add-vcx st vx)
-  (match-define (queue vars vcxs) (state-pending st))
-  (state:set st (pending (queue vars (cons vx vcxs)))))
-
 (define (state-schedule-add-var st x)
-  (match-define (queue vars vcxs) (state-pending st))
-  (state:set st (pending (queue (set-add vars x) vcxs))))
+  (define (st/q recent high low) (state:set st (pending (queue recent high low))))
+  (match-define (queue recent high low) (state-pending st))
+  (cond ((or (member x high)
+             (member x low))    st)
+        ((set-member? recent x) (st/q          recent            high (cons x low)))
+        (else                   (st/q (set-add recent x) (cons x high)        low))))
 
 ;; TODO: improve constraint propagation scheduling:
 ;;       - gather variables with updated bounds
@@ -162,18 +161,20 @@
 ;;         - other disjs are mid priority
 ;;         - ==/uses are low priority (in case the aggregate computations are expensive)
 ;;       - loop
-(define (state-schedule-run st.0)
-  (match-define (queue vars vcxs.0) (state-pending st.0))
-  (define st (state:set st.0 (pending queue.empty)))
-  (define vcxs (append (map (lambda (x) (state-vcx-ref st x))
-                            (filter var? (map (lambda (x) (walk st x)) (set->list vars))))
-                       vcxs.0))
-  (foldl/and
-    (lambda (project st)
-      (state-cx-update* st (set->list (foldl (lambda (v uids) (set-union uids (project v)))
-                                             (seteq) vcxs))))
-    st
-    (list vcx-simple vcx-table vcx-disj)))
+(define (state-schedule-run st)
+  (define (update-and-loop st x)
+    (define t (walk st x))
+    (let*/and ((st (if (var? t) (var-update st t) st)))
+      (state-schedule-run st)))
+  (match-define (queue recent high low) (state-pending st))
+  (cond ((not (null? high)) (update-and-loop
+                              (state:set st (pending (queue recent (cdr high)     low)))
+                              (car high)))
+        ((not (null? low))  (define high.new (reverse low))
+                            (update-and-loop
+                              (state:set st (pending (queue recent (cdr high.new) '())))
+                              (car high.new)))
+        (else               (state:set st (pending queue.empty)))))
 
 (define (state-schedule-empty? st) (queue-empty? (state-pending st)))
 
@@ -502,6 +503,12 @@
 ;; Variable-centric constraint operations
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define (var-update st x)
+  (define vcx.x (state-vcx-ref st x))
+  (foldl/and (lambda (uids st) (state-cx-update* st (set->list uids)))
+             st (list (vcx-table  vcx.x)  ;; typically the strongest constraints
+                      (vcx-simple vcx.x)
+                      (vcx-disj   vcx.x))))
 
 (define (var-assign st x t)
   ;; could replace occurs check with: (set-member? (term-vars (walk* st t)) x)
@@ -516,8 +523,11 @@
               (vcx.t (if (var? t) (state-vcx-ref st t) vcx.empty))
               (st    (state-log-add st (c:== x t)))
               (st    (state-vcx-set st x t)))
-         (c-apply (state-schedule-add-vcx st vcx.x)
-                  #f (c:bounds (vcx-bounds vcx.x) t)))))
+         (foldl/and (lambda (uids st) (state-cx-update* st (set->list uids)))
+                    (c-apply st #f (c:bounds (vcx-bounds vcx.x) t))
+                    (list (vcx-simple vcx.x)  ;; the least expensive constraints
+                          (vcx-table  vcx.x)
+                          (vcx-disj   vcx.x))))))
 
 (define (var-disassign st uid? x t)
   (let* ((t    (walk* st t))
