@@ -51,6 +51,7 @@
 
 (struct queue (recent high low))
 (define queue.empty (queue (seteq) '() '()))
+(define (queue-empty? q) (set-empty? (queue-recent q)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Partially-satisfied state of a query's constraints
@@ -175,11 +176,13 @@
                               (car high.new)))
         (else               (state:set st (pending queue.empty)))))
 
+(define (state-schedule-empty? st) (queue-empty? (state-pending st)))
+
 ;; TODO: include a parameter to specify the degree of locality
 (define (state-enforce-local-consistency st)
   (let*/and ((st (state-schedule-run     st))
              (st (state-solve-lte-cycles st)))
-    (if (set-empty? (queue-recent (state-pending st)))
+    (if (state-schedule-empty? st)
       st
       (state-enforce-local-consistency st))))
 
