@@ -40,10 +40,9 @@
 
 (define (vcx-bounds-set  x b) (vcx:set x (bounds b)))
 (define (vcx-simple-add  x c) (vcx:set x (simple (set-add (vcx-simple x) c))))
-(define (vcx-table-clear x)   (vcx:set x (table  (seteq))))
 (define (vcx-table-add   x c) (vcx:set x (table  (set-add (vcx-table  x) c))))
-(define (vcx-disj-clear  x)   (vcx:set x (disj   (seteq))))
 (define (vcx-disj-add    x c) (vcx:set x (disj   (set-add (vcx-disj   x) c))))
+(define (vcx-cx-clear x)      (vcx-bounds-set vcx.empty (vcx-bounds x)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Work queue with recency-based prioritization
@@ -510,9 +509,10 @@
 (define (var-update st x)
   (define vcx.x (state-vcx-ref st x))
   (foldl/and (lambda (uids st) (state-cx-update* st (set->list uids)))
-             st (list (vcx-table  vcx.x)  ;; typically the strongest constraints
-                      (vcx-simple vcx.x)
-                      (vcx-disj   vcx.x))))
+             (state-vcx-set st x (vcx-cx-clear vcx.x))
+             (list (vcx-table  vcx.x)  ;; typically the strongest constraints
+                   (vcx-simple vcx.x)
+                   (vcx-disj   vcx.x))))
 
 (define (var-assign st x t)
   ;; could replace occurs check with: (set-member? (term-vars (walk* st t)) x)
