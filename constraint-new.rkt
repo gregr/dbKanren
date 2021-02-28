@@ -489,8 +489,12 @@
                (update-state
                  (if (t 'done?)
                    st
-                   (let ((tc (controller t (set->list (term-vars (walk* st vs))))))
-                     (state-cx-add st (tc 'variables) vcx-table-add uid? (c:table tc))))
+                   ;; TODO: we only want to register with the subset of variables that are indexable
+                   (let* ((vs (set->list (term-vars (walk* st vs))))
+                          (tc (controller t vs)))
+                     (if (null? vs)
+                       (tc 'update st uid?)
+                       (state-cx-add st vs vcx-table-add uid? (c:table tc)))))
                  t))))))
       (c-apply st #f (c:table tc))))
   (define r (make-relation name attribute-names))

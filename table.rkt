@@ -84,9 +84,9 @@
                 (let*/and ((ix.new ((car ixs.pending) 'update c=>b))
                            (c=>b   (hash-union c=>b (ix.new 'bounds)
                                                #:combine (lambda (v.0 v.1) v.1))))
-                  (cond ((not (ix.new 'done?))    (loop c=>b (cdr ixs.pending) (cons ix.new ixs.updated)))
-                        ((not (ix.new 'primary?)) (loop c=>b (cdr ixs.pending)              ixs.updated))
-                        (else                     (table '() c=>b)))))))))))
+                  (cond ((not (ix.new 'done?)) (loop c=>b (cdr ixs.pending) (cons ix.new ixs.updated)))
+                        ((not (ix.new 'full?)) (loop c=>b (cdr ixs.pending)              ixs.updated))
+                        (else                  (table '() c=>b)))))))))))
 
 (define (tabular-trie vref key-column nonkey-columns types row-count)
   (define (ref mask i)          (vector-ref (vref i) mask))
@@ -131,9 +131,10 @@
                    (new cols.pending col=>bounds mask start end))))))))
   (define (new cols.pending col=>bounds mask start end)
     (method-lambda
-      ((done?)    (null? cols.pending))
-      ((primary?) (not (not key-column)))
-      ((bounds)   col=>bounds)
+      ((done?)  (null? cols.pending))
+      ;; TODO: allow full? to be #t when nonkey-columns include all attributes
+      ((full?)  (not (not key-column)))
+      ((bounds) col=>bounds)
       ((statistics)
        (define ratio (/ (- end start) row-count))
        (make-immutable-hash
