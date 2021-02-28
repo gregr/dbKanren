@@ -35,13 +35,15 @@
 ;; Variable constraints
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(record vcx (bounds simple table disj))
-(define vcx.empty (vcx (bounds bounds.any) (simple (seteq)) (table (seteq)) (disj (seteq))))
+(record vcx (bounds simple table disj use) #:transparent)
+(define vcx.empty (vcx (bounds bounds.any)
+                       (simple (seteq)) (table (seteq)) (disj (seteq)) (use (seteq))))
 
 (define (vcx-bounds-set  x b) (vcx:set x (bounds b)))
 (define (vcx-simple-add  x c) (vcx:set x (simple (set-add (vcx-simple x) c))))
 (define (vcx-table-add   x c) (vcx:set x (table  (set-add (vcx-table  x) c))))
 (define (vcx-disj-add    x c) (vcx:set x (disj   (set-add (vcx-disj   x) c))))
+(define (vcx-use-add     x c) (vcx:set x (use    (set-add (vcx-use    x) c))))
 (define (vcx-cx-clear x)      (vcx-bounds-set vcx.empty (vcx-bounds x)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -438,7 +440,7 @@
   (define vars.pending (set->list (term-vars (walk* st t.vs))))
   (if (null? vars.pending)
     (unify st lhs (apply proc (walk* st args)))
-    (state-cx-add st vars.pending vcx-simple-add uid?
+    (state-cx-add st vars.pending vcx-use-add uid?
                   `#s(c:use ,vars.pending ,lhs ,args ,proc ,desc))))
 
 (define (proc-apply st uid? proc args parents)
@@ -512,7 +514,8 @@
              (state-vcx-set st x (vcx-cx-clear vcx.x))
              (list (vcx-table  vcx.x)  ;; typically the strongest constraints
                    (vcx-simple vcx.x)
-                   (vcx-disj   vcx.x))))
+                   (vcx-disj   vcx.x)
+                   (vcx-use    vcx.x))))
 
 (define (var-assign st x t)
   ;; could replace occurs check with: (set-member? (term-vars (walk* st t)) x)
@@ -531,7 +534,8 @@
                     (c-apply st #f (c:bounds (vcx-bounds vcx.x) t))
                     (list (vcx-simple vcx.x)  ;; the least expensive constraints
                           (vcx-table  vcx.x)
-                          (vcx-disj   vcx.x))))))
+                          (vcx-disj   vcx.x)
+                          (vcx-use    vcx.x))))))
 
 (define (var-disassign st uid? x t)
   (let* ((t    (walk* st t))
