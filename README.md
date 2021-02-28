@@ -121,6 +121,8 @@ Typical use:
 * documentation and examples
   * small tsv data example for testing materialization
 
+* support an interactive stepping/user-choice "strategy"
+  * both for debugging and devising new strategies
 
 ### Data processing
 

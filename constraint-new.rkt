@@ -153,15 +153,6 @@
         ((set-member? recent x) (st/q          recent            high (cons x low)))
         (else                   (st/q (set-add recent x) (cons x high)        low))))
 
-;; TODO: improve constraint propagation scheduling:
-;;       - gather variables with updated bounds
-;;       - then iterate through these vars and batch up their registered cxs
-;;       - then update all cxs in a strategic order
-;;         - disjs containing only ==, =/=, and <= constraints are very-high priority
-;;         - tables are high priority
-;;         - other disjs are mid priority
-;;         - ==/uses are low priority (in case the aggregate computations are expensive)
-;;       - loop
 (define (state-schedule-run st)
   (define (update-and-loop st x)
     (define t (walk st x))
@@ -438,6 +429,11 @@
                         (error "TODO: unexpanded c:proc without vars:" cx)
                         (state-cx-add st vs vcx-disj-add uid? cx))))
       (match (c-simplify st (car cs))
+        ;; TODO: if applicable, negate (car cs) in st while simplifying (cdr cs).
+        ;; This achieves some disjoint-ness across branches, reducing redundancy
+        ;; in the search space.  (Ideally we would also do the same in reverse,
+        ;; propagating negated constraints from later branches into earlier
+        ;; branches.)
         (#f            (loop (cdr cs) cs.new))
         ((c:conj '())  st)
         ((c:disj cs.d) (loop (cdr cs) (foldl cons cs.new cs.d)))
@@ -546,7 +542,11 @@
          (foldl/and (lambda (uids st) (state-cx-update* st (set->list uids)))
                     (c-apply st #f (c:bounds (vcx-bounds vcx.x) t))
                     (list (vcx-simple vcx.x)  ;; the least expensive constraints
+                          ;; TODO: try disjs containing only simple cxs before tables.
+                          ;; It may only make sense to try the disjs that only
+                          ;; reference this var and no others.
                           (vcx-table  vcx.x)
+                          ;; TODO: try other disjs after tables
                           (vcx-disj   vcx.x)
                           (vcx-use    vcx.x))))))
 

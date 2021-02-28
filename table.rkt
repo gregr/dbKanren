@@ -126,6 +126,7 @@
                                             key-column (if (= start (- end 1))
                                                          start
                                                          (bounds start #t (- end 1) #t)))))
+                 ;; TODO: this check may not be necessary
                  (if advanced?
                    (update/pending c=>b.new cols.pending col=>bounds mask start end)
                    (new cols.pending col=>bounds mask start end))))))))
