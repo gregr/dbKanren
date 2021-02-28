@@ -427,7 +427,16 @@
         ('()          #f)
         ((list c.new) (c-apply st #f c.new))
         (_            (define cx (c:disj (reverse cs.new)))
-                      (state-cx-add st (c-vars cx) vcx-disj-add uid? cx)))
+                      (define vs (set->list (c-vars cx)))
+                      ;; TODO: in the future when a c:proc appears in a c:disj,
+                      ;; it is possible for vs to be empty even when the disj
+                      ;; has not been satisfied (because the proc hasn't been
+                      ;; allowed to expand yet).  Figure out how to resolve
+                      ;; this, possibly by adding a queue of cxs containing
+                      ;; procs that need to be expanded.
+                      (if (null? vs)
+                        (error "TODO: unexpanded c:proc without vars:" cx)
+                        (state-cx-add st vs vcx-disj-add uid? cx))))
       (match (c-simplify st (car cs))
         (#f            (loop (cdr cs) cs.new))
         ((c:conj '())  st)
@@ -445,6 +454,10 @@
 
 (define (proc-apply st uid? proc args parents)
   ;; TODO: determine whether to expand instead of adding a c:proc
+  ;; TODO: without expanding, it is possible to infinite loop when no variables
+  ;; are present in args, since in that case, state-cx-add will c-apply again.
+  ;; Figure out how to resolve this, possibly by adding a queue of cxs that
+  ;; need to be expanded.
   (state-cx-add st (term-vars args) vcx-simple-add uid? (c:proc proc args parents)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
