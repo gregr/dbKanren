@@ -647,9 +647,20 @@
           ((vector? t) (vector-map loop t))
           (else        t))))
 
-(define (reify st)
-  (define term (walk* st (state-qterm st)))
+(define (reify st.0)
+  (define (refine-bounds x st)
+    (define (=/=? x t) (not (let*/and ((st (var-assign st x t)))
+                              (pair? (s-force (state->satisfied-states st))))))
+    (define (trim x t) (refine-bounds x (c-apply st #f (c:=/= x t))))
+    (define vcx.x (state-vcx-ref st x))
+    (match-define (bounds lb lbi? ub ubi?) (vcx-bounds vcx.x))
+    (cond ((and lbi? (=/=? x lb)) (trim x lb))
+          ((and ubi? (=/=? x ub)) (trim x ub))
+          (else                   st)))
+  (define term (walk* st.0 (state-qterm st.0)))
   (define xs   (set->list (term-vars term)))
+  ;; Refinement should never fail after global satisfaction
+  (define st   (foldl refine-bounds st.0 xs))
   (cond ((null? xs) (pretty term))
         (else (define b&uids
                 (map (lambda (x)
@@ -664,7 +675,6 @@
                 (append* (map (lambda (x b)
                                 (if (equal? b bounds.any)
                                   '()
-                                  ;; TODO: verify inclusive endpoints via var-assign
                                   (list (list (bounds-lb b)
                                               (if (bounds-lb-inclusive? b) '<= '<)
                                               x
