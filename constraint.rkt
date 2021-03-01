@@ -1,7 +1,6 @@
 #lang racket/base
 (provide bis:query->stream dfs:query->stream
-         materialized-relation define-materialized-relation
-         relation/stream letrec-relation/stream define-relation/stream)
+         materialized-relation define-materialized-relation)
 (require "method.rkt" "misc.rkt" "order.rkt" "record.rkt" "stream.rkt"
          "syntax.rkt" "table.rkt" (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
@@ -974,19 +973,3 @@
   (syntax-rules ()
     ((_ name pargs ...) (define name (materialized-relation
                                        'relation-name 'name pargs ...)))))
-
-(define (retrieve stream args) (constrain `(retrieve ,stream) args))
-
-(define-syntax relation/stream
-  (syntax-rules ()
-    ((_ name (param ...) stream)
-     (relation name (param ...) (retrieve stream param ...)))))
-(define-syntax letrec-relation/stream
-  (syntax-rules ()
-    ((_ (((name param ...) stream) ...) body ...)
-     (letrec ((name (relation/stream name (param ...) stream)) ...)
-       body ...))))
-(define-syntax define-relation/stream
-  (syntax-rules ()
-    ((_ (name param ...) stream)
-     (define name (relation/stream name (param ...) stream)))))
