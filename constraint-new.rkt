@@ -636,6 +636,7 @@
                 (append* (map (lambda (x b)
                                 (if (equal? b bounds.any)
                                   '()
+                                  ;; TODO: verify inclusive endpoints via var-assign
                                   (list (list (bounds-lb b)
                                               (if (bounds-lb-inclusive? b) '<= '<)
                                               x
