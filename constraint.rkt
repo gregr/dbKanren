@@ -16,24 +16,7 @@
 
 ;; TODO:
 
-;; implementation phases:
-;;   extended implementations may support:
-;;     subsumption and functional dependencies
-;;     =/=: =/=.atom, =/=.rhs, =/=* using disjunction constraints
-;;     recursions and disjunctions as constraints: can replace =/=*
-;;       recursion approximations
-;;       watching 2 disjunction branches
-;;     one-var any<=o constraints (for constraining type): pair/vector sub-constraints
-;;     general any<=o constraints: cycle checking, pair/vector decomposition into disjunction
-;;   we can support the other constraints later
-
 ;; extra solvers, beyond bounds checking/limiting for domains and arcs:
-;;   table state shared between indexes
-;;   any<=o: cycles become ==
-;;     incremental approach:
-;;       maintain a topological sort
-;;       if a new any<=o is added that doesn't respect the sort, re-sort
-;;         SCCs are ==
 ;;   +o, *o:
 ;;     for generality, could use a substitute and simplify model
 ;;       if a + b = c, then replace c whenever it appears
@@ -60,54 +43,7 @@
 ;;   X-refo: maintain minimum length and partial mapping
 ;;   string==byteso: look for impossible utf-8 bytes (possibly partial mapping)
 
-;; priority/event-based constraint scheduling:
-;;   immediate:
-;;     ==
-;;   high:
-;;     potentially any event (assignment, lb, ub):
-;;       table relation domains
-;;       disjunction domains
-;;   mid or low:
-;;     non-ground assignment:
-;;       wait, these imply target var would be constrained, though
-;;       =/=, any<=o, vector-refo, +o
-;;     ground assignment:
-;;       =/=
-;;       may cause assignment:
-;;         +o and *o
-;;         X-refo, X-lengtho, symbol==stringo, string==byteso
-;;         table relation unsorted arcs
-;;           schedule constraints for next indexed variable
-;;         disjunction unsorted arcs
-;;     lb and/or ub:
-;;       =/=
-;;       may cause assignment:
-;;         any<=o, flooro (first position)
-;;         table relation sorted arcs
-;;         disjunction sorted arcs
-;;       does not likely cause assignment:
-;;         flooro (second position)
-
 ;; satisfiability loop for a variable constraint graph:
-;;   constraint propagation loop:
-;;     we have high and low priority queues of updated vars
-;;       initially empty first time through the satisfiability loop
-;;     we have a set of new constraints produced by the program step just taken
-;;       these are sorted in order of priority: immediate, high, mid, low
-;;     new constraints are processed in order of priority
-;;       completed/subsumed constraints are discarded, otherwise attached to
-;;       appropriate variables, possibly modifying them, where any modified
-;;       variable constraints are queued: high for assignments, otherwise low
-;;     updated vars are then processed from job queues until quiessence
-;;       if high priority queue is empty, fill with all of low priority queue
-;;       if both queues are empty, we've reached quiessence
-;;       otherwise, pop a var-update job off the high priority queue
-;;         iterate its domain constraints to a fixed point
-;;         then update the bounds of its arc constraint targets
-;;           queue up any updated targets: high for assignments, otherwise low
-;;       re-enter constraint propagation loop
-;;     backtrack and learn clauses if conflict is detected at any point
-;;
 ;;   after propagation quiessence, attempt to divide and conquer
 ;;     this is attempted once each time through the satisfiability loop because
 ;;       new assignments may lead to disconnection, allowing more decomposition
@@ -134,57 +70,6 @@
 (define seteq.empty  (set))
 
 (define (uid:new) (gensym))
-
-;; TODO: domain trimming means explicitly testing endpoint assignments, and
-;; narrowing the domain bounds when they fail (setting inclusiveness to #f,
-;; or incrementing if possible).  Domain trimming should actually be
-;; unnecessary given "branchless" disjunctions (those which can be tested for
-;; satisfiability without branching search).  This is because =/= constraints
-;; can be given the responsibility of invalidating inclusiveness.  Once such a
-;; constraint simplifies to a single (=/= var value) where the value is lb or
-;; ub of the var, the corresponding inclusiveness is set to #f.  And this
-;; simplification will occur while satisfying branchless disjunctions.  For
-;; now, even though we don't have branchless disjunctions yet and could miss
-;; some invalidation opportunities by doing so, we'll still leave =/= with the
-;; responsibility of invalidating inclusiveness.  This is fine because missing
-;; important invalidations shouldn't be common, and when it happens it will
-;; only impact performance, not soundness.  Soundness is still preserved by the
-;; explicit grounding of variables by state-choose.
-
-;; TODO: once branchless disjunctions are supported, var-update should process
-;; them after updating domain cxs, but before arc cxs.  The reason for this
-;; order is that domain cxs are likely the most constraining on a var's domain,
-;; and branchless disjunctions that are registered to watch a var are next in
-;; order of likeliness.  Arc cxs are intended to use the watched var's updated
-;; bounds to constrain other vars, not to constrain the watched var itself.
-
-;; TODO: when (bounds lb #t ub #t) describes a finite domain, introduce a
-;; corresponding disjunction.  E.g., (bounds '(#t . #f) #t '#(()) #t)
-;; describes the finite domain containing these 4 values:
-;;   (#t . #f) (#t . #t) #() #(())
-;; so if the bounds applies to the variable x, then introduce:
-;;   (disj* (== x '(#t . #f)) (== x '(#t . #t)) (== x '#()) (== x '#(())))
-;; This will be important for soundness once general any<=o constraints are
-;; supported.  E.g., recognizing unsatisfiable disequality cliques.
-;; This disjunction is analogous to a unary table constraint.  An alternative
-;; to introducing an explicit disjunction is to have a set of variables that
-;; are marked as having a finite domain, and have state-choose include these
-;; in its working set.  Another way is to simply introduce the unary table
-;; constraint.  We would also want to track that such a finite domain has
-;; already been added for a variable, to prevent repeated introductions.
-
-;; TODO: replace bounds-apply with combinations of simpler constraints.
-;; applying (bounds lb lbi ub ubi) to X can be decomposed in this way:
-;; (conj* (<=o lb X) (<=o X ub)
-;;        (if lbi succeed (=/= lb X))
-;;        (if ubi succeed (=/= ub X)))
-;; and (<=o (cons lb.A lb.D) (cons t.A t.D)) can be decomposed as:
-;; (conj* (<=o lb.A t.A)
-;;        (disj* (=/= lb.A t.A)
-;;               (<=o lb.D t.D)))
-;; likewise for upper bounds
-;; Also, vector comparisons can be converted to analogous list comparisons, as
-;; currently done by bounds-apply.
 
 (define (bounds-apply st b t (cx.rest.lb #f) (cx.rest.ub #f))
   (if (and (equal? b bounds.any) (not cx.rest.lb) (not cx.rest.ub)) st
@@ -806,73 +691,6 @@
   r)
 
 (define (tcx-stats st tcx) (tcx 'stats st))
-
-
-;; notes from old relation.rkt
-
-;(define (degree lb ub domain range)
-;  ;; TODO: ub is #f or lb <= ub; domain and range are disjoint
-;  (vector lb ub domain range))
-;(define (degree-lower-bound d) (vector-ref d 0))
-;(define (degree-upper-bound d) (vector-ref d 1))
-;(define (degree-domain      d) (vector-ref d 2))
-;(define (degree-range       d) (vector-ref d 3))
-
-;; * extensional relation:
-;;   * schema:
-;;     * heading: set of attributes and their types
-;;     * degree constraints (generalized functional dependencies)
-;;     * possibly join and inclusion dependencies
-;;   * body: finite set of tuples
-
-;; TODO: should we interpret degree constraints to find useful special cases?
-;; * functional dependency
-;; * bijection (one-to-one mapping via opposing functional dependencies)
-;; * uniqueness (functional dependency to full set of of attributes)
-
-;; example degree constraints
-;; TODO: are range lower bounds useful? probably not
-;'#(1 1 #(w x y z) #(pos))
-;'#(1 1 #(x y z)   #(pos))  ;; even after truncating w, there are no duplicates
-
-;; example: safe-drug -(predicate)-> gene
-;(run* (D->G)
-;  (fresh (D G D-is-safe P)
-;    ;; D -(predicate)-> G
-;    (concept D 'category 'drug)   ;; probably not low cardinality          (6? optional if has-tradename already guarantees this, but is it helpful?) known D Ologn if indexed; known Ologn
-;    (edge D->G 'subject   D)      ;;                                       (5) 'subject range known Ologn; known D O(n) via scan
-;    (edge D->G 'object    G)      ;; probably lowest cardinality for D->G  (3) 'object range known Ologn; known D->G Ologn
-;    (edge D->G 'predicate P)      ;; probably next lowest, but unsorted    (4) known |D->G| O(|P|+logn) (would be known D->G O(nlogn)); known D->G O(nlognlog(|P|)) via scan
-;    (membero P predicates)        ;; P might also have low cardinality     (2) known P O(|P|)
-;    (== G 1234)                   ;; G should have lowest cardinality      (1) known G O1
-;    ;(concept G 'category 'gene)
-;    ;; D -(has-trade-name)-> _
-;    (edge D-is-safe 'subject   D) ;;                                       (7) 'subject range known Ologn; known D-is-safe Ologn
-;    (edge D-is-safe 'predicate 'has-tradename))) ;;                        (8) known Ologn
-;; about (4, should this build an intermediate result for all Ps, iterate per P, or just enumerate and filter P?):
-;; * iterate        (global join on P): O(1)   space; O(|P|*(lg(edge G) + (edge P)))    time; join order is G(==), P(membero), D->G(edge, edge)
-;; * intermediate    (local join on P): O(|P|) space; O(|(edge P)|lg(|P|) + lg(edge G)) time; compute D->G chunk offsets, virtual heap-sort, then join order is G(==), D->G(edge, intermediate)
-;; * filter (delay consideration of P): O(1)   space; O((edge G)*lg(|P|)) time; join order is G(==), D->G(edge), P
-;; (edge P) is likely larger than (edge G)
-;; even if |P| is small, |(edge P)| is likely to be large
-;; if |P| is small, iterate or intermediate
-;; if |P| is large, iterate or filter; the larger the |P|, the better filtering becomes (negatives become less likely)
-;; intermediate is rarely going to be good due to large |(edge P)|
-;; iterate is rarely going to be very bad, but will repeat work for |P| > 1
-
-;; TODO:
-;; In this example query family, the query graph is tree-shaped, and the
-;; smallest cardinalities will always start at leaves of the tree, so pausing
-;; when cardinality spikes, and resuming at another leaf makes sense.  But what
-;; happens if the smallest cardinality is at an internal node of the tree,
-;; cardinality spikes, and the smallest cardinality is now along a different
-;; branch/subtree?  In other words, resolving the internal node can be seen as
-;; removing it, which disconnects the query graph.  The disconnected subgraphs
-;; are independent, and so could be solved independently to avoid re-solving
-;; each one multiple times.  This is sort of an on-the-fly tree decomposition.
-;; Before fully solving each independent problem, ensure that each is
-;; satisfiable.  Existential-only paths can stop after satisfiability check.
-
 
 (define (enumerate-and-reify st)
   (s-map (lambda (st) (reify st)) (state-enumerate st)))

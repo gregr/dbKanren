@@ -14,6 +14,58 @@
     (filter (lambda (kv) (not (vcx? (cdr kv)))) (hash->list (state-var=>cx st)))))
 ;|#
 
+;; TODO:
+;; extra solvers, beyond bounds checking/limiting for domains and arcs:
+;;   +o, *o:
+;;     for generality, could use a substitute and simplify model
+;;       if a + b = c, then replace c whenever it appears
+;;       still need some functional dependencies (only forward?)
+;;          e.g., a + b = c and a + b = d implies c = d
+;;          also true that a + b = c and a + d = c implies b = d
+;;          however, substituting for c and simplifying covers this:
+;;            a + b = a + d, and simplifying shows b = d
+;;          similar for *o, but case split with 0
+;;     in special cases, can do linear programming
+;;       incremental simplex
+;;       keep in mind: flooro, X-lengtho, X-refo introduce integer constraints
+;;     in other cases: difference equations, polynomials...
+;;     calculus for optimization
+;;     etc.
+;;   (uninterpreted) functional dependencies:
+;;     == propagation forward
+;;       e.g., if (f a b = c) and (f a b = d) then (== c d)
+;;     =/= propagation in reverse
+;;       e.g., if (f a b = c) and (f a d = e) and (c =/= e) then (b =/= d)
+;;         note: this is not a bi-implication unless the function is one-to-one
+;;         (expresssed as two opposing functional dependency constraints)
+;;     also can be used to encode some forms of subsumption checking
+;;   X-refo: maintain minimum length and partial mapping
+;;   string==byteso: look for impossible utf-8 bytes (possibly partial mapping)
+
+;; TODO:
+;; satisfiability loop for a variable constraint graph:
+;;   after propagation quiessence, attempt to divide and conquer
+;;     this is attempted once each time through the satisfiability loop because
+;;       new assignments may lead to disconnection, allowing more decomposition
+;;     decompose into subproblem per subgraph of connected variables
+;;       connection comes from dependency arcs implied by shared constraints
+;;       each subgraph can be satisfied independently
+;;       subgraph solutions can be enumerated and composed
+;;
+;;   for each variable constraint subgraph:
+;;     while there are unresolved variables with possible assignments:
+;;       choose variable with lowest assignment-set cardinality
+;;       choose an assignment for the variable
+;;         may introduce/expand new constraints by stepping into a disj branch
+;;       re-enter satisfiability loop with any new constraints
+;;       if enumerating or loop fails, choose the next assignment
+;;       if no more assignments are available, fail
+;;     once no more unresolved variables, succeed
+;;   compose subgraph solutions
+;;     if any subgraph failed completely, composition also fails
+
+;;; TODO: occurs check for vector-ref
+
 (define (uid:new) (gensym))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -624,6 +676,8 @@
               (define domain? (and lbi ubi (finite-interval? lb ub)))
               (if domain?
                 ;; TODO: instead, produce a table constraint for efficiency?
+                ;; TODO: how do we prevent repeated introduction of this finite
+                ;; domain constraint?
                 (disjoin st.new #f (map (lambda (t) (c:== x t)) domain?))
                 st.new))))
 

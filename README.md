@@ -82,14 +82,6 @@ Typical use:
 * `state-pending-run` before splitting search on any disj
   * instead, maybe even go so far as to `state-enumerate` before?
 
-* eventually, make sure relation metadata contains information for analysis
-  * e.g., degree constraints, fast column ordering, subsumption tag/rules
-  * descriptions used for subsumption
-    * #(,relation ,attributes-satisfied ,attributes-pending)
-    * within a relation, table constraint A subsumes B if
-      B's attributes-pending is a prefix of A's
-      AND
-      B does not have any attributes-satisfied that A does not have
 
 * remaining loose ends necessary for full expressiveness
   * fixed point computation
@@ -109,6 +101,24 @@ Typical use:
     * e.g., unify on partially-known term structures can be unrolled
     * constraint evaluations can be pre-simplified and reordered
   * code generation
+
+* eventually, make sure relation metadata contains information for analysis
+  * e.g., degree constraints, fast column ordering, subsumption tag/rules
+  * descriptions used for subsumption
+    * #(,relation ,attributes-satisfied ,attributes-pending)
+    * within a relation, table constraint A subsumes B if
+      B's attributes-pending is a prefix of A's
+      AND
+      B does not have any attributes-satisfied that A does not have
+  * schema: heading, constraints, other dependencies
+    * heading: set of attributes and their types
+    * degree constraints (generalized functional dependencies)
+      * interpret degree constraints to find useful special cases
+        * functional dependency
+        * bijection (one-to-one mapping via opposing functional dependencies)
+        * uniqueness (functional dependency to full set of of attributes)
+    * maybe join and inclusion dependencies
+  * body: finite set of tuples
 
 * floating point numbers are not valid terms
   * reordering operations endangers soundness
@@ -305,7 +315,9 @@ Typical use:
           * recursive calls of exactly the same size are considered failures
         * keep results of branching relation calls independent until join phase
       * maintain constraint satisfiability
-        * cheap first-pass via domain consistency, then arc consistency
+        * constraint propagation loop: `state-enforce-local-consistency`
+          * cheap first-pass via domain consistency, then arc consistency
+          * backjump and learn clauses when conflict is detected
         * then global satisfiability via search
           * choose candidate for the most-constrained variable
             * maybe the variable participating in largest number of constraints
