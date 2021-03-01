@@ -5,6 +5,15 @@
          "syntax.rkt" "table.rkt" (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
 
+#| ;; Definitions for performance diagnostics
+(require racket/pretty)
+(define (pretty-var-bindings vbs)
+  (map (lambda (vb) (cons (var-name (car vb)) (cdr vb))) vbs))
+(define (state-var-bindings st)
+  (pretty-var-bindings
+    (filter (lambda (kv) (not (vcx? (cdr kv)))) (hash->list (state-var=>cx st)))))
+;|#
+
 (define (uid:new) (gensym))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -172,8 +181,16 @@
 
 ;; TODO: include a parameter to specify the degree of locality
 (define (state-enforce-local-consistency st)
+  #| ;; Performance diagnostics
+  (pretty-write `(before: term: ,(walk* st (state-qterm st))
+                          vcxs: ,(state-var-bindings st)))
+  ;|#
   (let*/and ((st (state-schedule-run     st))
              (st (state-solve-lte-cycles st)))
+    #| ;; Performance diagnostics
+    (pretty-write `(after: term: ,(walk* st (state-qterm st))
+                           vcxs: ,(state-var-bindings st)))
+    ;|#
     (if (state-schedule-empty? st)
       st
       (state-enforce-local-consistency st))))
@@ -221,6 +238,17 @@
     (define xcss   (hash->list x=>c&s))
     (define x.best (car (foldl (lambda (xcs xcs.min) (if (xcs<? xcs xcs.min) xcs xcs.min))
                                (car xcss) (cdr xcss))))
+
+    #| ;; Performance diagnostics
+    (pretty-write `(choosing: ,(var-name x.best)
+                              ,(hash-ref x=>c&s x.best)
+                              ,(vcx-bounds (state-vcx-ref st x.best))
+                              all-choices: ,(pretty-var-bindings xcss)
+                              term: ,(walk* st (state-qterm st))
+                              vcxs: ,(state-var-bindings st)))
+    ;(read-line)
+    ;|#
+
     (define t (bounds-lb (vcx-bounds (state-vcx-ref st x.best))))
     (define (k st?) (if st? (state->satisfied-states st?) '()))
     (s-append        (k (var-assign    st    x.best t))

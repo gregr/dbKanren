@@ -6,6 +6,15 @@
          "syntax.rkt" "table.rkt" (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
 
+#| ;; Definitions for performance diagnostics
+(require racket/pretty)
+(define (pretty-var-bindings vbs)
+  (map (lambda (vb) (cons (var-name (car vb)) (cdr vb))) vbs))
+(define (state-var-bindings st)
+  (pretty-var-bindings
+    (filter (lambda (kv) (not (vcx? (cdr kv)))) (hash->list (state-var=>cx st)))))
+;|#
+
 ;; TODO:
 
 ;; implementation phases:
@@ -450,6 +459,17 @@
   ;; TODO: also consider paths provided by available table indexes, maybe via
   ;; prioritized topological sort of SCCs.
   (define x.best (caar xccs))
+
+  #| ;; Performance diagnostics
+  (pretty-write `(choosing: ,(var-name x.best)
+                            ,(cdar xccs)
+                            ,(vcx-bounds (state-vcx-ref st x.best))
+                            all-choices: ,(pretty-var-bindings xccs)
+                            term: ,(walk* st (state-qterm st))
+                            vcxs: ,(state-var-bindings st)))
+  (read-line)
+  ;|#
+
   (define t (bounds-lb (vcx-bounds (state-vcx-ref st x.best))))
   (define st.new (assign st x.best t))
   (define (s-rest) (let ((st.skip (disunify st x.best t)))
