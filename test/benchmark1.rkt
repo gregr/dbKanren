@@ -40,15 +40,15 @@
   'retrieval-type  'scm
   )
 
-(define-relation (P3.1 x z) (fresh (y) (P2.1 x y) (Q y z)))
-(define-relation (P2.1 x z) (fresh (y) (P1.1 x y) (Q y z)))
-(define-relation (P1.1 x z) (fresh (y) (P0.1 x y) (Q y z)))
-(define-relation (P0.1 x y) (R x y))
+(define-relation (P3.1 b y) (fresh (x) (P2.1 b x) (Q x y)))
+(define-relation (P2.1 c w) (fresh (v) (P1.1 c v) (Q v w)))
+(define-relation (P1.1 d u) (fresh (t) (P0.1 d t) (Q t u)))
+(define-relation (P0.1 e s) (R e s))
 
 ;; disk: ~8000ms
 ;; scm:  ~1400ms
 (test 'benchmark-1
-  (length (run* (x z) (P3.1 x z)))
+  (length (run* (a z) (P3.1 a z)))
   ;; smallest: (1    4)
   ;; largest:  (4998 5001)
   4998)
