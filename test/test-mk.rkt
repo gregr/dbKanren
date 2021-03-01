@@ -228,11 +228,11 @@
       (12 c d))))
 
 (test '=/=.atom.1
-  (run* (x) (=/= 1 x))
-  '(#s(cx (#s(var 0)) (=/=** ((#s(var 0) 1))))))
+  (run* x (=/= 1 x))
+  '(#s(cx #s(var 0) (constraints: (=/= #s(var 0) 1)))))
 (test '=/=.atom.2
-  (run* (x) (=/= x 2))
-  '(#s(cx (#s(var 0)) (=/=** ((#s(var 0) 2))))))
+  (run* x (=/= x 2))
+  '(#s(cx #s(var 0) (constraints: (=/= #s(var 0) 2)))))
 
 (test '=/=.atom.==.1
   (run* (x) (== x 1) (=/= x 1))
@@ -393,30 +393,34 @@
   (run* (x)
     (fresh (y)
       (=/= y 1)))
-  '((#s(var 0))))
+  '(#s(cx (#s(var 0)) (constraints:))))
 (test '=/=.fresh.2
   (run* (x)
     (fresh (y)
       (=/= x 0)
       (=/= y 1)))
-  '(#s(cx (#s(var 0)) (=/=** ((#s(var 0) 0))))))
+  '(#s(cx (#s(var 0)) (constraints: (=/= #s(var 0) 0)))))
 (test '=/=.fresh.3
   (run* (x)
     (fresh (y)
       (=/= x 0)
       (=/= x y)))
-  '(#s(cx (#s(var 0)) (=/=** ((#s(var 0) 0))))))
+  '(#s(cx (#s(var 0)) (constraints: (=/= #s(var 0) #s(var 1))
+                                    (=/= #s(var 0) 0)))))
 (test '=/=.fresh.4
   (run* (x y)
     (fresh (z)
       (=/= `(,x . ,y) '(0 . 2))
       (=/= z 1)))
-  '(#s(cx (#s(var 0) #s(var 1)) (=/=** ((#s(var 0) 0) (#s(var 1) 2))))))
+  '(#s(cx (#s(var 0) #s(var 1)) (constraints: (=/= #s(var 0) 0)))
+    #s(cx (#s(var 0) #s(var 1)) (constraints: (=/= #s(var 1) 2)))))
 (test '=/=.fresh.5
   (run* (x y)
     (fresh (z)
       (=/= `(,x ,y ,z) '(0 1 2))))
-  '((#s(var 0) #s(var 1))))
+  '(#s(cx (#s(var 0) #s(var 1)) (constraints: (=/= #s(var 0) 0)))
+    #s(cx (#s(var 0) #s(var 1)) (constraints: (=/= #s(var 1) 1)))
+    #s(cx (#s(var 0) #s(var 1)) (constraints:))))
 
 (test 'membero.forward
   (run* () (membero 3 '(1 2 3 4 3 5)))

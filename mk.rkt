@@ -1,8 +1,8 @@
 #lang racket/base
 (provide (all-from-out "common.rkt") (all-from-out "syntax.rkt")
-         (all-from-out "constraint.rkt")
+         (all-from-out "constraint-new.rkt")
          query->stream run^ run run*)
-(require "common.rkt" "config.rkt" "constraint.rkt" "stream.rkt" "syntax.rkt"
+(require "common.rkt" "config.rkt" "constraint-new.rkt" "stream.rkt" "syntax.rkt"
          (except-in racket/match ==))
 
 (define (query->stream q)

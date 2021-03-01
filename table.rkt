@@ -169,34 +169,34 @@
              (else         (update/pending c=>b cols.pending col=>bounds mask start end))))))
   (update/trim (hash) nonkey-columns (hash) 0 0 row-count))
 
-;(define (table-length t key)       (statistics-cardinality (hash-ref (t 'statistics) key)))
-;(define (table-ref    t key i col) (bounds-lb (hash-ref ((t 'update (hash key (bounds i #t i #t))) 'bounds) col)))
-;
-;(define (table/port/offsets table.offsets key-col cols types in)
-;  (define type `#(tuple ,@types))
-;  (define (ref i)
-;    (file-position in (table-ref table.offsets #t i 'offset))
-;    (decode in type))
-;  (and table.offsets
-;       (tabular-trie ref key-col cols types (table-length table.offsets #t))))
-;
-;(define (table/bytes/offsets table.offsets key-col cols types bs)
-;  (define in (open-input-bytes bs))
-;  (table/port/offsets table.offsets key-col cols types in))
-;
-;(define (table/port len key-col cols types in)
-;  (define type `#(tuple ,@types))
-;  (define width (sizeof type (void)))
-;  (define (ref i) (file-position in (* i width)) (decode in type))
-;  (tabular-trie ref key-col cols types len))
-;
-;(define (table/bytes key-col cols types bs)
-;  (define in (open-input-bytes bs))
-;  (table/port (quotient (bytes-length bs) (sizeof types (void)))
-;              key-col cols types in))
-;
-;(define (table/vector key-col cols types v)
-;  (tabular-trie (lambda (i) (vector-ref v i)) key-col cols types (vector-length v)))
+(define (table-length t key)       (statistics-cardinality (hash-ref (t 'statistics) key)))
+(define (table-ref    t key i col) (bounds-lb (hash-ref ((t 'update (hash key (bounds i #t i #t))) 'bounds) col)))
+
+(define (table/port/offsets table.offsets key-col cols types in)
+  (define type `#(tuple ,@types))
+  (define (ref i)
+    (file-position in (table-ref table.offsets #t i 'offset))
+    (decode in type))
+  (and table.offsets
+       (tabular-trie ref key-col cols types (table-length table.offsets #t))))
+
+(define (table/bytes/offsets table.offsets key-col cols types bs)
+  (define in (open-input-bytes bs))
+  (table/port/offsets table.offsets key-col cols types in))
+
+(define (table/port len key-col cols types in)
+  (define type `#(tuple ,@types))
+  (define width (sizeof type (void)))
+  (define (ref i) (file-position in (* i width)) (decode in type))
+  (tabular-trie ref key-col cols types len))
+
+(define (table/bytes key-col cols types bs)
+  (define in (open-input-bytes bs))
+  (table/port (quotient (bytes-length bs) (sizeof types (void)))
+              key-col cols types in))
+
+(define (table/vector key-col cols types v)
+  (tabular-trie (lambda (i) (vector-ref v i)) key-col cols types (vector-length v)))
 
 (define (table.old vref key-col cols.all types row-count)
   (let table ((cols  cols.all)
@@ -260,35 +260,6 @@
                           (table (cdr cols) (cdr types) key-bound?
                                  (cons col bound) (+ mask 1)
                                  start.new end.new)))))))))
-
-(define (table-length.old t key)       (t 'max-count key))
-(define (table-ref.old    t key i col) ((t '= key i) 'min col))
-
-(define (table/port/offsets table.offsets key-col cols types in)
-  (define type `#(tuple ,@types))
-  (define (ref i)
-    (file-position in (table-ref.old table.offsets #t i 'offset))
-    (decode in type))
-  (and table.offsets
-       (table.old ref key-col cols types (table-length.old table.offsets #t))))
-
-(define (table/bytes/offsets table.offsets key-col cols types bs)
-  (define in (open-input-bytes bs))
-  (table/port/offsets table.offsets key-col cols types in))
-
-(define (table/port len key-col cols types in)
-  (define type `#(tuple ,@types))
-  (define width (sizeof type (void)))
-  (define (ref i) (file-position in (* i width)) (decode in type))
-  (table.old ref key-col cols types len))
-
-(define (table/bytes key-col cols types bs)
-  (define in (open-input-bytes bs))
-  (table/port (quotient (bytes-length bs) (sizeof types (void)))
-              key-col cols types in))
-
-(define (table/vector key-col cols types v)
-  (table.old (lambda (i) (vector-ref v i)) key-col cols types (vector-length v)))
 
 (define (vector-table? types v)
   (define v< (compare-><? (type->compare types)))
