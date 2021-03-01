@@ -18,8 +18,8 @@
              (pretty-print expected)))))
 
 (test 'appendo.forward
-  (run* (z) (appendo '(1 2 3) '(4 5) z))
-  '(((1 2 3 4 5))))
+  (run* z (appendo '(1 2 3) '(4 5) z))
+  '((1 2 3 4 5)))
 (test 'appendo.backward
   (run* (x y) (appendo x y '(1 2 3 4 5)))
   '((() (1 2 3 4 5))
@@ -235,41 +235,41 @@
   '(#s(cx #s(var 0) (constraints: (=/= #s(var 0) 2)))))
 
 (test '=/=.atom.==.1
-  (run* (x) (== x 1) (=/= x 1))
+  (run* x (== x 1) (=/= x 1))
   '())
 (test '=/=.atom.==.2
-  (run* (x) (=/= x 2) (== x 2))
+  (run* x (=/= x 2) (== x 2))
   '())
 (test '=/=.atom.==.3
-  (run* (x) (=/= x 3) (== x 'not-3))
-  '((not-3)))
+  (run* x (=/= x 3) (== x 'not-3))
+  '(not-3))
 (test '=/=.atom.==.4
-  (run* (x) (== x 'not-4) (=/= x 4))
-  '((not-4)))
+  (run* x (== x 'not-4) (=/= x 4))
+  '(not-4))
 
 (test '=/=.var.==.1
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= x y)
       (== x 1)
       (== y 1)))
   '())
 (test '=/=.var.==.2
-  (run* (x)
+  (run* x
     (fresh (y)
       (== x 2)
       (== y 2)
       (=/= x y)))
   '())
 (test '=/=.var.==.3
-  (run* (x)
+  (run* x
     (fresh (y)
       (== x 3)
       (=/= x y)
       (== y 3)))
   '())
 (test '=/=.var.==.4
-  (run* (x)
+  (run* x
     (fresh (y z)
       (=/= x 4)
       (== x y)
@@ -277,7 +277,7 @@
       (== z 4)))
   '())
 (test '=/=.var.==.5
-  (run* (x)
+  (run* x
     (fresh (y z)
       (=/= x 5)
       (== y z)
@@ -285,128 +285,128 @@
       (== z 5)))
   '())
 (test '=/=.var.==.6
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= x y)
       (== x y)))
   '())
 (test '=/=.var.==.7
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= x y)
       (== y x)))
   '())
 
 (test '=/=.pair.==.1
-  (run* (x)
+  (run* x
     (=/= x '(1 . 2))
     (==  x '(1 . 2)))
   '())
 (test '=/=.pair.==.2
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= x `(1 . ,y))
       (==  x `(1 . 2))
       (==  y 2)))
   '())
 (test '=/=.pair.==.3
-  (run* (x)
+  (run* x
     (fresh (y)
       (==  x `(1 . 2))
       (=/= x `(1 . ,y))
       (==  y 2)))
   '())
 (test '=/=.pair.==.4
-  (run* (x)
+  (run* x
     (fresh (y)
       (==  x `(1 . 2))
       (==  y 2)
       (=/= x `(1 . ,y))))
   '())
 (test '=/=.pair.==.5
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= x `(1 . ,y))
       (==  y 2)
       (==  x `(1 . 2))))
   '())
 (test '=/=.pair.==.6
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= `(,x .  1) `(0 . ,y))
       (==  `(,x . ,y) '(0 .  1))))
   '())
 (test '=/=.pair.==.7
-  (run* (x)
+  (run* x
     (fresh (y)
       (==  `(,x . ,y) '(0 .  1))
       (=/= `(,x .  1) `(0 . ,y))))
   '())
 
 (test '=/=.pair.=/=.1
-  (run* (x)
+  (run* x
     (=/= x '(1 . 2))
     (==  x '(0 . 2)))
-  '(((0 . 2))))
+  '((0 . 2)))
 (test '=/=.pair.=/=.2
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= x `(1 . ,y))
       (==  x `(1 . 2))
       (==  y 0)))
-  '(((1 . 2))))
+  '((1 . 2)))
 (test '=/=.pair.=/=.3
-  (run* (x)
+  (run* x
     (fresh (y)
       (==  x `(1 . 2))
       (=/= x `(1 . ,y))
       (==  y 0)))
-  '(((1 . 2))))
+  '((1 . 2)))
 (test '=/=.pair.=/=.4
-  (run* (x)
+  (run* x
     (fresh (y)
       (==  x `(1 . 2))
       (==  y 0)
       (=/= x `(1 . ,y))))
-  '(((1 . 2))))
+  '((1 . 2)))
 (test '=/=.pair.=/=.5
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= x `(1 . ,y))
       (==  y 0)
       (==  x `(1 . 2))))
-  '(((1 . 2))))
+  '((1 . 2)))
 (test '=/=.pair.=/=.6
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= `(,x .  1) `(0 . ,y))
       (==  `(,x . ,y) '(0 .  2))))
-  '((0)))
+  '(0))
 (test '=/=.pair.=/=.7
-  (run* (x)
+  (run* x
     (fresh (y)
       (==  `(,x . ,y) '(0 .  2))
       (=/= `(,x .  1) `(0 . ,y))))
-  '((0)))
+  '(0))
 
 (test '=/=.fresh.1
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= y 1)))
-  '(#s(cx (#s(var 0)) (constraints:))))
+  '(#s(cx #s(var 0) (constraints:))))
 (test '=/=.fresh.2
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= x 0)
       (=/= y 1)))
-  '(#s(cx (#s(var 0)) (constraints: (=/= #s(var 0) 0)))))
+  '(#s(cx #s(var 0) (constraints: (=/= #s(var 0) 0)))))
 (test '=/=.fresh.3
-  (run* (x)
+  (run* x
     (fresh (y)
       (=/= x 0)
       (=/= x y)))
-  '(#s(cx (#s(var 0)) (constraints: (=/= #s(var 0) #s(var 1))
-                                    (=/= #s(var 0) 0)))))
+  '(#s(cx #s(var 0) (constraints: (=/= #s(var 0) #s(var 1))
+                                  (=/= #s(var 0) 0)))))
 (test '=/=.fresh.4
   (run* (x y)
     (fresh (z)
@@ -609,59 +609,59 @@
       (9 5 q0   q1   q2))))
 
 (test '<=.1
-  (run* (n)
+  (run* n
     (membero n '(0 1 2 3 4 5 6 7 8 9))
     (<=o 2 n)
     (<o  n 8))
-  '((2) (3) (4) (5) (6) (7)))
+  '(2 3 4 5 6 7))
 (test '<=.2
-  (run* (n)
+  (run* n
     (<=o 2 n)
     (<o  n 8)
     (membero n '(0 1 2 3 4 5 6 7 8 9)))
-  '((2) (3) (4) (5) (6) (7)))
+  '(2 3 4 5 6 7))
 (test '<=.3
-  (run* (n)
+  (run* n
     (<o  n 8)
     (<=o 2 n)
     (membero n '(0 1 2 3 4 5 6 7 8 9)))
-  '((2) (3) (4) (5) (6) (7)))
+  '(2 3 4 5 6 7))
 (test 'any<=.fd.1
-  (run* (x)
+  (run* x
     (any<=o '(#t . #f) x)
     (any<=o x '#(())))
-  '(((#t . #f))
-    ((#t . #t))
-    (#())
-    (#(()))))
+  '((#t . #f)
+    (#t . #t)
+    #()
+    #(())))
 (test 'any<=.fd.2
-  (run* (x)
+  (run* x
     (any<=o '(#f . #f) x)
     (any<=o x '(#t . ())))
-  '(((#f . #f))
-    ((#f . #t))
-    ((#t . ()))))
+  '((#f . #f)
+    (#f . #t)
+    (#t . ())))
 (test 'any<=.fd.3
-  (run* (x)
+  (run* x
     (any<=o '#(5 #f #f #f) x)
     (any<=o x '#(5 #f #t ())))
-  '((#(5 #f #f #f))
-    (#(5 #f #f #t))
-    (#(5 #f #t ()))))
+  '(#(5 #f #f #f)
+    #(5 #f #f #t)
+    #(5 #f #t ())))
 (test 'any<=.fd.4
-  (run* (x)
+  (run* x
     (any<=o '#(#f #t #f) x)
     (any<=o x '#(#t () ())))
-  '((#(#f #t #f))
-    (#(#f #t #t))
-    (#(#t () ()))))
+  '(#(#f #t #f)
+    #(#f #t #t)
+    #(#t () ())))
 (test 'any<=.fd.5
-  (run* (x)
+  (run* x
     (any<=o '#(#t #t #f) x)
     (any<=o x '#(() () () ())))
-  '((#(#t #t #f))
-    (#(#t #t #t))
-    (#(() () () ()))))
+  '(#(#t #t #f)
+    #(#t #t #t)
+    #(() () () ())))
 (test 'any<=.cycle.0
   (run* (a b c)
     (any<=o a b)
@@ -756,16 +756,16 @@
 (define (evalo expr value) (eval-expo expr '() value))
 
 (test 'evalo-literal
-  (run 1 (e) (evalo e 5))
-  '(((quote 5))))
+  (run 1 e (evalo e 5))
+  '((quote 5)))
 
 ;; ~600 ms
 (test 'evalo-quine
-  (time (run 1 (e) (evalo e e)))
-  '(((app (lambda (list (quote app) (var ())
-                        (list (quote quote) (var ()))))
-          (quote (lambda (list (quote app) (var ())
-                               (list (quote quote) (var ())))))))))
+  (time (run 1 e (evalo e e)))
+  '((app (lambda (list (quote app) (var ())
+                       (list (quote quote) (var ()))))
+         (quote (lambda (list (quote app) (var ())
+                              (list (quote quote) (var ()))))))))
 
 ;; ~5500 ms
 ;(test 'evalo-twine
