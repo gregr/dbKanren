@@ -737,12 +737,12 @@
   '(((quote 5))))
 
 ;; ~600 ms
-;(test 'evalo-quine
-;  (time (run 1 (e) (evalo e e)))
-;  '(((app (lambda (list (quote app) (var ())
-;                        (list (quote quote) (var ()))))
-;          (quote (lambda (list (quote app) (var ())
-;                               (list (quote quote) (var ())))))))))
+(test 'evalo-quine
+  (time (run 1 (e) (evalo e e)))
+  '(((app (lambda (list (quote app) (var ())
+                        (list (quote quote) (var ()))))
+          (quote (lambda (list (quote app) (var ())
+                               (list (quote quote) (var ())))))))))
 
 ;; ~5500 ms
 ;(test 'evalo-twine
