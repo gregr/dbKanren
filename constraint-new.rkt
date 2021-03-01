@@ -466,23 +466,34 @@
 
 ;; TODO: this should be renamed to relation/table
 (define (materialized-relation . pargs)
-  ;; TODO: we don't need primary-key-name anymore
+  ;; TODO: should we need primary-key-name?
   (match-define (list name attribute-names primary-key-name ixs)
     (apply materialization pargs))
+  ;; TODO: this is a workaround to make sure key column is tracked for update.
+  (define attrs
+    (if (member primary-key-name attribute-names)
+      attribute-names
+      (cons #t attribute-names)))
   (define t.0 (table ixs))
-  (define (app st args.0)
+  (define (app st args.0.0)
+    ;; TODO: this introduces a phantom variable for the key column update workaround.
+    ;; Is there a better solution?
+    (define args.0
+      (if (member primary-key-name attribute-names)
+        args.0.0
+        (cons (var #t) args.0.0)))
     (define (update-state st t)
       (define c=>b (t 'bounds))
       (foldl/and (lambda (c a st)
                    (c-apply st #f (c:bounds (hash-ref c=>b c bounds.any) a)))
-                 st attribute-names args.0))
+                 st attrs args.0))
     (let*/and ((st (update-state st t.0)))
       (define args (walk* st args.0))
       (define tc
         (let controller ((t  t.0)
                          (vs (set->list (term-vars args))))
           (method-lambda
-            ((constraint) (c:proc r args (set)))
+            ((constraint) (c:proc r args.0.0 (set)))
             ((variables)  vs)
             ((variable-statistics st)
              (define c=>stats (t 'statistics))
@@ -492,10 +503,10 @@
                         (s.x (define (merge s.0) (statistics-intersect s.0 s.x))
                              (foldl (lambda (x x=>stats) (hash-update x=>stats x merge s.x))
                                     x=>stats (set->list (term-vars (walk* st a)))))))
-                    (hash) attribute-names args))
+                    (hash) attrs args))
             ((update st uid?)
              (let*/and ((t (t 'update (map (lambda (c a) (cons c (term-bounds st a)))
-                                           attribute-names args))))
+                                           attrs args))))
                (update-state
                  (if (t 'done?)
                    st

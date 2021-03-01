@@ -129,6 +129,8 @@
                  (update/pending c=>b.new cols.pending col=>bounds mask start end)))))))
   (define (new cols.pending col=>bounds mask start end)
     (method-lambda
+      ;; TODO: this will be incorrect if the nonkey-columns do not map to a single key, which
+      ;; can happen when the table includes the key-column as an attribute.
       ((done?)  (null? cols.pending))
       ;; TODO: allow full? to be #t when nonkey-columns include all attributes
       ((full?)  (not (not key-column)))
