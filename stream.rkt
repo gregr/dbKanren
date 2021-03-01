@@ -1,5 +1,6 @@
 #lang racket/base
 (provide s-next s-force s-split s-take s-drop s-each s-foldr s-foldl s-scan
+         s-append/interleaving s-append*/interleaving
          s-append s-append* s-map/append s-map s-filter s-group s-memo
          s-length s-enumerate s-dedup s-limit)
 (require racket/function racket/match)
@@ -28,6 +29,15 @@
   (cond ((null? s) acc)
         ((pair? s) (f (car s) (s-foldr f acc (cdr s))))
         (else      (thunk (s-foldr f acc (s))))))
+
+(define (s-append*/interleaving s*) (s-foldr s-append/interleaving '() s*))
+;; TODO: generalize to multiple streams
+(define (s-append/interleaving s1 s2)
+  (cond ((null?      s1) (s2))
+        ((procedure? s1) (thunk (s-append/interleaving (s2) s1)))
+        (else (define d1  (cdr s1))
+              (define s1^ (if (procedure? d1) d1 (thunk d1)))
+              (cons (car s1) (thunk (s-append/interleaving (s2) s1^))))))
 
 (define (s-append* ss) (s-foldr s-append '() ss))
 ;; TODO: generalize to multiple streams
