@@ -12,7 +12,9 @@ Typical use:
 
 ## TODO
 
-* prioritize support for general `any<=o`
+* rename materialized-relation to relation/table
+* only register `c:table` with the subset of variables that are indexable
+* factor out table choosing
 
 * redesign tables, indexing, variable ordering heuristics
   * to get array-based lookup, specify appropriate column constraints
@@ -76,17 +78,18 @@ Typical use:
     * safety analysis of relations referenced during query/materialization
   * randomized variants of interleaving or depth-first search
 
+* support small tables, particularly for finite domains
+* fixed point computation
+
 * place-based concurrency/parallelism?
 * thread-safe table retrieval
-
-* `state-pending-run` before splitting search on any disj
-  * instead, maybe even go so far as to `state-enumerate` before?
-
-
-* remaining loose ends necessary for full expressiveness
-  * fixed point computation
-  * strategy w/ flexible goal ordering
-  * these are defined in the "evaluation" section below
+* tee/piping output logs to file
+* background worker threads/places for materialization
+* metadata.scm protocol versioning for automatic update/migration
+* documentation and examples
+  * small tsv data example for testing materialization
+* support an interactive stepping/user-choice "strategy"
+  * both for debugging and devising new strategies
 
 * how do we express columns of suffix type?
   * it would have this representation type: `#(suffix count len)`
@@ -124,15 +127,6 @@ Typical use:
   * reordering operations endangers soundness
   * detect float literals when doing so won't hurt performance
 
-* tee/piping output logs to file
-* background worker threads/places for materialization
-* metadata.scm protocol versioning for automatic update/migration
-
-* documentation and examples
-  * small tsv data example for testing materialization
-
-* support an interactive stepping/user-choice "strategy"
-  * both for debugging and devising new strategies
 
 ### Data processing
 
@@ -199,7 +193,6 @@ Typical use:
 * intensional relations (user-level)
   * search strategy: backward or forward chaining
     * could be inferred
-    * try automatic goal reordering based on cardinality/statistics
   * forward-chaining supports stratified negation and aggregation
   * materialization (caching/tabling)
     * if materialized, may be populated on-demand or up-front
