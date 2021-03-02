@@ -1,6 +1,6 @@
 #lang racket/base
 (provide bis:query->stream dfs:query->stream
-         materialized-relation define-materialized-relation)
+         relation/table define-relation/table)
 (require "method.rkt" "misc.rkt" "order.rkt" "record.rkt" "stream.rkt"
          "syntax.rkt" "table.rkt" (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
@@ -545,7 +545,7 @@
 (define (table-statistics st      tc) (tc 'variable-statistics st))
 
 ;; TODO: this should be renamed to relation/table
-(define (materialized-relation . pargs)
+(define (relation/table . pargs)
   ;; TODO: should we need primary-key-name?
   (match-define (list name attribute-names primary-key-name ixs)
     (apply materialization pargs))
@@ -801,8 +801,7 @@
 ;; Syntax definitions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; TODO: define-relation/table instead of define-materialized-relation
-(define-syntax define-materialized-relation
+(define-syntax define-relation/table
   (syntax-rules ()
-    ((_ name pargs ...) (define name (materialized-relation
-                                       'relation-name 'name pargs ...)))))
+    ((_ name pargs ...)
+     (define name (relation/table 'relation-name 'name pargs ...)))))

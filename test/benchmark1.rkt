@@ -20,7 +20,7 @@
 
 ;; Benchmark reference: http://users.informatik.uni-halle.de/~brass/botup/
 
-(define-materialized-relation Q
+(define-relation/table Q
   'path            "benchmark1/Q"
   'source-stream   (value/syntax
                      (map (lambda (i) (list i (+ i 1))) (range 1 5001)))
@@ -30,7 +30,7 @@
   'retrieval-type  'scm
   )
 
-(define-materialized-relation R
+(define-relation/table R
   'path            "benchmark1/R"
   'source-stream   (value/syntax
                      (map (lambda (i) (list i    i))    (range 1 5001)))
@@ -69,7 +69,7 @@
 
 ;; TODO: improve performance
 
-;(define-materialized-relation Q.large
+;(define-relation/table Q.large
 ;  'path            "benchmark1/Q.large"
 ;  'source-stream   (value/syntax
 ;                     (map (lambda (i) (list i (+ i 1))) (range 1 1000001)))
@@ -79,7 +79,7 @@
 ;  'retrieval-type  'scm
 ;  )
 ;
-;(define-materialized-relation R.large
+;(define-relation/table R.large
 ;  'path            "benchmark1/R.large"
 ;  'source-stream   (value/syntax
 ;                     (map (lambda (i) (list i    i))    (range 1 1000001)))
@@ -103,7 +103,7 @@
 
 ;; TODO: improve performance
 
-;(define-materialized-relation S
+;(define-relation/table S
 ;  'path            "benchmark1/S"
 ;  'source-stream   (value/syntax (map list (range 1 50001)))
 ;  'attribute-names '(a)
@@ -129,7 +129,7 @@
 
 ;; TODO: fixed-point computations
 
-;(define-materialized-relation edge
+;(define-relation/table edge
 ;  'path            "benchmark1/edge"
 ;  'source-stream   (value/syntax
 ;                     (map (lambda (i) (list i (+ i 1))) (range 1 1001)))

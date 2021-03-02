@@ -12,7 +12,6 @@ Typical use:
 
 ## TODO
 
-* rename materialized-relation to relation/table
 * only register `c:table` with the subset of variables that are indexable
 * factor out table choosing
 

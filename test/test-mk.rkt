@@ -103,8 +103,7 @@
                      ((1 2 3 4) (5))
                      ((1 2 3 4 5) ())))))
 
-(define-materialized-relation
-  tripleo
+(define-relation/table tripleo
   'attribute-names '(i x y z)
   'key-name        'i
   'source-vector   (vector #(a b c)
@@ -144,8 +143,7 @@
            ((== z 'i))))
   '((0 a b c) (2 g h i)))
 
-(define-materialized-relation
-  triple2o
+(define-relation/table triple2o
   'attribute-names '(x y z)
   'tables          '((y z x))
   'indexes         '((x))
@@ -544,7 +542,7 @@
 
 (define intersected-tables
   (map (lambda (i v)
-         (materialized-relation
+         (relation/table
            'relation-name   (string->symbol (format "intersected-table.~v" i))
            'attribute-names '(i n m x)
            'key-name        'i
