@@ -676,9 +676,7 @@
               (define domain? (and lbi ubi (finite-interval? lb ub)))
               (if domain?
                 ;; TODO: instead, produce a table constraint for efficiency?
-                ;; TODO: how do we prevent repeated introduction of this finite
-                ;; domain constraint?
-                (disjoin st.new #f (map (lambda (t) (c:== x t)) domain?))
+                (disjoin st.new x (map (lambda (t) (c:== x t)) domain?))
                 st.new))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
