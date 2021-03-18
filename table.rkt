@@ -654,9 +654,34 @@
   (define info ((hash-ref metadata/format-version
                           (hash-ref info.1 'metadata-format-version '2020-12-19.0))
                 info.1))
-  (unless (equal? info info.1)
-    ;; TODO: offer to update the metadata on disk to match the latest version.
-    (void))
+  (define diff
+    (foldl (lambda (k diff)
+             (cond ((not (hash-has-key? info   k)) (cons `(,k old: ,(hash-ref info.1 k)) diff))
+                   ((not (hash-has-key? info.1 k)) (cons `(,k new: ,(hash-ref info   k)) diff))
+                   (else (define v.new (hash-ref info   k))
+                         (define v.old (hash-ref info.1 k))
+                         (if (equal? v.new v.old) diff
+                           (cons `(,k old: ,v.old new: ,v.new) diff)))))
+           '()
+           (set->list (set-union (list->set (hash-keys info))
+                                 (list->set (hash-keys info.1))))))
+  (define should-update?
+    (and (not (null? diff))
+         (policy-allow?
+           (current-config-ref 'update-policy)
+           (lambda ()
+             (printf "Current ~s is written in an old format:\n" path)
+             (for-each pretty-write diff))
+           "Update ~s to the latest format?" (list path))))
+  (when should-update?
+    (define path.backup (string-append path ".backup"))
+    (when (file-exists? path.backup)
+      (error "backup path already exists:" path.backup))
+    (rename-file-or-directory path path.backup)
+    (apply write-metadata path
+           (map (lambda (k) (hash-ref info k))
+                '(attribute-names attribute-types primary-table index-tables source-info)))
+    (delete-file path.backup))
   info)
 
 (define (update-materialization! path.dir info tables.added tables.removed)

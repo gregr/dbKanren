@@ -12,7 +12,6 @@ Typical use:
 
 ## TODO
 
-* metadata.scm protocol versioning for automatic update/migration
 * `explain` for extracting the database subset needed to reproduce a query's results
   * with each result, run an instrumented query to record supporting facts
   * there may be redundancy (one result could be computed in multiple ways)
