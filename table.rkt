@@ -599,14 +599,13 @@
   (unless (valid-key-type? (hash-ref name=>type key #f))
     (error "invalid key type:" (hash-ref name=>type key #f) key))
   (make-directory* path.dir)
-  (define metadata-fname
+  (define path.metadata
     (path->string (build-path path.dir metadata-file-name)))
   (define primary-fprefix "primary")
   (define primary-fname (path->string (build-path path.dir primary-fprefix)))
   (define index-fprefixes
     (map (lambda (i) (string-append "index." (number->string i)))
          (range (length index-tds))))
-  (define metadata-out (open-output-file metadata-fname))
   (define primary-t (tabulator path.dir primary-fprefix
                                primary-column-names primary-column-types key))
   (method-lambda
@@ -622,28 +621,53 @@
                  (map (lambda (fprefix td) `((file-prefix . ,fprefix)
                                              (column-names . ,td)))
                       index-fprefixes index-tds)))
-             (pretty-write `((attribute-names . ,attribute-names)
-                             (attribute-types . ,attribute-types)
-                             (primary-table   . ,primary-info)
-                             (index-tables    . ,index-infos)
-                             (source-info     . ,source-info))
-                           metadata-out)
-             (close-output-port metadata-out))))
+             (write-metadata path.metadata attribute-names attribute-types
+                             primary-info index-infos source-info))))
+
+(define (write-metadata path attribute-names attribute-types primary-info index-infos source-info)
+  (let/files () ((out.metadata path))
+    (pretty-write `((metadata-format-version . 2020-12-19.0)
+                    (attribute-names         . ,attribute-names)
+                    (attribute-types         . ,attribute-types)
+                    (primary-table           . ,primary-info)
+                    (index-tables            . ,index-infos)
+                    (source-info             . ,source-info))
+                  out.metadata)))
+
+;; TODO: when new metadata formats are introduced, update the old handlers to
+;; have them transform an instance of the old format into an instance of the
+;; newest format.  This can be done by composing handlers.
+(define (metadata/2020-12-19.0 info.0)
+  (define version? (hash-ref info.0 'metadata-format-version #f))
+  (cond (version? info.0)
+        (else (hash-set info.0 'metadata-format-version '2020-12-19.0))))
+
+(define metadata/format-version
+  (hash '2020-12-19.0 metadata/2020-12-19.0
+        ;; TODO: register new metadata-format-version handlers here
+        ))
 
 (define (read-metadata path)
-  (define info (let/files ((in path)) () (read in)))
-  (when (eof-object? info) (error "corrupt relation metadata:" path))
+  (define info.0 (let/files ((in path)) () (read in)))
+  (when (eof-object? info.0) (error "corrupt relation metadata:" path))
+  (define info.1 (make-immutable-hash info.0))
+  (define info ((hash-ref metadata/format-version
+                          (hash-ref info.1 'metadata-format-version '2020-12-19.0))
+                info.1))
+  (unless (equal? info info.1)
+    ;; TODO: offer to update the metadata on disk to match the latest version.
+    (void))
   info)
 
 (define (update-materialization! path.dir info tables.added tables.removed)
   (define path.metadata        (path->string
                                  (build-path path.dir metadata-file-name)))
   (define path.metadata.backup (string-append path.metadata ".backup"))
-  (define attribute-names      (alist-ref info 'attribute-names))
-  (define attribute-types      (alist-ref info 'attribute-types))
-  (define source-info          (alist-ref info 'source-info))
-  (define primary-info         (alist-ref info 'primary-table))
-  (define index-infos          (alist-ref info 'index-tables))
+  (define attribute-names      (hash-ref info 'attribute-names))
+  (define attribute-types      (hash-ref info 'attribute-types))
+  (define source-info          (hash-ref info 'source-info))
+  (define primary-info         (hash-ref info 'primary-table))
+  (define index-infos          (hash-ref info 'index-tables))
   (define primary-key-name     (alist-ref primary-info 'key-name))
   (define primary-column-names (alist-ref primary-info 'column-names))
   (define source-fprefix
@@ -657,7 +681,7 @@
   (define cols=>info
     (make-immutable-hash
       (map (lambda (info.it) (cons (alist-ref info.it 'column-names) info.it))
-           (alist-ref info 'index-tables))))
+           (hash-ref info 'index-tables))))
   (define index-infos.current
     (hash-values (foldl (lambda (cols c=>i) (hash-remove c=>i cols))
                         cols=>info tables.removed)))
@@ -688,14 +712,9 @@
   (define index-infos.new
     (materialize-index-tables! path.dir source-fprefix name->type
                                source-names index-descriptions.added))
-  (let/files () ((metadata-out path.metadata))
-    (pretty-write `((attribute-names . ,attribute-names)
-                    (attribute-types . ,attribute-types)
-                    (primary-table   . ,primary-info)
-                    (index-tables    . ,(append index-infos.current
-                                                index-infos.new))
-                    (source-info     . ,source-info))
-                  metadata-out))
+  (write-metadata path.metadata attribute-names attribute-types
+                  primary-info (append index-infos.current index-infos.new)
+                  source-info)
   (delete-file path.metadata.backup))
 
 (define (materialization/vector vector.in kwargs)
@@ -761,7 +780,7 @@
     (error "materialized relation directory does not exist:" path.dir))
   (define path.metadata  (path->string
                            (build-path path.dir metadata-file-name)))
-  (define info           (make-immutable-hash (read-metadata path.metadata)))
+  (define info           (read-metadata path.metadata))
   (define attribute-names    (hash-ref info 'attribute-names))
   (define attribute-types    (hash-ref info 'attribute-types))
   (define primary-info-alist (hash-ref info 'primary-table))
@@ -885,10 +904,10 @@
     (let* ((path.metadata       (path->string
                                   (build-path path.dir metadata-file-name)))
            (info                (read-metadata path.metadata))
-           (source-info.old     (alist-ref info 'source-info #f))
-           (attribute-names.old (alist-ref info 'attribute-names))
-           (attribute-types.old (alist-ref info 'attribute-types))
-           (primary-table.old   (alist-ref info 'primary-table))
+           (source-info.old     (hash-ref info 'source-info #f))
+           (attribute-names.old (hash-ref info 'attribute-names))
+           (attribute-types.old (hash-ref info 'attribute-types))
+           (primary-table.old   (hash-ref info 'primary-table))
            (key-name.old        (alist-ref primary-table.old 'key-name))
            (primary-columns.old (alist-ref primary-table.old 'column-names))
            (primary-columns.new (car table-descriptions)))
@@ -942,7 +961,7 @@
             (else
               (define colss.current
                 (map (lambda (info.it) (alist-ref info.it 'column-names))
-                     (alist-ref info 'index-tables)))
+                     (hash-ref info 'index-tables)))
               (define colss.new (cdr table-descriptions))
               (define (cols-current? cols) (member cols colss.current))
               (define (cols-new?     cols) (member cols colss.new))
