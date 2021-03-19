@@ -635,7 +635,7 @@
 
 (define (write-metadata path attribute-names attribute-types primary-info index-infos source-info)
   (let/files () ((out.metadata path))
-    (pretty-write `((metadata-format-version . 2020-12-19.0)
+    (pretty-write `((metadata-format-version . ,metadata-format-version.latest)
                     (attribute-names         . ,attribute-names)
                     (attribute-types         . ,attribute-types)
                     (primary-table           . ,primary-info)
@@ -643,18 +643,38 @@
                     (source-info             . ,source-info))
                   out.metadata)))
 
+(define (metadata/2020-12-19.0 info)
+  (define source-info (make-immutable-hash (hash-ref info 'source-info)))
+  (define source-info.new
+    (foldl (lambda (k v source-info) (hash-set source-info k v))
+           (hash-remove source-info 'transform)
+           '(map/append map filter)
+           (list (hash-ref source-info 'map/append #f)
+                 (hash-ref source-info 'map        (hash-ref source-info 'transform #f))
+                 (hash-ref source-info 'filter     #f))))
+  (foldl (lambda (k v info) (hash-set info k v))
+         info
+         '(metadata-format-version source-info)
+         `(2021-03-18.0
+           ,(if (hash-has-key? source-info.new 'path)
+              (map (lambda (k) (cons k (hash-ref source-info.new k)))
+                   '(path format header stats map/append map filter))
+              (map (lambda (k) (cons k (hash-ref source-info.new k)))
+                   '(stream map/append map filter))))))
+
+(define (metadata/2021-03-18.0 info)
+  ;; TODO: define an appropriate transformtion once this is no longer the latest version
+  info)
+
 ;; TODO: when new metadata formats are introduced, update the old handlers to
 ;; have them transform an instance of the old format into an instance of the
 ;; newest format.  This can be done by composing handlers.
-(define (metadata/2020-12-19.0 info.0)
-  (define version? (hash-ref info.0 'metadata-format-version #f))
-  (cond (version? info.0)
-        (else (hash-set info.0 'metadata-format-version '2020-12-19.0))))
 
+;; TODO: register new metadata-format-version handlers here
+(define metadata-format-version.latest '2021-03-18.0)
 (define metadata/format-version
-  (hash '2020-12-19.0 metadata/2020-12-19.0
-        ;; TODO: register new metadata-format-version handlers here
-        ))
+  (hash '2021-03-18.0 metadata/2021-03-18.0
+        '2020-12-19.0 metadata/2020-12-19.0))
 
 (define (read-metadata path)
   (define info.0 (let/files ((in path)) () (read in)))
