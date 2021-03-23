@@ -972,7 +972,7 @@
       (unless (equal? attribute-names attribute-names.old)
         (error "new relation attributes are incompatible with old:" path
                'new: attribute-names 'old: attribute-names.old))
-      (define stale-fields
+      (define stale-fields.0
         (map (lambda (desc)
                (match-define (list key new old) desc)
                `(,key new: ,new old: ,old))
@@ -987,6 +987,19 @@
                                   ,primary-columns.old)))))
       (define update-policy  (current-config-ref 'update-policy))
       (define cleanup-policy (current-config-ref 'cleanup-policy))
+      (define stale-fields
+        (if (and (equal? '(source-info) (map car stale-fields.0))
+                 (policy-allow?
+                   update-policy
+                   (lambda ()
+                     (printf "Existing source-info for relation ~s is stale:\n" path)
+                     (for-each pretty-write stale-fields.0))
+                   "Update ~s metadata with new source-info without rematerializing?" (list path)))
+          (begin (printf "Updating ~s" path.metadata)
+                 (update-metadata path.metadata (hash-set info 'source-info source-info))
+                 (printf "Update of ~s finished" path.metadata)
+                 '())
+          stale-fields.0))
       (define allow-update?
         (or (null? stale-fields)
             (policy-allow?
