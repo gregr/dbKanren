@@ -643,6 +643,16 @@
                     (source-info             . ,source-info))
                   out.metadata)))
 
+(define (update-metadata path info)
+  (define path.backup (string-append path ".backup"))
+  (when (file-exists? path.backup)
+    (error "backup path already exists:" path.backup))
+  (rename-file-or-directory path path.backup)
+  (apply write-metadata path
+         (map (lambda (k) (hash-ref info k))
+              '(attribute-names attribute-types primary-table index-tables source-info)))
+  (delete-file path.backup))
+
 (define (metadata/2020-12-19.0 info)
   (define source-info (make-immutable-hash (hash-ref info 'source-info)))
   (define source-info.new
@@ -702,15 +712,7 @@
              (printf "Current ~s is written in an old format:\n" path)
              (for-each pretty-write diff))
            "Update ~s to the latest format?" (list path))))
-  (when should-update?
-    (define path.backup (string-append path ".backup"))
-    (when (file-exists? path.backup)
-      (error "backup path already exists:" path.backup))
-    (rename-file-or-directory path path.backup)
-    (apply write-metadata path
-           (map (lambda (k) (hash-ref info k))
-                '(attribute-names attribute-types primary-table index-tables source-info)))
-    (delete-file path.backup))
+  (when should-update? (update-metadata path info))
   info)
 
 (define (update-materialization! path.dir info tables.added tables.removed)
