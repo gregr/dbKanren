@@ -776,14 +776,21 @@
 (define (materialization/vector vector.in kwargs)
   (define info            (make-immutable-hash kwargs))
   (define name            (hash-ref info 'relation-name))
-  (define sort?           (hash-ref info 'sort?  #t))
-  (define dedup?          (hash-ref info 'dedup? #t))
   (define key-name        (hash-ref info 'key-name #t))
   (define attribute-names (hash-ref info 'attribute-names))
   (define attribute-types (hash-ref info 'attribute-types
                                     (map (lambda (n)
                                            (if (equal? n key-name) 'nat #f))
                                          attribute-names)))
+  (define sort?           (hash-ref info 'sort?  (not (member key-name attribute-names))))
+  (define dedup?          (hash-ref info 'dedup? sort?))
+  (unless sort?
+    (unless (member key-name attribute-names)
+      (error "Must sort unless key is an attribute:" key-name attribute-names))
+    (when dedup?
+      (error "Cannot deduplicate without sorting:" kwargs)))
+  (unless (or dedup? (member key-name attribute-names))
+    (error "Must deduplicate unless key is an attribute:" key-name attribute-names))
   (define table-descriptions
     (append (hash-ref info 'tables `(,(remove key-name attribute-names)))
             (map (lambda (cols) (append cols (list key-name)))
