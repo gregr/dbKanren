@@ -12,6 +12,9 @@ Typical use:
 
 ## TODO
 
+* support non-path, in-memory `source-stream`s
+  * if no `path` is provided, force in-memory sorting
+
 * `explain` for extracting the database subset needed to reproduce a query's results
   * with each result, run an instrumented query to record supporting facts
   * there may be redundancy (one result could be computed in multiple ways)

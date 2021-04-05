@@ -551,7 +551,6 @@
 (define (table-vars               tc) (tc 'variables))
 (define (table-statistics st      tc) (tc 'variable-statistics st))
 
-;; TODO: this should be renamed to relation/table
 (define (relation/table . pargs)
   (match-define (list info t.0) (apply materialization pargs))
   (define name             (hash-ref info 'relation-name))
