@@ -778,30 +778,30 @@
   (define name            (hash-ref info 'relation-name))
   (define sort?           (hash-ref info 'sort?  #t))
   (define dedup?          (hash-ref info 'dedup? #t))
-  (define key             (hash-ref info 'key-name #t))
+  (define key-name        (hash-ref info 'key-name #t))
   (define attribute-names (hash-ref info 'attribute-names))
   (define attribute-types (hash-ref info 'attribute-types
                                     (map (lambda (n)
-                                           (if (equal? n key) 'nat #f))
+                                           (if (equal? n key-name) 'nat #f))
                                          attribute-names)))
   (define table-descriptions
-    (append (hash-ref info 'tables `(,(remove key attribute-names)))
-            (map (lambda (cols) (append cols (list key)))
+    (append (hash-ref info 'tables `(,(remove key-name attribute-names)))
+            (map (lambda (cols) (append cols (list key-name)))
                  (hash-ref info 'indexes '()))))
   (define name=>type.0 (make-immutable-hash
                          (map cons attribute-names attribute-types)))
-  (unless (valid-key-type? (hash-ref name=>type.0 key 'nat))
-    (error "invalid key type:" (hash-ref name=>type.0 key 'nat) kwargs))
-  (define name=>type (hash-set name=>type.0 key 'nat))
+  (unless (valid-key-type? (hash-ref name=>type.0 key-name 'nat))
+    (error "invalid key type:" (hash-ref name=>type.0 key-name 'nat) kwargs))
+  (define name=>type (hash-set name=>type.0 key-name 'nat))
   (define (name->type n) (hash-ref name=>type n))
   (define primary-column-names (car table-descriptions))
   (define primary-column-types (map name->type primary-column-names))
-  (define primary-source-names (cons key primary-column-names))
+  (define primary-source-names (cons key-name primary-column-names))
   (unless (vector? vector.in)
     (error "invalid source vector:" kwargs vector.in))
   (when sort? (vector-table-sort! primary-column-types vector.in))
   (define primary-v (if dedup? (vector-dedup vector.in) vector.in))
-  (define primary-t (table/vector key primary-column-names
+  (define primary-t (table/vector key-name primary-column-names
                                   primary-column-types primary-v))
   (define index-ts
     (let* ((ss.sources (generate-temporaries primary-source-names))
@@ -827,8 +827,8 @@
                            (vector-dedup index-src)))
            (cdr table-descriptions))))
   (list (foldl (lambda (k v info) (hash-set info k v)) info
-               '(key-name attribute-types table-descriptions missing-data?)
-               (list key attribute-types table-descriptions (not (hash-ref info 'source-vector #f))))
+               '(    key-name attribute-types table-descriptions missing-data?)
+               (list key-name attribute-types table-descriptions (not (hash-ref info 'source-vector #f))))
         (cons primary-t index-ts)))
 
 (define (materialization/path directory-path kwargs)
