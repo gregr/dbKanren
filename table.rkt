@@ -1,5 +1,5 @@
 #lang racket/base
-(provide materialize-relation! materialization value/syntax table
+(provide materialization value/syntax
          (struct-out statistics) statistics-intersect
          vector-table? call/files let/files encoder s-encode s-decode)
 (require "codec.rkt" "config.rkt" "dsv.rkt" "method.rkt" "misc.rkt"
@@ -836,7 +836,7 @@
   (list (foldl (lambda (k v info) (hash-set info k v)) info
                '(    key-name attribute-types table-descriptions missing-data?)
                (list key-name attribute-types table-descriptions (not (hash-ref info 'source-vector #f))))
-        (cons primary-t index-ts)))
+        (table (cons primary-t index-ts))))
 
 (define (materialization/path directory-path kwargs)
   (define name           (alist-ref kwargs 'relation-name))
@@ -860,7 +860,7 @@
   (list (foldl (lambda (k v info) (hash-set info k v)) info
                '(relation-name key-name retrieval-type)
                (list name primary-key-name retrieval-type))
-        (cons primary-t index-ts)))
+        (table (cons primary-t index-ts))))
 
 (define (materialization . pargs)
   (define kwargs        (plist->alist pargs))
