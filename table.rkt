@@ -229,8 +229,7 @@
 
 (define (table/metadata retrieval-type directory-path info-alist)
   (define info         (make-immutable-hash info-alist))
-  (define path-prefix
-    (path->string (build-path directory-path (hash-ref info 'file-prefix))))
+  (define path-prefix  (path->string (build-path directory-path (hash-ref info 'file-prefix))))
   (define fname.value  (value-table-file-name  path-prefix))
   (define fname.offset (offset-table-file-name path-prefix))
   (define offset-type  (hash-ref info 'offset-type))
@@ -519,12 +518,12 @@
     ((or #f 'nat 'number `#(nat ,_)) #t)
     (_                               #f)))
 
-(define (materializer path.dir source-info attribute-names attribute-types key
+(define (materializer path.dir source-info attribute-names attribute-types key-name
                       table-layouts)
   (define name=>type (make-immutable-hash (map cons attribute-names attribute-types)))
   (define index-layouts        (cdr table-layouts))
   (define primary-column-names (car table-layouts))
-  (define primary-source-names (cons key primary-column-names))
+  (define primary-source-names (cons key-name primary-column-names))
   (define primary-column-types (map (lambda (n) (hash-ref name=>type n))
                                     primary-column-names))
   (make-directory* path.dir)
@@ -535,13 +534,13 @@
     (map (lambda (i) (string-append "index." (number->string i)))
          (range (length index-layouts))))
   (define primary-t (tabulator path.dir primary-fprefix
-                               primary-column-names primary-column-types key))
+                               primary-column-names primary-column-types key-name))
   (method-lambda
     ((put! x) (primary-t 'put! x))
     ((close) (define primary-info (primary-t 'close))
              (define key-type (nat-type/max (alist-ref primary-info 'length)))
              (define name->type
-               (let ((name=>type (hash-set name=>type key key-type)))
+               (let ((name=>type (hash-set name=>type key-name key-type)))
                  (lambda (n) (hash-ref name=>type n))))
              (define index-infos
                (materialize-index-tables!
@@ -710,9 +709,9 @@
                                   primary-column-types primary-v))
   (define index-ts
     (let* ((ss.sources (generate-temporaries primary-source-names))
-           (name=>ss (make-immutable-hash
-                       (map cons primary-source-names ss.sources)))
-           (name->ss (lambda (n) (hash-ref name=>ss n))))
+           (name=>ss   (make-immutable-hash
+                         (map cons primary-source-names ss.sources)))
+           (name->ss   (lambda (n) (hash-ref name=>ss n))))
       (map (lambda (column-names)
              (define column-types (map name->type column-names))
              (define ss.columns   (map name->ss   column-names))
