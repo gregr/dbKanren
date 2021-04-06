@@ -832,14 +832,14 @@
           (materialization/vector src:vector sort? dedup?
                                   (hash-set kwargs.1 'missing-data?
                                             (not (hash-ref kwargs.1 'source-vector #f)))))
-        (path (when (or src:path.0 src:stream)
-                (materialize-relation! path path.dir path.metadata metadata
-                                       src:path src:format src:header kwargs.1))
-              (materialization/path (hash-ref kwargs 'relation-name)
-                                    (hash-ref kwargs 'retrieval-type 'disk)
-                                    path path.dir (get-metadata)))
-        ;; TODO: if path is not provided, sort the source-stream/file-path in-memory
-        (else (error "missing relation path or source:" kwargs))))
+        (path                       (when (or src:path.0 src:stream)
+                                      (materialize-relation! path path.dir path.metadata metadata
+                                                             src:path src:format src:header kwargs.1))
+                                    (materialization/path (hash-ref kwargs 'relation-name)
+                                                          (hash-ref kwargs 'retrieval-type 'disk)
+                                                          path path.dir (get-metadata)))
+        ((or src:path.0 src:stream) (materialization/stream src:path src:format src:header kwargs.1))
+        (else                       (error "missing relation path or source:" kwargs))))
 
 (struct value+syntax (value syntax) #:prefab)
 (define-syntax-rule (value/syntax e) (value+syntax e #'e))
@@ -854,6 +854,33 @@
 (define (plist->alist kvs) (if (null? kvs) '()
                              (cons (cons (car kvs) (cadr kvs))
                                    (plist->alist (cddr kvs)))))
+
+(define (materialization/stream path.in format header kwargs)
+  (define key-name        (hash-ref kwargs 'key-name))
+  (define attribute-names (hash-ref kwargs 'attribute-names))
+  (define attribute-types (hash-ref kwargs 'attribute-types))
+  (define table-layouts   (hash-ref kwargs 'table-layouts))
+  (define stream.in       (hash-ref kwargs 'source-stream #f))
+  (define map/append-code (hash-ref kwargs 'map/append    #f))
+  (define map-code        (hash-ref kwargs 'map           #f))
+  (define filter-code     (hash-ref kwargs 'filter        #f))
+  (define map/append?     (code->value map/append-code))
+  (define map?            (code->value map-code))
+  (define filter?         (code->value filter-code))
+  (define (materialized-stream stream)
+    (list->vector (s-take #f (s-map list->vector
+                                    (if map/append?
+                                      (s-map/append map/append? stream)
+                                      (let ((s (if map? (s-map map? stream) stream)))
+                                        (if filter? (s-filter filter? s) s)))))))
+  (materialization/vector
+    (if path.in
+      (let/files ((in path.in)) ()
+        (define stream ((format->header/port->stream format) header in))
+        (materialized-stream stream))
+      (materialized-stream (code->value stream.in)))
+    #t #t kwargs))
+
 (define (materialize-relation! path path.dir path.metadata info path.in format header kwargs)
   (define path            (hash-ref kwargs 'path))
   (define key-name        (hash-ref kwargs 'key-name))
