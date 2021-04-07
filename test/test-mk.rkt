@@ -199,10 +199,10 @@
 
 (test '=/=.atom.1
   (run* x (=/= 1 x))
-  '(#s(cx #s(var 0) (constraints: (=/= #s(var 0) 1)))))
+  '(#s(cx (term: #s(var 0)) (constraints: (=/= #s(var 0) 1)))))
 (test '=/=.atom.2
   (run* x (=/= x 2))
-  '(#s(cx #s(var 0) (constraints: (=/= #s(var 0) 2)))))
+  '(#s(cx (term: #s(var 0)) (constraints: (=/= #s(var 0) 2)))))
 
 (test '=/=.atom.==.1
   (run* x (== x 1) (=/= x 1))
@@ -363,34 +363,34 @@
   (run* x
     (fresh (y)
       (=/= y 1)))
-  '(#s(cx #s(var 0) (constraints:))))
+  '(#s(cx (term: #s(var 0)) (constraints:))))
 (test '=/=.fresh.2
   (run* x
     (fresh (y)
       (=/= x 0)
       (=/= y 1)))
-  '(#s(cx #s(var 0) (constraints: (=/= #s(var 0) 0)))))
+  '(#s(cx (term: #s(var 0)) (constraints: (=/= #s(var 0) 0)))))
 (test '=/=.fresh.3
   (run* x
     (fresh (y)
       (=/= x 0)
       (=/= x y)))
-  '(#s(cx #s(var 0) (constraints: (=/= #s(var 0) #s(var 1))
+  '(#s(cx (term: #s(var 0)) (constraints: (=/= #s(var 0) #s(var 1))
                                   (=/= #s(var 0) 0)))))
 (test '=/=.fresh.4
   (run* (x y)
     (fresh (z)
       (=/= `(,x . ,y) '(0 . 2))
       (=/= z 1)))
-  '(#s(cx (#s(var 0) #s(var 1)) (constraints: (=/= #s(var 0) 0)))
-    #s(cx (#s(var 0) #s(var 1)) (constraints: (=/= #s(var 1) 2)))))
+  '(#s(cx (term: (#s(var 0) #s(var 1))) (constraints: (=/= #s(var 0) 0)))
+    #s(cx (term: (#s(var 0) #s(var 1))) (constraints: (=/= #s(var 1) 2)))))
 (test '=/=.fresh.5
   (run* (x y)
     (fresh (z)
       (=/= `(,x ,y ,z) '(0 1 2))))
-  '(#s(cx (#s(var 0) #s(var 1)) (constraints: (=/= #s(var 0) 0)))
-    #s(cx (#s(var 0) #s(var 1)) (constraints: (=/= #s(var 1) 1)))
-    #s(cx (#s(var 0) #s(var 1)) (constraints:))))
+  '(#s(cx (term: (#s(var 0) #s(var 1))) (constraints: (=/= #s(var 0) 0)))
+    #s(cx (term: (#s(var 0) #s(var 1))) (constraints: (=/= #s(var 1) 1)))
+    #s(cx (term: (#s(var 0) #s(var 1))) (constraints:))))
 
 (test 'membero.forward
   (run* () (membero 3 '(1 2 3 4 3 5)))
@@ -634,7 +634,7 @@
     (any<=o a b)
     (any<=o b c)
     (any<=o c a))
-  '(#s(cx (#s(var 0) #s(var 0) #s(var 0)) (constraints:))))
+  '(#s(cx (term: (#s(var 0) #s(var 0) #s(var 0))) (constraints:))))
 (test 'any<=.cycle.1
   (run* (a b c d e)
     (any<=o a b)
@@ -642,7 +642,7 @@
     (any<=o c d)
     (any<=o d e)
     (any<=o e a))
-  '(#s(cx (#s(var 0) #s(var 0) #s(var 0) #s(var 0) #s(var 0)) (constraints:))))
+  '(#s(cx (term: (#s(var 0) #s(var 0) #s(var 0) #s(var 0) #s(var 0))) (constraints:))))
 (test 'any<=.cycle.2
   (run* (a b c d e)
     (=/= b d)
@@ -669,7 +669,7 @@
     (any<=o d e)
     (any<=o e f)
     (any<=o d b))
-  '(#s(cx (#s(var 0) #s(var 1) #s(var 1) #s(var 1) #s(var 2) #s(var 3))
+  '(#s(cx (term: (#s(var 0) #s(var 1) #s(var 1) #s(var 1) #s(var 2) #s(var 3)))
           (constraints:
             (any<=o #s(var 0) #s(var 1))
             (any<=o #s(var 1) #s(var 2))
@@ -680,7 +680,7 @@
     (any<=o y z)
     (=/= x y)
     (=/= y z))
-  '(#s(cx (#s(var 0) #s(var 1) #s(var 2))
+  '(#s(cx (term: (#s(var 0) #s(var 1) #s(var 2)))
           (constraints:
             (() <  #s(var 1) <= #f)
             (() <  #s(var 2) <= #t)
@@ -695,7 +695,7 @@
     (=/= y z)
     (any<=o x y)
     (any<=o y z))
-  '(#s(cx (#s(var 0) #s(var 1) #s(var 2))
+  '(#s(cx (term: (#s(var 0) #s(var 1) #s(var 2)))
           (constraints:
             (() <  #s(var 1) <= #f)
             (() <  #s(var 2) <= #t)
@@ -710,7 +710,7 @@
     (any<=o x y)
     (=/= x y)
     (=/= y z))
-  '(#s(cx (#s(var 0) #s(var 1) #s(var 2))
+  '(#s(cx (term: (#s(var 0) #s(var 1) #s(var 2)))
           (constraints:
             (() <  #s(var 1) <= #f)
             (() <  #s(var 2) <= #t)
@@ -725,7 +725,7 @@
     (=/= y z)
     (any<=o y z)
     (any<=o x y))
-  '(#s(cx (#s(var 0) #s(var 1) #s(var 2))
+  '(#s(cx (term: (#s(var 0) #s(var 1) #s(var 2)))
           (constraints:
             (() <  #s(var 1) <= #f)
             (() <  #s(var 2) <= #t)

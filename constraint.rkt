@@ -741,7 +741,7 @@
                                               (bounds-ub b)))))
                               xs (map car b&uids))))
               (match-define (cons t c) (pretty (cons term (append bs cxs))))
-              `#s(cx ,t (constraints: . ,(sort c term<?))))))
+              `#s(cx (term: ,t) (constraints: . ,(sort c term<?))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Top-level search strategies
