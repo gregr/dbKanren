@@ -313,7 +313,7 @@
           ('() (match (map (lambda (uid&c) (cons (car uid&c) (c:disj-cs (cdr uid&c))))
                            (filter (lambda (uid&c) (c:disj? (cdr uid&c))) cxs))
                  ;; If there are no more disjunctions either, we should be done
-                 ('() (state-uses-empty?! st) (list st))
+                 ('() (list st))
                  (ds  (define d.min (foldl (lambda (d d.min) (if (d<? d d.min) d d.min))
                                            (car ds) (cdr ds)))
                       (choose-branch st (car d.min) (cdr d.min)))))
@@ -748,7 +748,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (enumerate-and-reify st)
-  (s-map (lambda (st) (reify st)) (state->satisfied-states st)))
+  (s-map (lambda (st)
+           (state-uses-empty?! st)
+           (reify st))
+         (state->satisfied-states st)))
 
 (define (bis:query->stream q)
   (match-define `#s(query ,t ,f) q)
