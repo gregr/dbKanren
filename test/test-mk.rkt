@@ -103,8 +103,7 @@
                      ((1 2 3 4) (5))
                      ((1 2 3 4 5) ())))))
 
-(define-relation/table tripleo
-  'attribute-names '(i x y z)
+(define-relation/table (tripleo i x y z)
   'key-name        'i
   'source-stream   '((a b c)
                      (d e f)

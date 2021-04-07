@@ -808,5 +808,10 @@
 
 (define-syntax define-relation/table
   (syntax-rules ()
+    ((_ (name attr ...) pargs ...)
+     (define name (relation/table 'relation-name   'name
+                                  'attribute-names '(attr ...)
+                                  pargs ...)))
     ((_ name pargs ...)
-     (define name (relation/table 'relation-name 'name pargs ...)))))
+     (define name (relation/table 'relation-name 'name
+                                  pargs ...)))))
