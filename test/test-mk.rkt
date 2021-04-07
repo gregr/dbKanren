@@ -833,6 +833,39 @@
   (run* y (path2* 3 y))
   '(5 6 4))
 
+(test 'path2*.set.0
+  (run*/set (x y) (path2* x y))
+  (list->set '((1 1)
+               (1 2)
+               (1 3)
+               (2 4)
+               (2 6)
+               (3 5)
+               (3 6)
+               (6 4)
+               (1 2)
+               (1 3)
+               (1 4)
+               (1 6)
+               (1 5)
+               (1 6)
+               (2 4)
+               (3 4)
+               (1 4)
+               (1 6)
+               (1 5)
+               (1 6)
+               (1 4)
+               (1 4)
+               (1 4)
+               (1 4))))
+(test 'path2*.set.1
+  (run*/set x (path2* x 6))
+  (list->set '(2 3 1 1 1 1)))
+(test 'path2*.set.2
+  (run*/set y (path2* 3 y))
+  (list->set '(5 6 4)))
+
 (test 'path3*.0
   (run* (x y) (path3* x y))
   '((1 1)
@@ -910,6 +943,59 @@
 (test 'path/cycle*.2
   (run*/steps 100 y (path/cycle* 3 y))
   '(5 6 1 4 1 2 3 4 6 5 6 1 4 4 1 2 3 4 6 5 6 1 4 4 1 2 3))
+
+(test 'path/cycle*.set.0
+  (run*/set/steps 100 (x y) (path/cycle* x y))
+  (list->set '((5 1)
+               (1 1)
+               (1 2)
+               (1 3)
+               (2 4)
+               (2 6)
+               (3 5)
+               (3 6)
+               (6 4)
+               (5 1)
+               (5 2)
+               (5 3)
+               (3 1)
+               (5 4)
+               (5 6)
+               (5 5)
+               (5 6)
+               (1 4)
+               (1 6)
+               (1 5)
+               (1 6)
+               (2 4)
+               (3 4)
+               (5 1)
+               (5 4)
+               (5 4)
+               (1 1)
+               (5 1)
+               (5 2)
+               (5 3)
+               (3 1)
+               (3 2)
+               (3 3)
+               (1 4)
+               (1 4))))
+(test 'path/cycle*.set.1
+  (run*/set/steps 100 x (path/cycle* x 6))
+  (list->set '(2 3 1 5 5 3 3)))
+(test 'path/cycle*.set.2
+  (run*/set/steps 100 y (path/cycle* 3 y))
+  (list->set '(5 6 1 4 1 2 3 4 6 5 6 1 4 4 1 2 3 4 6 5 6 1 4 4 1 2 3)))
+
+;; Using list->set on a run result is not the same as using run/set:
+;; run/set guarantees that the result has 10 unique answers before stopping
+(test 'path/cycle*.set.n.0
+  (list->set (run 10 (x y) (path/cycle* x y)))
+  (list->set '((1 1) (1 2) (1 3) (3 6) (6 4) (2 4) (5 1) (3 5) (2 6))))
+(test 'path/cycle*.set.n.1
+  (run/set 10 (x y) (path/cycle* x y))
+  (list->set '((1 1) (1 2) (1 3) (5 2) (3 6) (6 4) (2 4) (5 1) (3 5) (2 6))))
 
 ;; Simple relational interpreter tests
 
