@@ -83,8 +83,36 @@ Typical use:
     * safety analysis of relations referenced during query/materialization
   * randomized variants of interleaving or depth-first search
 
+* alternative variable ordering heuristic
+  * joined?, unique? (approximate w/ single-column-remaining?)
+    * or maybe specificity (via minimum relation cardinality?), cardinality
+    * not all non-joined variables will be reachable, but worry about this later
+
 * use small tables for finite domains
 * fixed point computation
+  * binding signatures with constraints
+    * share work by generalizing signatures
+
+* support hashes, sets, and procedures
+  * if not orderable, can't embed in tables, but that could be fine
+    * procedures probably aren't orderable, but sets and hashes could be
+    * set elements may not be logic variables?
+      * no, we can allow it
+    * hash keys may not be logic variables?
+      * no, we can allow it
+  * `set->list` and `hash->list` will sort elements for determinism
+    * implement them in terms of a numeric indexing operation
+      * map each `i` in `0 <= i < count` to the appropriate key in sorted order
+
+* improve bounds algebra by adding slightly-less and slightly-greater values for open interval endpoints
+  * define comparison operators, min, and max, over these values
+
+* simpler codec definition
+  * simplified extracting/inserting of fixed or variable-length bit vectors
+  * variable-length bit vectors may be encoded in a couple ways
+    * a prefix describing length
+      * if the prefix is itself fixed-size, this implies an upper bound on length
+    * a UTF-8 style encoding with no upper bound on length
 
 * place-based concurrency/parallelism?
 * thread-safe table retrieval
@@ -92,8 +120,21 @@ Typical use:
 * background worker threads/places for materialization
 * documentation and examples
   * small tsv data example for testing materialization
+  * LiveJournal, Orkut graph benchmark examples for
+    * https://github.com/frankmcsherry/blog/blob/master/posts/2019-09-06.md
+    * reachability
+    * connected components
+    * single-source shortest path
+    * http://yellowstone.cs.ucla.edu/papers/rasql.pdf
+    * http://pages.cs.wisc.edu/~aws/papers/vldb19.pdf
 * support an interactive stepping/user-choice "strategy"
   * both for debugging and devising new strategies
+  * `run/interactive`
+    * same as a `run^` with `current-config` `search-strategy` set to `interactive`
+    * non-stream, first-order representation of strategy-independent states
+      * also support embedding and combining sub-states (hypothetical along a disjunct)
+        * states are just fancy representations of conjunctions, and should be
+          combinable/disolvable
 
 * how do we express columns of suffix type?
   * it would have this representation type: `#(suffix count len)`

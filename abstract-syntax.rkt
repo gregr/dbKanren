@@ -7,9 +7,35 @@
 ;; TODO
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; modules
+;; - module body syntax
+;;   - imports from Racket
+;;     - constants, functions
+;;     - meta procedures (similar to macros, Racket procedures for building dbk computations)
+;;   - definitions for relations, functions, values
+;;     - closed definitions for all (for relations, these are bidirectional implications i.e., iff)
+;;       - typical for Kanren languages
+;;     - open definitions for relations via individual rules (which are unidirectional implications)
+;;       - should be given arity/type signatures to mitigate typos and verify module linking compatibility
+;;       - typical for Prolog or Datalog
+;;       - maybe indicated with :- or <- or <==
+;;       - incremental rule changes
+;;       - linking modules extends rules by adding together all partial definitions
+;;     - source data specifications for EDB relations
+;;     - specifications for temporal relations
+;;       - storage location, communication channel, sync or async, etc.
+;;   - assertions: queries used for property checking or other validation
+;; - module linking
+;;   - by default, a module will export all definitions
+;;   - apply visibility modifiers (such as except, only, rename, prefix) to change a module's exports
+;;   - combine compatible modules to produce a new module
+;;     - same module may be linked more than once, to produce different variations (mixin-style)
+;;       - for instance, this may be used to swap in/out data/channels for EDB or temporal relations
+
 ;; ACILG hierarchy for analysis and optimization
 ;; - associative, commutative, idempotent, has-least-element, has-greatest-element
 ;; - comprehensions: map / fold / join / meet / fixed points
+;;   - embodied by t:map/combine and t:fix
 ;; - an operator having all the properties in a prefix of this list may support more optimization
 ;; - associative: parallelism, but may need coordination for ordering
 ;; - commutative: parallelism, no ordering coordination needed
@@ -17,7 +43,7 @@
 ;; - has-least-element: natural choice of initial value already known
 ;; - has-greatest-element: some computation may be stopped early, before all data is seen, if threshold is reached
 
-;; order-by for converting sets/hashes to sequences
+;; order-by for converting sets/dicts to sequences
 
 ;; compact formulas as state component?
 ;; - state is a strategy-agnostic compact formula, plus a strategy-specific component (including a work scheduler)

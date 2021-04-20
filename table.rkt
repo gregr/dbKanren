@@ -88,6 +88,10 @@
                         ((not (ix.new 'full?)) (loop c=>b (cdr ixs.pending)              ixs.updated))
                         (else                  (table '() c=>b)))))))))))
 
+;; TODO: define a finite-map that is only referenceable by key and immediately provides a single instance
+;;       of all columns (because the other columns are not sorted/deduped without the key)
+
+;; TODO: this should be called trie:row-major
 (define (tabular-trie vref key-column nonkey-columns types row-count)
   (define (ref mask i)          (vector-ref (vref i) mask))
   (define ((make-i<  mask v) i) (any<?  (ref mask i) v))
