@@ -46,36 +46,33 @@
 ;; formulas
 (struct f:const   (value)         #:prefab)  ; can be thought of as a relation taking no arguments
 (struct f:relate  (relation args) #:prefab)
-
-;; TODO: switch to arity-2 and/or?  explicit true and false constants
-(struct f:or      (disjuncts)     #:prefab)
-(struct f:and     (conjuncts)     #:prefab)
-
 (struct f:implies (if then)       #:prefab)
-(struct f:exist   (vnames body)   #:prefab)
-(struct f:all     (vnames body)   #:prefab)
+(struct f:iff     (f1 f2)         #:prefab)
+(struct f:or      (f1 f2)         #:prefab)
+(struct f:and     (f1 f2)         #:prefab)
+(struct f:not     (f)             #:prefab)
+(struct f:exist   (params body)   #:prefab)
+(struct f:all     (params body)   #:prefab)
 
-;; possibly derived formulas
-;; TODO: probably don't derive these because these interpretations are logic-dependent
-(define f:false     (f:or  '()))  ; implicitly assumes principle of explosion (not compatible with minimal logic)
-(define f:true      (f:and '()))
-(define (f:not f)   (f:implies f f:false))  ; this expansion assumes compatibility with implicative logic
-(define (f:iff a b) (f:and (list (f:implies a b) (f:implies b a))))
 ;; TODO: is this the right way to describe constraints?
 (define (f:any<= u v) (f:relate 'any<= (list u v)))
 (define (f:==    u v) (f:relate '==    (list u v)))
 (define (f:=/=   u v) (f:not (f:== u v)))
 
-;; terms (lambda calculus extended with constants (quote) and logical queries)
-(struct t:query  (name formula)  #:prefab)
-(struct t:quote  (value)         #:prefab)
-(struct t:var    (name)          #:prefab)
-(struct t:app    (proc args)     #:prefab)
-(struct t:lambda (params body)   #:prefab)  ; omit for first order systems
+;; terms (lambda calculus extended with constants (quote), logical queries,
+;;        map/combine comprehensions, fixed points)
+(struct t:query       (name formula)                  #:prefab)
+(struct t:map/combine (proc.map proc.combine init xs) #:prefab)
+(struct t:fix         (proc init threshold)           #:prefab)
+(struct t:quote       (value)                         #:prefab)
+(struct t:var         (name)                          #:prefab)
+(struct t:app         (proc args)                     #:prefab)
+(struct t:lambda      (params body)                   #:prefab)  ; omit for first order systems
 ;; possibly derived terms
-(struct t:if     (c t f)         #:prefab)
-(struct t:let    (bindings body) #:prefab)
-(struct t:letrec (bindings body) #:prefab)
+(struct t:if          (c t f)                         #:prefab)
+(struct t:let         (bindings body)                 #:prefab)
+(struct t:letrec      (bindings body)                 #:prefab)
+(struct t:match       (arg clauses)                   #:prefab)
 
 ;; possible derived term expansions, but these interpretations may vary per strategy/logic
 ;(define (t:let bindings body)  ; this expansion only works in higher order systems
@@ -129,8 +126,8 @@
 (define (f-free-vars f)
   (match f
     ((f:const   _)             (set))
-    ((f:or      disjuncts)     (f-free-vars* disjuncts))
-    ((f:and     conjuncts)     (f-free-vars* conjuncts))
+    ((f:or      f1 f2)         (set-union (f-free-vars f1) (f-free-vars f2)))
+    ((f:and     f1 f2)         (set-union (f-free-vars f1) (f-free-vars f2)))
     ((f:implies if then)       (set-union (f-free-vars if) (f-free-vars then)))
     ((f:relate  relation args) (t-free-vars* args))
     ((f:exist   vnames body)   (set-subtract (f-free-vars body) (list->set vnames)))
