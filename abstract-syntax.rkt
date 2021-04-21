@@ -32,10 +32,51 @@
 ;;     - same module may be linked more than once, to produce different variations (mixin-style)
 ;;       - for instance, this may be used to swap in/out data/channels for EDB or temporal relations
 
+;; modular stratification given a partial order on relation parameters
+;; - omit t:fix
+;; - would be convenient to define a universal <= that respected point-wise monotonicity (any<= does not)
+;; - reachability example using equivalence classes reduces materialized space usage from O(n^2) to O(n):
+;;     (define-relation/source (node n)
+;;       ;; specify graph vertex data here
+;;       )
+;;     (define-relation/source (arc a b)
+;;       ;; specify graph connection data here
+;;       )
+;;
+;;     ;; original definition of reachable before optimization
+;;     ;; materialization could take O(n^2) space
+;;     (define-relation (reachable a b)
+;;       (conde
+;;         ((node a) (== a b))
+;;         ((fresh (mid)
+;;            (reachable a mid)
+;;            (conde ((arc mid b))
+;;                   ((arc b mid)))))))
+;;
+;;     ;; new definition of reachable after optimization
+;;     (define-relation (reachable a b)
+;;       (fresh (repr)
+;;         (reachable-class repr a)
+;;         (reachable-class repr b)))
+;;
+;;     ;; materialization will take O(n) space
+;;     (define-relation (reachable-class representative x)
+;;       ;; This negated condition ensures we represent each reachability class only once, to save space.
+;;       ;; self-recursion within negation is possible due to modular stratification by string<
+;;       ;; i.e., (reachable-class r x) only depends on knowing (reachable-class p _) for all (string< p r), giving us a safe evaluation order
+;;       (not (fresh (predecessor)
+;;              (string< predecessor representative)
+;;              (reachable-class predecessor representative)))
+;;       (conde
+;;         ((node representative) (== representative x))
+;;         ((fresh (mid)
+;;            (reachable-class representative mid)
+;;            (conde ((arc mid x))
+;;                   ((arc x mid)))))))
+
 ;; ACILG hierarchy for analysis and optimization
 ;; - associative, commutative, idempotent, has-least-element, has-greatest-element
-;; - comprehensions: map / fold / join / meet / fixed points
-;;   - embodied by t:map/combine and t:fix
+;; - comprehensions: map followed by combining mapped results
 ;; - an operator having all the properties in a prefix of this list may support more optimization
 ;; - associative: parallelism, but may need coordination for ordering
 ;; - commutative: parallelism, no ordering coordination needed
@@ -86,19 +127,18 @@
 (define (f:=/=   u v) (f:not (f:== u v)))
 
 ;; terms (lambda calculus extended with constants (quote), logical queries,
-;;        map/combine comprehensions, fixed points)
-(struct t:query       (name formula)                  #:prefab)
-(struct t:map/combine (proc.map proc.combine init xs) #:prefab)
-(struct t:fix         (proc init threshold)           #:prefab)
-(struct t:quote       (value)                         #:prefab)
-(struct t:var         (name)                          #:prefab)
-(struct t:app         (proc args)                     #:prefab)
-(struct t:lambda      (params body)                   #:prefab)  ; omit for first order systems
+;;        map/combine comprehensions)
+(struct t:query       (name formula)                        #:prefab)
+(struct t:map/combine (proc.map proc.combine id.combine xs) #:prefab)
+(struct t:quote       (value)                               #:prefab)
+(struct t:var         (name)                                #:prefab)
+(struct t:app         (proc args)                           #:prefab)
+(struct t:lambda      (params body)                         #:prefab)  ; omit for first order systems
 ;; possibly derived terms
-(struct t:if          (c t f)                         #:prefab)
-(struct t:let         (bindings body)                 #:prefab)
-(struct t:letrec      (bindings body)                 #:prefab)
-(struct t:match       (arg clauses)                   #:prefab)
+(struct t:if          (c t f)                               #:prefab)
+(struct t:let         (bindings body)                       #:prefab)
+(struct t:letrec      (bindings body)                       #:prefab)
+(struct t:match       (arg clauses)                         #:prefab)
 
 ;; possible derived term expansions, but these interpretations may vary per strategy/logic
 ;(define (t:let bindings body)  ; this expansion only works in higher order systems
