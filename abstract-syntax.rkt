@@ -9,16 +9,25 @@
 
 ;; modules
 ;; - module body syntax
-;;   - imports from Racket
+;;   - imports from host language
 ;;     - constants, functions
-;;     - meta procedures (similar to macros, Racket procedures for building dbk computations)
+;;     - file paths for sources
+;;     - can indicate that some imports are available only for use by meta procedures
+;;   - definitions for meta procedures (macro-like Racket procedures for building dbk computations)
+;;   - arity/type/constraint/open-or-closed-world signature declarations
+;;     - declare-relation ?
+;;     - to mitigate typos and verify module linking compatibility
+;;     - optional for closed definitions, mandatory for open definitions
+;;       - modules can omit signatures even if mandatory, but cannot be materialized until they are completed
+;;         - to avoid redundancy, common signatures can be declared in one module to be linked with others
+;;     - optional precomputation with indexing choices and retrieval preferences
+;;     - multiple independent declarations may be made for the same relation as long as they are consistent
 ;;   - definitions for relations, functions, values
 ;;     - closed definitions for all (for relations, these are bidirectional implications i.e., iff)
 ;;       - typical for Kanren languages
 ;;     - open definitions for relations via individual rules (which are unidirectional implications)
-;;       - should be given arity/type signatures to mitigate typos and verify module linking compatibility
 ;;       - typical for Prolog or Datalog
-;;       - maybe indicated with :- or <- or <==
+;;       - maybe indicated with :- or <- or <== or extend-relation
 ;;       - incremental rule changes
 ;;       - linking modules extends rules by adding together all partial definitions
 ;;     - source data specifications for EDB relations
@@ -31,6 +40,20 @@
 ;;   - combine compatible modules to produce a new module
 ;;     - same module may be linked more than once, to produce different variations (mixin-style)
 ;;       - for instance, this may be used to swap in/out data/channels for EDB or temporal relations
+;; - materializing modules
+;;   - optionally provide a root path for stable reference in later program runs
+;;     - independent modules can be materialized at the same root path to bundle them together
+;;   - module must be complete to be materialized
+;;     - all mandatory signatures have been provided
+;;   - triggers any pending precomputation
+;;     - if repeated, performs data consistency validation to check for staleness
+;;   - linked modules will share precomputed data unless rule extensions will be inconsistent
+;;     - extending a precomputed relation will require precomputing a new version to be consistent
+;;       - not an error, but maybe provide a warning
+;;       - progammer decides whether multiple precomputed versions of similar rules is worth the time/space trade off
+;;         - programmer organizes modules according to this decision
+;;   - EDB relations don't necessarily have to be precomputed (if not, their sources have to be available)
+;;     - might decide to precompute an IDB relation derived from multiple EDB relations instead
 
 ;; modular stratification given a partial order on relation parameters
 ;; - omit t:fix
