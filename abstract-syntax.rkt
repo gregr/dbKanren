@@ -1,7 +1,7 @@
 #lang racket/base
 (provide
   )
-(require racket/match racket/set)
+(require "misc.rkt" racket/match racket/set)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; TODO
@@ -133,35 +133,35 @@
 ;; Abstract syntax
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; formulas
-(struct f:const   (value)         #:prefab)  ; can be thought of as a relation taking no arguments
-(struct f:relate  (relation args) #:prefab)
-(struct f:implies (if then)       #:prefab)
-(struct f:iff     (f1 f2)         #:prefab)
-(struct f:or      (f1 f2)         #:prefab)
-(struct f:and     (f1 f2)         #:prefab)
-(struct f:not     (f)             #:prefab)
-(struct f:exist   (params body)   #:prefab)
-(struct f:all     (params body)   #:prefab)
+(define-variant formula?
+  (f:const   value)  ; can be thought of as a relation taking no arguments
+  (f:relate  relation args)
+  (f:implies if then)
+  (f:iff     f1 f2)
+  (f:or      f1 f2)
+  (f:and     f1 f2)
+  (f:not     f)
+  (f:exist   params body)
+  (f:all     params body))
 
 ;; TODO: is this the right way to describe constraints?
 (define (f:any<= u v) (f:relate 'any<= (list u v)))
 (define (f:==    u v) (f:relate '==    (list u v)))
 (define (f:=/=   u v) (f:not (f:== u v)))
 
-;; terms (lambda calculus extended with constants (quote), logical queries,
-;;        map/combine comprehensions)
-(struct t:query       (name formula)                        #:prefab)
-(struct t:map/combine (proc.map proc.combine id.combine xs) #:prefab)
-(struct t:quote       (value)                               #:prefab)
-(struct t:var         (name)                                #:prefab)
-(struct t:app         (proc args)                           #:prefab)
-(struct t:lambda      (params body)                         #:prefab)  ; omit for first order systems
-;; possibly derived terms
-(struct t:if          (c t f)                               #:prefab)
-(struct t:let         (bindings body)                       #:prefab)
-(struct t:letrec      (bindings body)                       #:prefab)
-(struct t:match       (arg clauses)                         #:prefab)
+;; lambda calculus extended with constants (quote), logical queries, map/combine comprehensions
+(define-variant term?
+  (t:query       name formula)
+  (t:map/combine proc.map proc.combine id.combine xs)
+  (t:quote       value)
+  (t:var         name)
+  (t:app         proc args)
+  (t:lambda      params body)  ; omit for first order systems
+  ;; possibly derived terms
+  (t:if          c t f)
+  (t:let         bindings body)
+  (t:letrec      bindings body)
+  (t:match       arg clauses))
 
 ;; possible derived term expansions, but these interpretations may vary per strategy/logic
 ;(define (t:let bindings body)  ; this expansion only works in higher order systems
