@@ -7,53 +7,85 @@
 ;; TODO
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; parsing the dbk source language
+;; - parse environment separates namespaces for each syntactic class: terms, formulas
+;;   - same name can be used as both a relation name and a term name
+;;     e.g., punning `<` so that `(< a b)` is valid as both a term and a formula, with the expected meaning
+;;   - similar to the nScheme parser design
+;; - can define new parsers (Racket procedures) to extend the syntax
+;;   - allows metaprogramming for term and/or formula construction
+;;   - defined as either "micros", which describe `cst->ast` transformation,
+;;     or syntax transformers which are `cst->cst` transformations
+;; - try to retain source information via Racket syntax objects
+
+;; source data specifications built at the host level, possibly by meta procedures
+;; - keeps this complexity outside of the dbk language
+;; - embedded directly in a formula as a relation: i.e., (f:relate `(source ,@description) args ...)
+;;   - description contains metadata for both data retrieval and validating consistency
+;; - may describe data coming from arbitrary input sources:
+;;   - filesystem, network, channels, events, etc.
+;;   - some data sources may be considered stable, predictable data
+;;     - such as files or deterministic API calls
+;;       - though you could also consider changing files to be another kind of file source
+;;   - other data sources will be assumed unstable, unpredictable data that may change frequently
+;;     - useful for describing a dynamic system
+
 ;; modules
 ;; - module body syntax
 ;;   - imports from host language
 ;;     - constants, functions
-;;     - file paths for sources
-;;     - can indicate that some imports are available only for use by meta procedures
-;;   - definitions for meta procedures (macro-like Racket procedures for building dbk computations)
-;;   - arity/type/constraint/open-or-closed-world signature declarations
+;;   - arity/type/constraint/open-or-closed-world signature declarations for relations
 ;;     - declare-relation ?
-;;     - to mitigate typos and verify module linking compatibility
-;;     - optional for closed definitions, mandatory for open definitions
-;;       - modules can omit signatures even if mandatory, but cannot be materialized until they are completed
+;;     - mandatory for all relations
+;;       - to mitigate typos and verify module linking compatibility
+;;       - modules can omit signatures, but cannot be materialized until they are completed
 ;;         - to avoid redundancy, common signatures can be declared in one module to be linked with others
 ;;     - optional precomputation with indexing choices and retrieval preferences
 ;;     - multiple independent declarations may be made for the same relation as long as they are consistent
-;;   - definitions for relations, functions, values
-;;     - closed definitions for all (for relations, these are bidirectional implications i.e., iff)
-;;       - typical for Kanren languages
-;;     - open definitions for relations via individual rules (which are unidirectional implications)
-;;       - typical for Prolog or Datalog
-;;       - maybe indicated with :- or <- or <== or extend-relation
-;;       - incremental rule changes
-;;       - linking modules extends rules by adding together all partial definitions
-;;     - source data specifications for EDB relations
-;;     - specifications for temporal relations
-;;       - storage location, communication channel, sync or async, etc.
-;;   - assertions: queries used for property checking or other validation
+;;   - definitions for terms via `define`
+;;   - definitions for relations
+;;     - linking modules extends definitions by adding together all rules
+;;     - rules for immediate inference: `define-relation` and/or `extend-relation`
+;;       - deliver new facts during current time step, until fixed point is reached
+;;       - synonym for `extend-relation`, deliver during current timestep: <<=
+;;     - rules for next-step inference
+;;       - deliver at next timestep: <<+
+;;     - rules for indeterminate inference
+;;       - deliver at arbitrary (future?) timetep: <<~
+;;       - these will write to temporary buffers for the host system to process
+;;   - assertions: queries used for property/consistency checking or other validation
+;;     - can inform data representation choices and query optimization
+;;     - can use to infer:
+;;       - uniqueness/degrees/cardinalities
+;;       - value information (types, value ranges, frequencies)
+;;       - join dependencies
 ;; - module linking
 ;;   - by default, a module will export all definitions
 ;;   - apply visibility modifiers (such as except, only, rename, prefix) to change a module's exports
 ;;   - combine compatible modules to produce a new module
 ;;     - same module may be linked more than once, to produce different variations (mixin-style)
 ;;       - for instance, this may be used to swap in/out data/channels for EDB or temporal relations
-;; - materializing modules
-;;   - optionally provide a root path for stable reference in later program runs
-;;     - independent modules can be materialized at the same root path to bundle them together
-;;   - module must be complete to be materialized
+;; - compiling modules
+;;   - optionally provide a collection path and a module subpath for stable reference in later program runs
+;;     - independent compiled modules can be stored at the same collection path to bundle them together
+;;     - compiled modules can be loaded directly from storage during subsequent runs
+;;   - module must be complete to be compiled
 ;;     - all mandatory signatures have been provided
-;;   - triggers any pending precomputation
-;;     - if repeated, performs data consistency validation to check for staleness
-;;   - linked modules will share precomputed data unless rule extensions will be inconsistent
-;;     - extending a precomputed relation will require precomputing a new version to be consistent
-;;       - not an error, but maybe provide a warning
-;;       - progammer decides whether multiple precomputed versions of similar rules is worth the time/space trade off
-;;         - programmer organizes modules according to this decision
-;;   - EDB relations don't necessarily have to be precomputed (if not, their sources have to be available)
-;;     - might decide to precompute an IDB relation derived from multiple EDB relations instead
+;;   - can choose immediate or deferred materialization/precomputation
+;;     - if deferred, can explicitly or implicitly trigger materialization later
+;;       - any query making use of relations marked as precomputed will force their materialization
+;;     - explicit materialization will perform any pending precomputations
+;;       - if repeated, performs data consistency validation to check for staleness
+;;     - linked modules will share precomputed data unless rule extensions will be inconsistent
+;;       - extending a precomputed relation will require precomputing a new version to be consistent
+;;         - not an error, but maybe provide a warning
+;;         - progammer decides whether multiple precomputed versions of similar rules is worth the time/space trade off
+;;           - programmer organizes modules according to this decision
+;;     - EDB relations don't necessarily have to be precomputed
+;;       - might decide to precompute an IDB relation derived from multiple EDB relations instead
+;;       - in fact, no distinction between EDB and IDB relation rules themselves
+;;         - any rule may include a data retrieval formula, i.e., (f:relate `(source ,@description) args ...)
+;;         - any safe and complete relation may be precomputed
 
 ;; modular stratification given a partial order on relation parameters
 ;; - omit t:fix
@@ -84,6 +116,7 @@
 ;;
 ;;     ;; materialization will take O(n) space
 ;;     (define-relation (reachable-class representative x)
+;;       (string<= representative x)  ;; not required, but does this improve performance?
 ;;       ;; This negated condition ensures we represent each reachability class only once, to save space.
 ;;       ;; self-recursion within negation is possible due to modular stratification by string<
 ;;       ;; i.e., (reachable-class r x) only depends on knowing (reachable-class p _) for all (string< p r), giving us a safe evaluation order
@@ -132,6 +165,23 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Abstract syntax
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define-variant module?
+  (m:rename  m name=>name?)  ; if target name is #f, consider the original name private
+  (m:unlink  m1 m2)          ; subtract from m1 any components that are exact matches for anything present in m2
+  (m:link    m1 m2)
+  (m:import  name=>value)    ; bind term names to Racket values
+  (m:define  name=>term)
+  (m:declare relation property=>value)
+  ;; t.delta describes how far into the future an applicable rule takes effect:
+  ;; n: n time steps into the future
+  ;;    e.g.:
+  ;;     0: immediately
+  ;;     1: next time step
+  ;;     etc.
+  ;; #f: at an indeterminate time step
+  (m:extend  t.delta relation params body)
+  (m:assert  formula))
 
 (define-variant formula?
   (f:const   value)  ; can be thought of as a relation taking no arguments
