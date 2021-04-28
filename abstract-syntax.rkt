@@ -7,8 +7,12 @@
 ;; TODO
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; Support indexing arbitrary term-computational projections
+;; - e.g., indexing `(+ column 1)` or `(hash-ref column "some-key")`
+
 ;; parsing the dbk source language
-;; - parse environment separates namespaces for each syntactic class: terms, formulas
+;; - parse environment separates namespaces for each syntactic class
+;;   - syntactic classes: terms, formulas, module specification clauses
 ;;   - same name can be used as both a relation name and a term name
 ;;     e.g., punning `<` so that `(< a b)` is valid as both a term and a formula, with the expected meaning
 ;;   - similar to the nScheme parser design
@@ -16,24 +20,26 @@
 ;;   - allows metaprogramming for term and/or formula construction
 ;;   - defined as either "micros", which describe `cst->ast` transformation,
 ;;     or syntax transformers which are `cst->cst` transformations
-;; - try to retain source information via Racket syntax objects
+;; - maybe try to retain source information via Racket syntax objects?
 
-;; source data specifications built at the host level, possibly by meta procedures
-;; - keeps this complexity outside of the dbk language
-;; - embedded directly in a formula as a relation: i.e., (f:relate `(source ,@description) args ...)
-;;   - description contains metadata for both data retrieval and validating consistency
+;; sources and sinks are specified and created using host language
+;; - a source includes a procedure that produces a stream of tuples
+;; - a sink includes a procedure that consumes a stream of tuples
+;; - keep host I/O complexity out of the dbk language
 ;; - may describe data coming from arbitrary input sources:
 ;;   - filesystem, network, channels, events, etc.
-;;   - some data sources may be considered stable, predictable data
-;;     - such as files or deterministic API calls
-;;       - though you could also consider changing files to be another kind of file source
-;;   - other data sources will be assumed unstable, unpredictable data that may change frequently
-;;     - useful for describing a dynamic system
+;;   - all sources are assumed to be unstable across time, reflecting a dynamic system
+;;   - include metadata that will be retained in process history
+;; - modules embed source and sink specifications in appropriate temporal relation declarations
+;;   - sources may only appear on the RHS of rules
+;;   - sinks may only appear on the LHS of indeterminate inference  rules
+;;     - i.e., `<<~` (asynchronous send)
 
 ;; modules
 ;; - module body syntax
 ;;   - imports from host language
 ;;     - constants, functions
+;;     - these have to be chosen carefully to remain safe
 ;;   - arity/type/constraint/open-or-closed-world signature declarations for relations
 ;;     - declare-relation ?
 ;;     - mandatory for all relations
@@ -49,7 +55,8 @@
 ;;       - deliver new facts during current time step, until fixed point is reached
 ;;       - synonym for `extend-relation`, deliver during current timestep: <<=
 ;;     - rules for next-step inference
-;;       - deliver at next timestep: <<+
+;;       - delete at next timestep: <<-
+;;       - insert at next timestep: <<+
 ;;     - rules for indeterminate inference
 ;;       - deliver at arbitrary (future?) timetep: <<~
 ;;       - these will write to temporary buffers for the host system to process
@@ -62,30 +69,75 @@
 ;; - module linking
 ;;   - by default, a module will export all definitions
 ;;   - apply visibility modifiers (such as except, only, rename, prefix) to change a module's exports
+;;     - renamings apply to processes too, so that referenced state can be targeted by new rules
+;;     - support dependency shaking
+;;       - given a root set of terms/relations, throw away everything else
 ;;   - combine compatible modules to produce a new module
 ;;     - same module may be linked more than once, to produce different variations (mixin-style)
-;;       - for instance, this may be used to swap in/out data/channels for EDB or temporal relations
-;; - compiling modules
-;;   - optionally provide a collection path and a module subpath for stable reference in later program runs
-;;     - independent compiled modules can be stored at the same collection path to bundle them together
-;;     - compiled modules can be loaded directly from storage during subsequent runs
-;;   - module must be complete to be compiled
-;;     - all mandatory signatures have been provided
-;;   - can choose immediate or deferred materialization/precomputation
-;;     - if deferred, can explicitly or implicitly trigger materialization later
-;;       - any query making use of relations marked as precomputed will force their materialization
-;;     - explicit materialization will perform any pending precomputations
-;;       - if repeated, performs data consistency validation to check for staleness
-;;     - linked modules will share precomputed data unless rule extensions will be inconsistent
-;;       - extending a precomputed relation will require precomputing a new version to be consistent
-;;         - not an error, but maybe provide a warning
-;;         - progammer decides whether multiple precomputed versions of similar rules is worth the time/space trade off
-;;           - programmer organizes modules according to this decision
-;;     - EDB relations don't necessarily have to be precomputed
-;;       - might decide to precompute an IDB relation derived from multiple EDB relations instead
-;;       - in fact, no distinction between EDB and IDB relation rules themselves
-;;         - any rule may include a data retrieval formula, i.e., (f:relate `(source ,@description) args ...)
-;;         - any safe and complete relation may be precomputed
+;;       - for instance, this may be used to swap in/out sources and sinks
+
+;; process:
+;; - reference to the database (named by path) that manages this process
+;; - optional name for stable reference in later program runs
+;;   - anonymous processes may still be saved and restored, but more annoying to reference
+;; - current content of all persistent temporal relations
+;;   - i.e., (indexed) tables keyed by name
+;; - source and sink temporal relation bindings and buffers
+;; - current module, describing how the process evolves each time step
+;;   - module must be complete
+;; - history of state transitions: module diff and ingestion metadata at each time step
+;; - how do we check source data consistency?
+;;   - temporal processes allow data to change, so inconsistency with original sources may be intentional
+;;   - to check consistency as in the old approach, analyze the process history for data provenance
+;;     - particularly data source/sink bindings and their dependencies across time steps
+;;       - source metadata should include real world time stamps, filesystem information, transformation code, possibly content hash
+;; - may spawn new process sharing the current state
+;;   - can explore diverging transitions
+;;   - can save earlier state to later revisit
+;;   - analogous to branching in a version control system
+;;     - database is a repository
+;;     - named process is a branch
+;;     - process state is a commit
+;;     - explicit garbage collection and compaction can be used to retain only data that is directly-referenced by a process
+;;       - can optionally preserve external data ingestion snapshots to support reproducing intermediate states
+;; - main operations:
+;;   - run a query over the current state
+;;   - change current module
+;;     - nontemporal relations declared to be precomputed will be precomputed before returning
+;;     - will add a module diff to the process history
+;;   - rename relations
+;;     - for consistency, this should accompany any renaming performed on the current module
+;;     - renaming will be logged in the process history
+;;   - step, with a step/fuel count (`#f` to run continously)
+;;     - will return unused fuel if (temporary) quiessence is detected, otherwise `#f`
+;;     - if any work was performed, this will log a new state uid in the process history
+;;     - if input was produced by sources configured for snapshot, snapshots will be included in the history
+;;       - for replay reproducibility
+;;   - synchronizable event indicating more work can be performed
+;;     - e.g., if not even temporary quiessence has been achieved yet
+;;     - e.g., if temporary quiessence had been achieved, but new input has arrived
+;;     - `#f` if permanent quiessence has been reached
+;;       - only possible if no input sources are bound
+;;       - permanence w.r.t. the current module
+;;   - save/flush (to database filesystem, for later reloading)
+;;     - processes should be continuously checkpointed and saved, so this may not be necessary
+;;       - if background saving ends up being asynchronous, this operation will wait until the flush catches up
+;;     - sources and sinks cannot be directly restored from disk
+;;       - their metadata can still be saved, however
+;;       - when restoring such a process, source/sink rebindings must be provided
+;;     - process may be packaged for export to another database
+;;       - database garbage collection and process export are similar activities
+
+;; database:
+;; - collection of named processes
+;; - cached relation content keyed by history dependencies, to support sharing between similar processes
+;;   - includes content of temporal relations as well as nontemporal relations declared to be cached/precomputed
+;;   - cache may include term values that were expensive to compute
+;;   - processes evolving from a common ancestor will share content unless rule extensions lead to logical divergence
+;;     - extending a precomputed relation will require precomputing a new version to be consistent
+;;       - not an error, but maybe provide a warning
+;;       - progammer decides whether multiple precomputed versions of similar rules is worth the time/space trade off
+;;         - programmer organizes modules according to this decision
 
 ;; modular stratification given a partial order on relation parameters
 ;; - omit t:fix
@@ -167,20 +219,20 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-variant module?
-  (m:rename  m name=>name?)  ; if target name is #f, consider the original name private
-  (m:unlink  m1 m2)          ; subtract from m1 any components that are exact matches for anything present in m2
+  ;; Should these nonconstructive operations be part of the module AST, or the meta-level?
+  ;(m:rename  m name=>name?)  ; if target name is #f, consider the original name private
+  ;(m:unlink  m1 m2)          ; subtract from m1 any components that are exact matches for anything present in m2
+
   (m:link    m1 m2)
   (m:import  name=>value)    ; bind term names to Racket values
   (m:define  name=>term)
   (m:declare relation property=>value)
-  ;; t.delta describes how far into the future an applicable rule takes effect:
-  ;; n: n time steps into the future
-  ;;    e.g.:
-  ;;     0: immediately
-  ;;     1: next time step
-  ;;     etc.
-  ;; #f: at an indeterminate time step
-  (m:extend  t.delta relation params body)
+  ;; type of rule:
+  ;;  merge (<<=): include immediately with fixed point
+  ;; insert (<<+): add at next time step
+  ;; delete (<<-): omit from next time step
+  ;;   send (<<~): deliver asynchronously at indeterminate time step
+  (m:rule    type relation params body)
   (m:assert  formula))
 
 (define-variant formula?
