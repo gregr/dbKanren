@@ -22,17 +22,17 @@
 ;;     or syntax transformers which are `cst->cst` transformations
 ;; - maybe try to retain source information via Racket syntax objects?
 
-;; sources and sinks are specified and created using host language
-;; - a source includes a procedure that produces a stream of tuples
-;; - a sink includes a procedure that consumes a stream of tuples
+;; input and output devices are specified and created using host language
+;; - an input device includes a procedure that produces a stream of tuples
+;; - an output device includes a procedure that consumes a stream of tuples
 ;; - keep host I/O complexity out of the dbk language
 ;; - may describe data coming from arbitrary input sources:
 ;;   - filesystem, network, channels, events, etc.
 ;;   - all sources are assumed to be unstable across time, reflecting a dynamic system
 ;;   - include metadata that will be retained in process history
-;; - modules embed source and sink specifications in appropriate temporal relation declarations
-;;   - sources may only appear on the RHS of rules
-;;   - sinks may only appear on the LHS of indeterminate inference  rules
+;; - modules embed input and output device specifications in appropriate temporal relation declarations
+;;   - input relations may only appear on the RHS of rules
+;;   - output relations may only appear on the LHS of indeterminate inference rules
 ;;     - i.e., `<<~` (asynchronous send)
 
 ;; modules
@@ -59,7 +59,7 @@
 ;;       - insert at next timestep: <<+
 ;;     - rules for indeterminate inference
 ;;       - deliver at arbitrary (future?) timetep: <<~
-;;       - these will write to temporary buffers for the host system to process
+;;       - these will write to output devices for the host system to process
 ;;   - assertions: queries used for property/consistency checking or other validation
 ;;     - can inform data representation choices and query optimization
 ;;     - can use to infer:
@@ -69,39 +69,39 @@
 ;; - module linking
 ;;   - by default, a module will export all definitions
 ;;   - apply visibility modifiers (such as except, only, rename, prefix) to change a module's exports
-;;     - renamings apply to processes too, so that referenced state can be targeted by new rules
+;;     - renamings apply to a process too, so that its database relations can be targeted by new rules
 ;;     - support dependency shaking
 ;;       - given a root set of terms/relations, throw away everything else
 ;;   - combine compatible modules to produce a new module
 ;;     - same module may be linked more than once, to produce different variations (mixin-style)
-;;       - for instance, this may be used to swap in/out sources and sinks
+;;       - for instance, this may be used to switch io devices
 
 ;; process:
-;; - reference to the database (named by path) that manages this process
+;; - reference to the dbms (named by path) that manages this process
 ;; - optional name for stable reference in later program runs
 ;;   - anonymous processes may still be saved and restored, but more annoying to reference
 ;; - current content of all persistent temporal relations
 ;;   - i.e., (indexed) tables keyed by name
-;; - source and sink temporal relation bindings and buffers
-;; - current module, describing how the process evolves each time step
-;;   - module must be complete
-;; - history of state transitions: module diff and ingestion metadata at each time step
+;; - io device temporal relation bindings and buffers
+;; - current program (a module), describing how the process evolves each time step
+;;   - program must be a complete module (no unsatisfied dependencies)
+;; - history of database transitions: module diff and ingestion metadata at each time step
 ;; - how do we check source data consistency?
-;;   - temporal processes allow data to change, so inconsistency with original sources may be intentional
+;;   - processes allow data to change, so inconsistency with original sources may be intentional
 ;;   - to check consistency as in the old approach, analyze the process history for data provenance
-;;     - particularly data source/sink bindings and their dependencies across time steps
-;;       - source metadata should include real world time stamps, filesystem information, transformation code, possibly content hash
-;; - may spawn new process sharing the current state
+;;     - particularly data io device bindings and their dependencies across time steps
+;;       - input device metadata should include real world time stamps, filesystem information, transformation code, possibly content hash
+;; - may spawn new process sharing the current database
 ;;   - can explore diverging transitions
-;;   - can save earlier state to later revisit
+;;   - can save earlier database to later revisit
 ;;   - analogous to branching in a version control system
-;;     - database is a repository
+;;     - dbms is a repository
 ;;     - named process is a branch
-;;     - process state is a commit
+;;     - process database is a commit
 ;;     - explicit garbage collection and compaction can be used to retain only data that is directly-referenced by a process
-;;       - can optionally preserve external data ingestion snapshots to support reproducing intermediate states
+;;       - can optionally preserve external data ingestion snapshots to support reproducing intermediate databases
 ;; - main operations:
-;;   - run a query over the current state
+;;   - run a query over the current database
 ;;   - change current module
 ;;     - nontemporal relations declared to be precomputed will be precomputed before returning
 ;;     - will add a module diff to the process history
@@ -110,26 +110,26 @@
 ;;     - renaming will be logged in the process history
 ;;   - step, with a step/fuel count (`#f` to run continously)
 ;;     - will return unused fuel if (temporary) quiessence is detected, otherwise `#f`
-;;     - if any work was performed, this will log a new state uid in the process history
-;;     - if input was produced by sources configured for snapshot, snapshots will be included in the history
+;;     - if any work was performed, this will log a new database uid in the process history
+;;     - if input was produced by devices configured for snapshot, snapshots will be included in the history
 ;;       - for replay reproducibility
 ;;   - synchronizable event indicating more work can be performed
 ;;     - e.g., if not even temporary quiessence has been achieved yet
 ;;     - e.g., if temporary quiessence had been achieved, but new input has arrived
 ;;     - `#f` if permanent quiessence has been reached
-;;       - only possible if no input sources are bound
+;;       - only possible if no input devices are bound
 ;;       - permanence w.r.t. the current module
-;;   - save/flush (to database filesystem, for later reloading)
+;;   - save/flush (to dbms filesystem, for later reloading)
 ;;     - processes should be continuously checkpointed and saved, so this may not be necessary
 ;;       - if background saving ends up being asynchronous, this operation will wait until the flush catches up
-;;     - sources and sinks cannot be directly restored from disk
+;;     - io devices cannot be directly restored from disk
 ;;       - their metadata can still be saved, however
-;;       - when restoring such a process, source/sink rebindings must be provided
-;;     - process may be packaged for export to another database
-;;       - database garbage collection and process export are similar activities
+;;       - when restoring such a process, io device rebindings must be provided
+;;     - process may be packaged for export to another dbms
+;;       - dbms garbage collection and process export are similar activities
 
-;; database:
-;; - collection of named processes
+;; dbms (database management system):
+;; - collection of named process databases
 ;; - cached relation content keyed by history dependencies, to support sharing between similar processes
 ;;   - includes content of temporal relations as well as nontemporal relations declared to be cached/precomputed
 ;;   - cache may include term values that were expensive to compute
