@@ -328,9 +328,29 @@
   (foldl (lambda (t vs) (set-union vs (t-free-vars t)))
          (set) ts))
 
-(define (f-free-vars* fs)
-  (foldl (lambda (f vs) (set-union vs (f-free-vars f)))
-         (set) fs))
+(define (f-relations f)
+  (match f
+    ((f:const   _)             (set))
+    ((f:or      f1 f2)         (set-union (f-relations f1) (f-relations f2)))
+    ((f:and     f1 f2)         (set-union (f-relations f1) (f-relations f2)))
+    ((f:implies if then)       (set-union (f-relations if) (f-relations then)))
+    ((f:relate  relation args) (set-add (t-relations* args) relation))
+    ((f:exist   vnames body)   (f-relations body))
+    ((f:all     vnames body)   (f-relations body))))
+
+(define (t-relations t)
+  (match t
+    ((t:query  _ f)         (f-relations f))
+    ((t:quote  _)           (set))
+    ((t:var    _)           (set))
+    ((t:app    func args)   (set-union (t-relations func) (t-relations* args)))
+    ((t:lambda params body) (t-relations body))
+    ;; TODO: ?
+    ))
+
+(define (t-relations* ts)
+  (foldl (lambda (t rs) (set-union rs (t-relations t)))
+         (set) ts))
 
 ;; TODO: simplify within some context (which may bind/constrain variables)?
 ;(define (t-simplify t)
