@@ -251,19 +251,19 @@
 (define (f:==    u v) (f:relate '==    (list u v)))
 (define (f:=/=   u v) (f:not (f:== u v)))
 
-;; lambda calculus extended with constants (quote), logical queries, map/combine comprehensions
+;; lambda calculus extended with constants (quote), logical queries, map/merge comprehensions
 (define-variant term?
-  (t:query       name formula)
-  (t:map/combine proc.map proc.combine id.combine xs)
-  (t:quote       value)
-  (t:var         name)
-  (t:app         proc args)
-  (t:lambda      params body)  ; omit for first order systems
+  (t:query     name formula)
+  (t:map/merge proc.map proc.merge default xs)
+  (t:quote     value)
+  (t:var       name)
+  (t:app       proc args)
+  (t:lambda    params body)  ; omit for first order systems
   ;; possibly derived terms
-  (t:if          c t f)
-  (t:let         bindings body)
-  (t:letrec      bindings body)
-  (t:match       arg clauses))
+  (t:if        c t f)
+  (t:let       bindings body)
+  (t:letrec    bindings body)
+  (t:match     arg clauses))
 
 ;; possible derived term expansions, but these interpretations may vary per strategy/logic
 ;(define (t:let bindings body)  ; this expansion only works in higher order systems
