@@ -448,3 +448,12 @@ x!   = x bang          ; x may cause important side effects, such as mutation
                        ; this convention
 x?!  = assert x        ; a predicate/guard that throws an error if false
 ```
+
+
+## References
+
+- [miniKanren: an embedded DSL for logic programming](http://minikanren.org)
+- [Bloom Programming Language](http://bloom-lang.net/)
+- [Dedalus: Datalog in Time and Space](http://www2.eecs.berkeley.edu/Pubs/TechRpts/2009/EECS-2009-173.pdf)
+- [Datafun Programming Language](http://www.rntz.net/datafun/)
+- [Flix Programming Language](https://flix.dev/)
