@@ -1,7 +1,7 @@
 #lang racket/base
 (provide materialization value/syntax
          (struct-out statistics) statistics-intersect
-         vector-table? call/files let/files encoder s-encode s-decode)
+         vector-table? encoder s-encode s-decode)
 (require "codec.rkt" "config.rkt" "dsv.rkt" "method.rkt" "misc.rkt"
          "order.rkt" "stream.rkt"
          racket/file racket/function racket/hash racket/list racket/match
@@ -14,21 +14,6 @@
 
 (define (encoder out type) (method-lambda ((put! v) (encode out type v))
                                           ((close) (flush-output out))))
-
-(define (call/files fins fouts p)
-  (let loop ((fins fins) (ins '()))
-    (if (null? fins)
-      (let loop ((fouts fouts) (outs '()))
-        (if (null? fouts)
-          (apply p (append (reverse ins) (reverse outs)))
-          (call-with-output-file
-            (car fouts) (lambda (out) (loop (cdr fouts) (cons out outs))))))
-      (call-with-input-file
-        (car fins) (lambda (in) (loop (cdr fins) (cons in ins)))))))
-
-(define-syntax-rule (let/files ((in fin) ...) ((out fout) ...) body ...)
-  (call/files (list fin ...) (list fout ...)
-              (lambda (in ... out ...) body ...)))
 
 (struct statistics (ratio cardinality) #:prefab)
 (define (statistics-intersect a b)
@@ -456,23 +441,6 @@
         (cond ((? v pv) (vector-set! h i pv) (loop iparent))
               (else     (vector-set! h i v)))))))
 
-(define (alist-ref alist key (default (void)))
-  (define kv (assoc key alist))
-  (cond (kv              (cdr kv))
-        ((void? default) (error "missing key in association list:" key alist))
-        (else            default)))
-(define (alist-remove alist key)
-  (filter (lambda (kv) (not (equal? (car kv) key))) alist))
-(define (alist-update alist key v->v (default (void)))
-  (let loop ((kvs alist) (prev '()))
-    (cond ((null?        kvs     )
-           (when (void? default) (error "missing key in association list:" key alist))
-           (cons (cons key (v->v default)) alist))
-          ((equal? (caar kvs) key) (foldl cons (cons (cons key (v->v (cdar kvs))) (cdr kvs)) prev))
-          (else                    (loop (cdr kvs) (cons (car kvs) prev))))))
-(define (alist-set alist key value)
-  (alist-update alist key (lambda (_) value) #f))
-
 (define (list-arranger input-names output-names)
   (define ss.in    (generate-temporaries input-names))
   (define name=>ss (make-immutable-hash (map cons input-names ss.in)))
@@ -854,10 +822,6 @@
 (define (code->value code)
   (cond ((value+syntax? code) (value+syntax-value code))
         (else                 code)))
-
-(define (plist->alist kvs) (if (null? kvs) '()
-                             (cons (cons (car kvs) (cadr kvs))
-                                   (plist->alist (cddr kvs)))))
 
 (define (materialization/stream path.in format header kwargs)
   (define key-name        (hash-ref kwargs 'key-name))
