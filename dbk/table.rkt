@@ -2,8 +2,7 @@
 (provide materialization value/syntax
          (struct-out statistics) statistics-intersect
          vector-table? encoder s-encode s-decode)
-(require "codec.rkt" "config.rkt" "dsv.rkt" "method.rkt" "misc.rkt"
-         "order.rkt" "stream.rkt"
+(require "codec.rkt" "config.rkt" "dsv.rkt" "misc.rkt" "order.rkt" "stream.rkt"
          racket/file racket/function racket/hash racket/list racket/match
          racket/pretty racket/set racket/vector)
 

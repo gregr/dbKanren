@@ -1,8 +1,8 @@
 #lang racket/base
 (provide bis:query->stream dfs:query->stream
          relation/table define-relation/table)
-(require "method.rkt" "misc.rkt" "order.rkt" "record.rkt" "stream.rkt"
-         "syntax.rkt" "table.rkt" (except-in racket/match ==)
+(require "misc.rkt" "order.rkt" "stream.rkt" "syntax.rkt" "table.rkt"
+         (except-in racket/match ==)
          racket/function racket/list racket/set racket/vector)
 
 #| ;; Definitions for performance diagnostics
