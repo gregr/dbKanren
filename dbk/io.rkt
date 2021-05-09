@@ -4,9 +4,11 @@
          (struct-out producer)
          out:transform out:procedure out:port out:file
          in:transform in:procedure in:port in:file
-         in:stream in:pop-header)
+         in:stream in:pop-header
+         json->scm scm->json jsexpr->scm scm->jsexpr
+         read-jsonl write-jsonl read-json write-json)
 (require "codec.rkt" "misc.rkt" "stream.rkt"
-         racket/list racket/match racket/string)
+         json racket/list racket/match racket/port racket/string)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Utilities
@@ -121,8 +123,7 @@
       ;; TODO:
       ;((tsv)   )
       ;((csv)   )
-      ;((json)  )
-      ;((jsonl) )
+      ((jsonl) (lambda () (read-jsonl in)))
       (else    (error "unsupported input format:" format))))
   (let loop ()
     (lambda ()
@@ -139,10 +140,50 @@
       ;; TODO:
       ;((tsv)   )
       ;((csv)   )
-      ;((json)  )
-      ;((jsonl) )
+      ((jsonl) (lambda (x) (write-jsonl out x)))
       (else    (error "unsupported output format:" format))))
   (let loop ((s s))
     (match (s-force s)
       ('()        (when close? (close?)))
       (`(,x . ,s) (put x) (loop s)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; JSON and JSONL formats
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (json->scm s) (jsexpr->scm    (string->jsexpr s)))
+(define (scm->json x) (jsexpr->string (scm->jsexpr    x)))
+
+(define (jsexpr->scm j)
+  (cond ((hash?     j) (define kvs (hash->list j))
+                       (make-immutable-hash
+                         (map cons
+                              (map symbol->string (map car kvs))
+                              (map jsexpr->scm    (map cdr kvs)))))
+        ((pair?     j) (list->vector (map jsexpr->scm j)))
+        ((eq? 'null j) '())
+        (else          j)))
+
+(define (scm->jsexpr x)
+  (cond ((hash?   x) (define kvs (hash->list x))
+                     (make-immutable-hash
+                       (map cons
+                            (map string->symbol (map car kvs))
+                            (map scm->jsexpr (map cdr kvs)))))
+        ((vector? x) (map scm->jsexpr (vector->list x)))
+        ((null?   x) 'null)
+        (else        x)))
+
+(define (read-jsonl in)
+  (define s (read-line in 'any))
+  (if (eof-object? s) s (json->scm s)))
+
+(define (write-jsonl out x)
+  (write-string (scm->json x) out)
+  (write-char #\newline out))
+
+(define (read-json in)
+  (json->scm (port->string in)))
+
+(define (write-json out x)
+  (write-string (scm->json x) out))
