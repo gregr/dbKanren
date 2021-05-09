@@ -116,36 +116,43 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (port-produce in close? format type)
-  (define get
-    (case format
-      ((bscm)  (lambda () (if (eof-object? (peek-byte in)) eof (decode in type))))
-      ((scm)   (lambda () (read in)))
-      ;; TODO:
-      ;((tsv)   )
-      ;((csv)   )
-      ((jsonl) (lambda () (read-jsonl in)))
-      (else    (error "unsupported input format:" format))))
-  (let loop ()
-    (lambda ()
-      (define datum (get))
-      (cond ((eof-object? datum) (when close? (close?))
-                                 '())
-            (else                (cons datum (loop)))))))
+  (case format
+    ((json) (define data (vector->list (read-json in)))
+            (when close? (close?))
+            data)
+    (else   (define get
+              (case format
+                ((bscm)  (lambda () (if (eof-object? (peek-byte in)) eof (decode in type))))
+                ((scm)   (lambda () (read in)))
+                ;; TODO:
+                ;((tsv)   )
+                ;((csv)   )
+                ((jsonl) (lambda () (read-jsonl in)))
+                (else    (error "unsupported input format:" format))))
+            (let loop ()
+              (lambda ()
+                (define datum (get))
+                (cond ((eof-object? datum) (when close? (close?))
+                                           '())
+                      (else                (cons datum (loop)))))))))
 
 (define (port-consume out close? format type s)
-  (define put
-    (case format
-      ((bscm)  (lambda (x) (encode out type x)))
-      ((scm)   (lambda (x) (write x out) (write-char #\newline out)))
-      ;; TODO:
-      ;((tsv)   )
-      ;((csv)   )
-      ((jsonl) (lambda (x) (write-jsonl out x)))
-      (else    (error "unsupported output format:" format))))
-  (let loop ((s s))
-    (match (s-force s)
-      ('()        (when close? (close?)))
-      (`(,x . ,s) (put x) (loop s)))))
+  (case format
+    ((json) (write-json out (list->vector (s-take #f s)))
+            (when close? (close?)))
+    (else   (define put
+              (case format
+                ((bscm)  (lambda (x) (encode out type x)))
+                ((scm)   (lambda (x) (write x out) (write-char #\newline out)))
+                ;; TODO:
+                ;((tsv)   )
+                ;((csv)   )
+                ((jsonl) (lambda (x) (write-jsonl out x)))
+                (else    (error "unsupported output format:" format))))
+            (let loop ((s s))
+              (match (s-force s)
+                ('()        (when close? (close?)))
+                (`(,x . ,s) (put x) (loop s)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; JSON and JSONL formats
