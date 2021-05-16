@@ -7,7 +7,7 @@
          in:stream in:pop-header
          json->scm scm->json jsexpr->scm scm->jsexpr
          jsonl:read jsonl:write json:read json:write
-         tsv:read tsv:write)
+         tsv:read tsv:write csv:read csv:write csv:escape)
 (require "codec.rkt" "misc.rkt" "stream.rkt"
          json racket/list racket/match racket/port racket/string)
 
@@ -126,8 +126,7 @@
                 ((bscm)  (lambda () (if (eof-object? (peek-byte in)) eof (decode in type))))
                 ((scm)   (lambda () (read in)))
                 ((tsv)   (lambda () (tsv:read in)))
-                ;; TODO:
-                ;((csv)   )
+                ((csv)   (lambda () (csv:read in)))
                 ((jsonl) (lambda () (jsonl:read in)))
                 (else    (error "unsupported input format:" format))))
             (let loop ()
@@ -146,8 +145,7 @@
                 ((bscm)  (lambda (x) (encode out type x)))
                 ((scm)   (lambda (x) (write x out) (write-char #\newline out)))
                 ((tsv)   (lambda (x) (tsv:write out x)))
-                ;; TODO:
-                ;((csv)   )
+                ((csv)   (lambda (x) (csv:write out x)))
                 ((jsonl) (lambda (x) (jsonl:write out x)))
                 (else    (error "unsupported output format:" format))))
             (let loop ((s s))
@@ -219,3 +217,67 @@
 
 (define (tsv:write out x)
   (write-string (string-join x "\t" #:after-last "\n") out))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; CSV format
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Informal grammar for delimiter-separated values (escapes via double quote)
+;RECORD-SEPARATOR ::= \r\n | \n | \r
+;record-stream    ::= EOF | record [RECORD-SEPARATOR] EOF | record RECORD-SEPARATOR record-stream
+;record           ::= field | field FIELD-SEPARATOR record
+;field            ::= \" inner-content* \" | CONTENT*
+;inner-content    ::= CONTENT | \"\" | FIELD-SEPARATOR | WHITESPACE
+;CONTENT includes anything other than double-quote, field separator, whitespace
+
+(define (csv:read in)
+  (define (field)
+    (define ch (peek-char in))
+    (cond ((eqv? ch #\,)           (read-char in)
+                                   "")
+          ((or (eqv? ch #\newline)
+               (eqv? ch #\return)
+               (eof-object? ch))   "")
+
+          ((eqv? ch #\")           (read-char in)
+                                   (let loop ((i 0))
+                                     (define ch (peek-char in i))
+                                     (cond ((eqv? ch #\") (if (eqv? (peek-char in (+ i 1)) #\")
+                                                            (loop (+ i 2))
+                                                            (let ((qs (bytes->string/utf-8 (read-bytes i in))))
+                                                              (read-char in)
+                                                              (when (eqv? (peek-char in) #\,)
+                                                                (read-char in))
+                                                              (string-replace qs "\"\"" "\""))))
+                                           (else          (loop (+ i 1))))))
+
+          (else                    (let loop ((i 1))
+                                     (define ch (peek-char in i))
+                                     (cond ((eqv? ch #\,)           (define s (bytes->string/utf-8 (read-bytes i in)))
+                                                                    (read-char in)
+                                                                    s)
+                                           ((or (eqv? ch #\newline)
+                                                (eqv? ch #\return)
+                                                (eof-object? ch))   (bytes->string/utf-8 (read-bytes i in)))
+                                           (else                    (loop (+ i 1))))))))
+  (if (eof-object? (peek-char in))
+    eof
+    (let record ()
+      (cons (field)
+            (let ((ch (peek-char in)))
+              (cond ((eqv? ch #\return)  (read-char in)
+                                         (when (eqv? (peek-char in) #\newline)
+                                           (read-char in))
+                                         '())
+                    ((eqv? ch #\newline) (read-char in)
+                                         '())
+                    ((eof-object? ch)    '())
+                    (else                (record))))))))
+
+(define (csv:write out x)
+  (write-string (string-join (map csv:escape x) "," #:after-last "\n") out))
+
+(define (csv:escape s)
+  (if (ormap (lambda (x) (string-contains? s x)) '("," "\"" "\n" "\r"))
+    (string-append "\"" (string-replace s "\"" "\"\"") "\"")
+    s))
