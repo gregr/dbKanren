@@ -6,7 +6,7 @@
          in:transform in:procedure in:port in:file
          in:stream in:pop-header
          json->scm scm->json jsexpr->scm scm->jsexpr
-         read-jsonl write-jsonl read-json write-json)
+         jsonl:read jsonl:write json:read json:write)
 (require "codec.rkt" "misc.rkt" "stream.rkt"
          json racket/list racket/match racket/port racket/string)
 
@@ -117,7 +117,7 @@
 
 (define (port-produce in close? format type)
   (case format
-    ((json) (define data (vector->list (read-json in)))
+    ((json) (define data (vector->list (json:read in)))
             (when close? (close?))
             data)
     (else   (define get
@@ -127,7 +127,7 @@
                 ;; TODO:
                 ;((tsv)   )
                 ;((csv)   )
-                ((jsonl) (lambda () (read-jsonl in)))
+                ((jsonl) (lambda () (jsonl:read in)))
                 (else    (error "unsupported input format:" format))))
             (let loop ()
               (lambda ()
@@ -138,7 +138,7 @@
 
 (define (port-consume out close? format type s)
   (case format
-    ((json) (write-json out (list->vector (s-take #f s)))
+    ((json) (json:write out (list->vector (s-take #f s)))
             (when close? (close?)))
     (else   (define put
               (case format
@@ -147,7 +147,7 @@
                 ;; TODO:
                 ;((tsv)   )
                 ;((csv)   )
-                ((jsonl) (lambda (x) (write-jsonl out x)))
+                ((jsonl) (lambda (x) (jsonl:write out x)))
                 (else    (error "unsupported output format:" format))))
             (let loop ((s s))
               (match (s-force s)
@@ -181,16 +181,16 @@
         ((null?   x) 'null)
         (else        x)))
 
-(define (read-jsonl in)
+(define (jsonl:read in)
   (define s (read-line in 'any))
   (if (eof-object? s) s (json->scm s)))
 
-(define (write-jsonl out x)
+(define (jsonl:write out x)
   (write-string (scm->json x) out)
   (write-char #\newline out))
 
-(define (read-json in)
+(define (json:read in)
   (json->scm (port->string in)))
 
-(define (write-json out x)
+(define (json:write out x)
   (write-string (scm->json x) out))
