@@ -6,7 +6,8 @@
          in:transform in:procedure in:port in:file
          in:stream in:pop-header
          json->scm scm->json jsexpr->scm scm->jsexpr
-         jsonl:read jsonl:write json:read json:write)
+         jsonl:read jsonl:write json:read json:write
+         tsv:read tsv:write)
 (require "codec.rkt" "misc.rkt" "stream.rkt"
          json racket/list racket/match racket/port racket/string)
 
@@ -124,8 +125,8 @@
               (case format
                 ((bscm)  (lambda () (if (eof-object? (peek-byte in)) eof (decode in type))))
                 ((scm)   (lambda () (read in)))
+                ((tsv)   (lambda () (tsv:read in)))
                 ;; TODO:
-                ;((tsv)   )
                 ;((csv)   )
                 ((jsonl) (lambda () (jsonl:read in)))
                 (else    (error "unsupported input format:" format))))
@@ -144,8 +145,8 @@
               (case format
                 ((bscm)  (lambda (x) (encode out type x)))
                 ((scm)   (lambda (x) (write x out) (write-char #\newline out)))
+                ((tsv)   (lambda (x) (tsv:write out x)))
                 ;; TODO:
-                ;((tsv)   )
                 ;((csv)   )
                 ((jsonl) (lambda (x) (jsonl:write out x)))
                 (else    (error "unsupported output format:" format))))
@@ -194,3 +195,27 @@
 
 (define (json:write out x)
   (write-string (scm->json x) out))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; TSV format
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Informal grammar for tab-separated values (no escapes supported)
+;FIELD-SEPARATOR  ::= \t
+;RECORD-SEPARATOR ::= \r\n | \n | \r
+;record-stream    ::= EOF | record [RECORD-SEPARATOR] EOF | record RECORD-SEPARATOR record-stream
+;record           ::= field | field FIELD-SEPARATOR record
+;field            ::= CONTENT*
+;CONTENT includes anything other than \t, \n, \r
+
+(define (tsv:read in)
+  (define l (read-line in 'any))
+  (if (eof-object? l)
+    l
+    (let ((fields (string-split l "\t" #:trim? #f)))
+      (if (null? fields)
+        '("")
+        fields))))
+
+(define (tsv:write out x)
+  (write-string (string-join x "\t" #:after-last "\n") out))
