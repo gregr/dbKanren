@@ -1,6 +1,13 @@
 #lang racket/base
 (provide
-  )
+  m:link m:define m:declare m:rule m:assert
+  f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
+  f:any<= f:== f:=/=
+  t:query t:map/merge t:quote t:var t:app t:lambda
+  t:if t:let t:letrec t:match
+  t:apply t:cons t:car t:cdr t:vector t:list->vector t:vector-ref t:vector-length
+  t-free-vars f-free-vars t-free-vars*
+  f-relations t-relations t-relations*)
 (require "misc.rkt" racket/match racket/set)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -223,8 +230,7 @@
   ;(m:rename  m name=>name?)  ; if target name is #f, consider the original name private
   ;(m:unlink  m1 m2)          ; subtract from m1 any components that are exact matches for anything present in m2
 
-  (m:link    m1 m2)
-  (m:import  name=>value)    ; bind term names to Racket values
+  (m:link    modules)
   (m:define  name=>term)
   (m:declare relation property=>value)
   ;; type of rule:
