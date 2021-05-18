@@ -1,10 +1,34 @@
 #lang racket/base
-(provide record
+(provide simple-match record
          method-lambda method-choose method-unknown method-except method-only
          foldl/and let*/and define-variant
          plist->alist alist-ref alist-remove alist-update alist-set
          call/files let/files)
 (require (for-syntax racket/base) racket/match)
+
+(define-syntax simple-match
+  (syntax-rules ()
+    ((_ e) (error "no matching pattern:" e))
+    ((_ e (pattern body ...) clauses ...)
+     (let* ((x e)
+            (k.f (lambda () (simple-match x clauses ...))))
+       (simple-match-clause (let () body ...) (k.f) x pattern)))))
+
+(define-syntax simple-match-clause
+  (syntax-rules ()
+    ((_ k.t k.f x ())          (if (null? x) k.t k.f))
+    ((_ k.t k.f x (p.a . p.d)) (if (pair? x)
+                                 (let ((x.car (car x))
+                                       (x.cdr (cdr x)))
+                                   (simple-match-clause
+                                     (simple-match-clause k.t k.f x.cdr p.d)
+                                     k.f x.car p.a))
+                                 k.f))
+    ((_ k.t k.f x #(p ...))    (if (vector? x)
+                                 (let ((x (vector->list x)))
+                                   (simple-match-clause k.t k.f x (p ...)))
+                                 k.f))
+    ((_ k.t k.f x id)          (let ((id x)) k.t))))
 
 (begin-for-syntax
   (define (syntax/context context stx)
