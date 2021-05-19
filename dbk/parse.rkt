@@ -31,7 +31,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (literal? x) (or (number? x) (boolean? x) (string? x) (bytes? x)))
-(define (literal  x) (if (inexact? x) (inexact->exact x) x))
+(define (literal  x) (if (and (number? x) (inexact? x)) (inexact->exact x) x))
 
 (define-syntax parser-lambda
   (syntax-rules ()
