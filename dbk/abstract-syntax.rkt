@@ -7,6 +7,7 @@
   t:if t:let t:letrec t:match
   t:apply t:cons t:car t:cdr t:vector t:list->vector t:vector-ref t:vector-length
   t-free-vars f-free-vars t-free-vars*
+  t-free-vars-first-order f-free-vars-first-order t-free-vars-first-order*
   f-relations t-relations t-relations*)
 (require "misc.rkt" racket/match racket/set)
 
@@ -320,6 +321,17 @@
     ;; TODO: t:let t:letrec ?
     ))
 
+(define (t-free-vars-first-order t)
+  (match t
+    ((t:query  name f) (set-subtract (f-free-vars-first-order f) (set name)))
+    ((t:quote  _)      (set))
+    ((t:var    name)   (set name))
+    ((t:app    _ args) (t-free-vars-first-order* args))
+    ((t:lambda _ _)    (set))
+    ;((t:if     c t f)       (set-union (t-free-vars c) (t-free-vars t) (t-free-vars f)))
+    ;; TODO: t:let t:letrec ?
+    ))
+
 (define (f-free-vars f)
   (match f
     ((f:const   _)             (set))
@@ -330,8 +342,21 @@
     ((f:exist   vnames body)   (set-subtract (f-free-vars body) (list->set vnames)))
     ((f:all     vnames body)   (set-subtract (f-free-vars body) (list->set vnames)))))
 
+(define (f-free-vars-first-order f)
+  (match f
+    ((f:const   _)             (set))
+    ((f:or      f1 f2)         (set-union (f-free-vars-first-order f1) (f-free-vars-first-order f2)))
+    ((f:and     f1 f2)         (set-union (f-free-vars-first-order f1) (f-free-vars-first-order f2)))
+    ((f:implies if then)       (set-union (f-free-vars-first-order if) (f-free-vars-first-order then)))
+    ((f:relate  relation args) (t-free-vars-first-order* args))
+    ((f:exist   vnames body)   (set-subtract (f-free-vars-first-order body) (list->set vnames)))
+    ((f:all     vnames body)   (set-subtract (f-free-vars-first-order body) (list->set vnames)))))
+
 (define (t-free-vars* ts)
   (foldl (lambda (t vs) (set-union vs (t-free-vars t)))
+         (set) ts))
+(define (t-free-vars-first-order* ts)
+  (foldl (lambda (t vs) (set-union vs (t-free-vars-first-order t)))
          (set) ts))
 
 (define (f-relations f)
