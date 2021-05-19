@@ -124,9 +124,48 @@
                                       operator (env-ref env operator)))))
     ((? procedure? self-parse) (self-parse env))))
 
+(define (rule-parser type)
+  (parser-lambda env
+    ((_ (relation . params) . formulas)
+     (define env.pattern  (env-forget-pattern-variables env))
+     (define ts.params    (map (lambda (p) (parse:term env.pattern p)) params))
+     (define names.params (set->list (t-free-vars-first-order* ts.params)))
+     (define names.argument
+       (map (lambda (i) (fresh-name (string->symbol (string-append "x." (number->string i)))))
+            (range (length params))))
+     (m:rule type relation names.argument
+             (parse:formula:exist
+               env (list* (void) names.params
+                          (lambda (env)
+                            (foldl f:and
+                                   (f:== (t:quote #t) (t:quote #t))
+                                   (map (lambda (n p) (f:== (t:var n) (parse:term env p)))
+                                        names.argument params)))
+                          formulas))))))
+
+(define bindings.initial.module
+  (binding-alist/class
+    'module-clause
+    'define  (parser-lambda env
+               ((_ (name . params) body) (m:define (hash name (parse:term:lambda env (list (void) params body)))))
+               ((_ name            body) (m:define (hash name (parse:term        env                     body)))))
+    ;; TODO:
+    ;'declare
+    ;'input
+    ;'output
+
+    '<<=     (rule-parser '<<=)
+    '<<+     (rule-parser '<<+)
+    '<<-     (rule-parser '<<-)
+    '<<~     (rule-parser '<<~)
+
+    'assert  (parser-lambda env ((_ formula) (m:assert (parse:formula env formula))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Formula parsing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; TODO: parse relation argument underscores as implicit existentials
 
 (define (binding-formula b) (binding-ref b 'formula))
 
@@ -146,6 +185,47 @@
 
 (define (parse:formula* env formulas)
   (map (lambda (f) (parse:formula env f)) formulas))
+
+(define parse:formula:or
+  (parser-lambda env
+    ((_ disjunct)             (parse:formula env disjunct))
+    ((_ disjunct . disjuncts) (f:or (parse:formula env disjunct)
+                                    (parse:formula:or env (cons (void) disjuncts))))))
+
+(define parse:formula:and
+  (parser-lambda env
+    ((_ conjunct)             (parse:formula env conjunct))
+    ((_ conjunct . conjuncts) (f:and (parse:formula env conjunct)
+                                     (parse:formula:and env (cons (void) conjuncts))))))
+
+(define parse:formula:not
+  (parser-lambda env
+    ((_ f) (f:not (parse:formula env f)))))
+
+(define parse:formula:exist
+  (parser-lambda env
+    ((_ params . body)
+     (define names (param-names params))
+     (unless (unique? names)
+       (error "existential quantifier parameter names must be unique:" names))
+     (define unames (map fresh-name names))
+     (f:exist unames
+              (parse:formula:and
+                (env-bind* env 'term names unames)
+                (cons (void) body))))))
+
+(define parse:formula:=/=
+  (parser-lambda env
+    ((_ u v) (f:=/= (parse:term env u) (parse:term env v)))))
+
+(define bindings.initial.formula
+  (binding-alist/class
+    'formula
+    '=/=   parse:formula:=/=
+    'or    parse:formula:or
+    'and   parse:formula:and
+    'not   parse:formula:not
+    'exist parse:formula:exist))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Term parsing
@@ -169,12 +249,59 @@
 
 (define (parse:term* env stxs) (map (lambda (stx) (parse:term env stx)) stxs))
 
+(define parse:term:query
+  (parser-lambda env
+    ((_ param-pattern . body)
+     (cond ((symbol? param-pattern)
+            (define param (fresh-name param-pattern))
+            (t:query param (parse:formula:and
+                             (env-bind env 'term param-pattern param)
+                             (cons (void) body))))
+           (else (define param (fresh-name 'q.0))
+                 (define names (param-names param-pattern))
+                 (define (assign-param-pattern env)
+                   (f:== param (parse:term:simple env param-pattern)))
+                 (t:query param (parse:formula:exist
+                                  env (list* (void) names assign-param-pattern body))))))))
+
+(define (parse:term:simple env pattern)
+  (let loop ((pattern pattern))
+    (match pattern
+      ((? symbol?)    (t:var (binding-term (env-ref env pattern))))
+      ('()            (t:quote '()))
+      ((cons p.a p.d) (t:cons (loop p.a) (loop p.d)))
+      ((? vector?)    (t:list->vector (loop (vector->list pattern)))))))
+
+(define parse:term:quote
+  (parser-lambda env ((_ value) (t:quote value))))
+
+(define parse:term:lambda
+  (parser-lambda env
+    ((_ params body)
+     (define names (param-names params))
+     (unless (unique? names)
+       (error "lambda parameter names must be unique:" names))
+     (define unames (map fresh-name names))
+     (t:lambda unames (parse:term (env-bind* env 'term names unames)
+                                  body)))))
+
+(define bindings.initial.term
+  (binding-alist/class
+    'term
+    'query      parse:term:query
+    'quote      parse:term:quote
+    ;; TODO:
+    ;'quasiquote parse:term:quasiquote
+    'lambda     parse:term:lambda))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Module macro expansion
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; TODO: populate initial environment
-(define current-dbk-environment (make-parameter env:empty))
+(define current-dbk-environment
+  (make-parameter (env-set-alist env:empty (append bindings.initial.term
+                                                   bindings.initial.formula
+                                                   bindings.initial.module))))
 
 (define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
 
