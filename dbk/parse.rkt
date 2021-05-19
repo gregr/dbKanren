@@ -1,5 +1,7 @@
 #lang racket/base
 (provide
+  define-dbk dbk link import input output
+  current-dbk-environment
   binding:empty binding:new binding-ref binding-set
   env:empty env:new env-ref env-set
   parser-lambda parse:module parse:module-clause parse:formula parse:term)
@@ -107,3 +109,55 @@
     ((? procedure? self-parse) (self-parse env))))
 
 (define (parse:term* env stxs) (map (lambda (stx) (parse:term env stx)) stxs))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Module macro expansion
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; TODO: populate initial environment
+(define current-dbk-environment (make-parameter env:empty))
+
+(define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
+
+(define-syntax-rule (dbk clauses ...)          (dbk-parse () clauses ...))
+
+(define-syntax link   (syntax-rules ()))
+(define-syntax import (syntax-rules ()))
+(define-syntax input  (syntax-rules ()))
+(define-syntax output (syntax-rules ()))
+
+(define-syntax dbk-parse
+  (syntax-rules (link import input output)
+    ((_ (parsed ...)) (m:link (list parsed ...)))
+
+    ((_ (parsed ...) (link modules ...) clauses ...)
+     (dbk-parse (parsed ... (m:link (list modules ...)))
+                clauses ...))
+
+    ((_ parsed       (import)                        clauses ...)
+     (dbk-parse parsed clauses ...))
+    ((_ (parsed ...) (import name value imports ...) clauses ...)
+     (dbk-parse (parsed ... (m:define (hash 'name (t:quote value))))
+                (import imports ...) clauses ...))
+
+    ((_ parsed       (input)                                           clauses ...)
+     (dbk-parse parsed clauses ...))
+    ((_ (parsed ...) (input (relation attrs ...) io-device inputs ...) clauses ...)
+     (dbk-parse (parsed ...  (m:declare 'relation
+                                        (hash 'attributes '(attrs ...)
+                                              'input      io-device)))
+                (input inputs ...) clauses ...))
+
+    ((_ parsed       (output)                                            clauses ...)
+     (dbk-parse parsed clauses ...))
+    ((_ (parsed ...) (output (relation attrs ...) io-device outputs ...) clauses ...)
+     (dbk-parse (parsed ...  (m:declare 'relation
+                                        (hash 'attributes '(attrs ...)
+                                              'output     io-device)))
+                (output outputs ...) clauses ...))
+
+    ((_ (parsed ...) clause clauses ...)
+     (dbk-parse (parsed ... (parse:module-clause
+                              (current-dbk-environment)
+                              'clause))
+                clauses ...))))
