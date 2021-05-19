@@ -2,29 +2,88 @@
 (provide
   define-dbk dbk link import input output
   current-dbk-environment
-  binding:empty binding:new binding-ref binding-set
-  env:empty env:new env-ref env-set
-  parser-lambda parse:module parse:module-clause parse:formula parse:term)
-(require "abstract-syntax.rkt" "misc.rkt" racket/match)
+  binding:empty binding-ref binding-set binding-set* binding-remove binding-alist/class
+  env:empty env-ref env-set env-set* env-set-alist
+  env-bind env-bind* env-bind-alist env-map/merge env-forget-pattern-variables
+  literal? literal parser-lambda
+  parse:module parse:module-clause parse:formula parse:term)
+(require "abstract-syntax.rkt" "misc.rkt"
+         racket/list racket/match racket/set racket/struct)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Names and parameter trees
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; TODO: maybe use a dynamic uid parameter, and instead represent names as pairs of uid and symbol
+(struct uname (name)
+        #:methods gen:custom-write
+        ((define write-proc
+           (make-constructor-style-printer
+             (lambda (x) 'uname)
+             (lambda (x) (list (uname-name x)))))))
+
+(define (fresh-name name)
+  (if (symbol? name) (uname name) (fresh-name (uname-name name))))
+
+(define (param-names param)
+  (match param
+    ((? symbol?)    (list param))
+    ('()            '())
+    ((cons p.a p.d) (append (param-names p.a) (param-names p.d)))
+    ((? vector?)    (param-names (vector->list param)))))
+
+(define (unique? names) (= (set-count (list->set names)) (length names)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Environments and bindings
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define binding:empty (hash))
-(define (binding:new . args)    (make-immutable-hash (plist->alist args)))
-(define (binding-ref b class)   (hash-ref b class #f))
-(define (binding-set b class x) (hash-set b class x))
+(define (binding-ref  b class)   (hash-ref b class #f))
+(define (binding-set  b class x) (hash-set b class x))
+(define (binding-set* b cs    xs)
+  (foldl (lambda (c x b) (binding-set b c x))
+         binding:empty cs xs))
+(define (binding-remove b class) (hash-remove b class))
+
+(define (binding-alist/class class . args)
+  (map (lambda (nv)
+         (match-define (cons n v) nv)
+         (cons n (binding-set binding:empty class v)))
+       (plist->alist args)))
 
 (define env:empty (hash))
-(define (env:new . args)
-  (foldl (lambda (nb env)
-           (match-define (cons n b) nb)
-           (env-set env n b))
-         env:empty
-         (plist->alist args)))
-(define (env-ref env n)   (hash-ref env n binding:empty))
-(define (env-set env n b) (hash-set env n b))
+(define (env-ref       env n)     (hash-ref env n binding:empty))
+(define (env-set       env n  b)  (hash-set env n b))
+(define (env-set*      env ns bs) (foldl (lambda (n b env) (env-set env n b)) env ns bs))
+(define (env-set-alist env nbs)   (env-set* env (map car nbs) (map cdr nbs)))
+
+(define (env-bind  env class name  value)
+  (env-set env name (binding-set binding:empty class value)))
+(define (env-bind* env class names values)
+  (env-set* env names (map (lambda (v) (binding-set binding:empty class v))
+                           values)))
+(define (env-bind-alist env class nvs)
+  (env-bind* env class (map car nvs) (map cdr nvs)))
+
+(define (env-map/merge env default f merge)
+  (if (hash-empty? env)
+    default
+    (let ((mapped (map f (hash->list env))))
+      (foldl merge (car mapped) (cdr mapped)))))
+
+(define (env-forget-pattern-variables env)
+  (env-set-alist
+    env:empty
+    (env-map/merge
+      env env:empty
+      (lambda (nb)
+        (match-define (cons n b) nb)
+        (define current (binding-ref b 'term))
+        (list (cons n (if (and current (not (procedure? current)))
+                        (binding-remove b 'term)
+                        b))))
+      append)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Parsing
