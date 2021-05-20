@@ -148,6 +148,14 @@
     ((_ (name . params) body) (m:define (hash name (parse:term:lambda env (list (void) params body)))))
     ((_ name            body) (m:define (hash name (parse:term        env                     body))))))
 
+(define parse:module-clause:declare
+  (parser-lambda env
+    ((_ (relation . attrs) . args)      (m:link (list (m:declare relation (hash 'attributes attrs))
+                                                      (parse:module-clause:declare
+                                                        env (list* (void) relation args)))))
+    ((_ relation property value . args) (m:declare relation (hash property value)))
+    ((_ relation)                       (m:declare relation (hash)))))
+
 (define parse:module-clause:assert
   (parser-lambda env ((_ formula) (m:assert (parse:formula env formula)))))
 
@@ -155,9 +163,7 @@
   (binding-alist/class
     'module-clause
     'define  parse:module-clause:define
-    ;; TODO:
-    ;'declare
-
+    'declare parse:module-clause:declare
     '<<=     (rule-parser '<<=)
     '<<+     (rule-parser '<<+)
     '<<-     (rule-parser '<<-)
