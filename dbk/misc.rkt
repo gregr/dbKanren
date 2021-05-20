@@ -1,10 +1,16 @@
 #lang racket/base
-(provide simple-match record
+(provide simple-match simple-match-lambda record
          method-lambda method-choose method-unknown method-except method-only
          foldl/and let*/and define-variant
          plist->alist alist-ref alist-remove alist-update alist-set
          call/files let/files)
 (require (for-syntax racket/base) racket/match)
+
+(define-syntax simple-match-lambda
+  (syntax-rules ()
+    ((_ (params body ...) ...) (lambda args
+                                 (simple-match args
+                                   (params body ...) ...)))))
 
 (define-syntax simple-match
   (syntax-rules ()
