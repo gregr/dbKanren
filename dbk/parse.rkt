@@ -5,7 +5,7 @@
   binding:empty binding-ref binding-set binding-set* binding-remove binding-alist/class
   env:empty env-ref env-set env-set* env-set-alist
   env-bind env-bind* env-bind-alist env-map/merge env-forget-pattern-variables
-  literal? literal parser-lambda
+  literal? literal simple-parser
   parse:module parse:module-clause parse:formula parse:term)
 (require "abstract-syntax.rkt" "misc.rkt"
          racket/list racket/match racket/set racket/struct)
@@ -92,13 +92,10 @@
 (define (literal? x) (or (number? x) (boolean? x) (string? x) (bytes? x)))
 (define (literal  x) (if (and (number? x) (inexact? x)) (inexact->exact x) x))
 
-(define-syntax parser-lambda
-  (syntax-rules ()
-    ((_ env (params body ...) ...)
-     (lambda (env stx)
-       (simple-match stx
-         (params body ...) ...
-         (stx    (error "invalid syntax:" stx env)))))))
+(define (simple-parser proc)
+  (lambda (env stx)
+    (cond ((list? stx) (apply proc env (cdr stx)))
+          (else        (error "simple-parser expects list syntax:" stx)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Module parsing
@@ -125,50 +122,51 @@
     ((? procedure? self-parse) (self-parse env))))
 
 (define (rule-parser type)
-  (parser-lambda env
-    ((_ (relation . params) . formulas)
-     (define env.pattern  (env-forget-pattern-variables env))
-     (define ts.params    (map (lambda (p) (parse:term env.pattern p)) params))
-     (define names.params (set->list (t-free-vars-first-order* ts.params)))
-     (define names.argument
-       (map (lambda (i) (fresh-name (string->symbol (string-append "x." (number->string i)))))
-            (range (length params))))
-     (m:rule type relation names.argument
-             (parse:formula:exist
-               env (list* (void) names.params
-                          (lambda (env)
-                            (foldl f:and
-                                   (f:== (t:quote #t) (t:quote #t))
-                                   (map (lambda (n p) (f:== (t:var n) (parse:term env p)))
-                                        names.argument params)))
-                          formulas))))))
+  (simple-parser
+    (simple-match-lambda
+      ((env (relation . params) . formulas)
+       (define env.pattern  (env-forget-pattern-variables env))
+       (define ts.params    (map (lambda (p) (parse:term env.pattern p)) params))
+       (define names.params (set->list (t-free-vars-first-order* ts.params)))
+       (define names.argument
+         (map (lambda (i) (fresh-name (string->symbol (string-append "x." (number->string i)))))
+              (range (length params))))
+       (m:rule type relation names.argument
+               (apply parse:formula:exist
+                      env names.params
+                      (lambda (env)
+                        (foldl f:and
+                               (f:== (t:quote #t) (t:quote #t))
+                               (map (lambda (n p) (f:== (t:var n) (parse:term env p)))
+                                    names.argument params)))
+                      formulas))))))
 
 (define parse:module-clause:define
-  (parser-lambda env
-    ((_ (name . params) body) (m:define (hash name (parse:term:lambda env (list (void) params body)))))
-    ((_ name            body) (m:define (hash name (parse:term        env                     body))))))
+  (simple-match-lambda
+    ((env (name . params) body) (m:define (hash name (parse:term:lambda env params body))))
+    ((env name            body) (m:define (hash name (parse:term        env        body))))))
 
 (define parse:module-clause:declare
-  (parser-lambda env
-    ((_ (relation . attrs) . args)      (m:link (list (m:declare relation (hash 'attributes attrs))
-                                                      (parse:module-clause:declare
-                                                        env (list* (void) relation args)))))
-    ((_ relation property value . args) (m:declare relation (hash property value)))
-    ((_ relation)                       (m:declare relation (hash)))))
+  (simple-match-lambda
+    ((env (relation . attrs) . args)      (m:link (list (m:declare relation (hash 'attributes attrs))
+                                                        (apply parse:module-clause:declare
+                                                               env relation args))))
+    ((env relation property value . args) (m:declare relation (hash property value)))
+    ((env relation)                       (m:declare relation (hash)))))
 
 (define parse:module-clause:assert
-  (parser-lambda env ((_ formula) (m:assert (parse:formula env formula)))))
+  (simple-match-lambda ((env formula) (m:assert (parse:formula env formula)))))
 
 (define bindings.initial.module
   (binding-alist/class
     'module-clause
-    'define  parse:module-clause:define
-    'declare parse:module-clause:declare
+    'define  (simple-parser parse:module-clause:define)
+    'declare (simple-parser parse:module-clause:declare)
+    'assert  (simple-parser parse:module-clause:assert)
     '<<=     (rule-parser '<<=)
     '<<+     (rule-parser '<<+)
     '<<-     (rule-parser '<<-)
-    '<<~     (rule-parser '<<~)
-    'assert  parse:module-clause:assert))
+    '<<~     (rule-parser '<<~)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Formula parsing
@@ -196,45 +194,44 @@
   (map (lambda (f) (parse:formula env f)) formulas))
 
 (define parse:formula:or
-  (parser-lambda env
-    ((_ disjunct)             (parse:formula env disjunct))
-    ((_ disjunct . disjuncts) (f:or (parse:formula env disjunct)
-                                    (parse:formula:or env (cons (void) disjuncts))))))
+  (simple-match-lambda
+    ((env disjunct)             (parse:formula env disjunct))
+    ((env disjunct . disjuncts) (f:or (parse:formula env disjunct)
+                                      (apply parse:formula:or env disjuncts)))))
 
 (define parse:formula:and
-  (parser-lambda env
-    ((_ conjunct)             (parse:formula env conjunct))
-    ((_ conjunct . conjuncts) (f:and (parse:formula env conjunct)
-                                     (parse:formula:and env (cons (void) conjuncts))))))
+  (simple-match-lambda
+    ((env conjunct)             (parse:formula env conjunct))
+    ((env conjunct . conjuncts) (f:and (parse:formula env conjunct)
+                                       (apply parse:formula:and env conjuncts)))))
 
 (define parse:formula:not
-  (parser-lambda env
-    ((_ f) (f:not (parse:formula env f)))))
+  (simple-match-lambda
+    ((env f) (f:not (parse:formula env f)))))
 
 (define parse:formula:exist
-  (parser-lambda env
-    ((_ params . body)
+  (simple-match-lambda
+    ((env params . body)
      (define names (param-names params))
      (unless (unique? names)
        (error "existential quantifier parameter names must be unique:" names))
      (define unames (map fresh-name names))
-     (f:exist unames
-              (parse:formula:and
-                (env-bind* env 'term names unames)
-                (cons (void) body))))))
+     (f:exist unames (apply parse:formula:and
+                            (env-bind* env 'term names unames) body)))))
 
 (define parse:formula:=/=
-  (parser-lambda env
-    ((_ u v) (f:=/= (parse:term env u) (parse:term env v)))))
+  (simple-match-lambda
+    ((env u v) (f:=/= (parse:term env u)
+                      (parse:term env v)))))
 
 (define bindings.initial.formula
   (binding-alist/class
     'formula
-    '=/=   parse:formula:=/=
-    'or    parse:formula:or
-    'and   parse:formula:and
-    'not   parse:formula:not
-    'exist parse:formula:exist))
+    '=/=   (simple-parser parse:formula:=/=)
+    'or    (simple-parser parse:formula:or)
+    'and   (simple-parser parse:formula:and)
+    'not   (simple-parser parse:formula:not)
+    'exist (simple-parser parse:formula:exist)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Term parsing
@@ -259,19 +256,18 @@
 (define (parse:term* env stxs) (map (lambda (stx) (parse:term env stx)) stxs))
 
 (define parse:term:query
-  (parser-lambda env
-    ((_ param-pattern . body)
+  (simple-match-lambda
+    ((env param-pattern . body)
      (cond ((symbol? param-pattern)
             (define param (fresh-name param-pattern))
-            (t:query param (parse:formula:and
-                             (env-bind env 'term param-pattern param)
-                             (cons (void) body))))
+            (t:query param (apply parse:formula:and
+                                  (env-bind env 'term param-pattern param) body)))
            (else (define param (fresh-name 'q.0))
                  (define names (param-names param-pattern))
                  (define (assign-param-pattern env)
                    (f:== param (parse:term:simple env param-pattern)))
-                 (t:query param (parse:formula:exist
-                                  env (list* (void) names assign-param-pattern body))))))))
+                 (t:query param (apply parse:formula:exist
+                                       env names assign-param-pattern body)))))))
 
 (define (parse:term:simple env pattern)
   (let loop ((pattern pattern))
@@ -282,11 +278,11 @@
       ((? vector?)    (t:list->vector (loop (vector->list pattern)))))))
 
 (define parse:term:quote
-  (parser-lambda env ((_ value) (t:quote value))))
+  (simple-match-lambda ((env value) (t:quote value))))
 
 (define parse:term:quasiquote
-  (parser-lambda env
-    ((_ template)
+  (simple-match-lambda
+    ((env template)
      (define ((keyword? k) n) (eq? k (binding-ref (env-ref env n) 'quasiquote)))
      (define (lift tag e)     (t:cons (t:quote tag) (t:cons e (t:quote '()))))
      ;; NOTE: unquote-splicing support requires a safe definition of append
@@ -303,8 +299,8 @@
          (v                                     (t:quote v)))))))
 
 (define parse:term:lambda
-  (parser-lambda env
-    ((_ params body)
+  (simple-match-lambda
+    ((env params body)
      (define names (param-names params))
      (unless (unique? names)
        (error "lambda parameter names must be unique:" names))
@@ -321,10 +317,10 @@
 (define bindings.initial.term
   (binding-alist/class
     'term
-    'query      parse:term:query
-    'quote      parse:term:quote
-    'quasiquote parse:term:quasiquote
-    'lambda     parse:term:lambda))
+    'query      (simple-parser parse:term:query)
+    'quote      (simple-parser parse:term:quote)
+    'quasiquote (simple-parser parse:term:quasiquote)
+    'lambda     (simple-parser parse:term:lambda)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Module macro expansion
