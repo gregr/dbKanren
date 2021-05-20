@@ -172,8 +172,6 @@
 ;; Formula parsing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; TODO: parse relation argument underscores as implicit existentials
-
 (define (binding-formula b) (binding-ref b 'formula))
 
 (define (parse:formula env stx)
@@ -186,12 +184,27 @@
     (`(,operator ,@operands)
       (define f.b (binding-formula (env-ref env operator)))
       (cond ((procedure? f.b) (f.b env stx))
-            (else             (f:relate (if f.b f.b operator)
-                                        (parse:term* env operands)))))
+            (else             (parse:formula:relate
+                                env (if f.b f.b operator) operands))))
     ((? procedure? self-parse) (self-parse env))))
 
 (define (parse:formula* env formulas)
   (map (lambda (f) (parse:formula env f)) formulas))
+
+(define anonymous-var-count (make-parameter #f))
+
+(define-syntax formula/anonymous-vars
+  (syntax-rules ()
+    ((_ body ...) (parameterize ((anonymous-var-count 0))
+                    (define f (let () body ...))
+                    (if (= 0 (anonymous-var-count))
+                      f
+                      (f:exist (range (anonymous-var-count)) f))))))
+
+(define parse:formula:relate
+  (lambda (env relation operands)
+    (formula/anonymous-vars
+      (f:relate relation (parse:term* env operands)))))
 
 (define parse:formula:or
   (simple-match-lambda
@@ -221,8 +234,9 @@
 
 (define parse:formula:=/=
   (simple-match-lambda
-    ((env u v) (f:=/= (parse:term env u)
-                      (parse:term env v)))))
+    ((env u v) (formula/anonymous-vars
+                 (f:=/= (parse:term env u)
+                        (parse:term env v))))))
 
 (define bindings.initial.formula
   (binding-alist/class
@@ -308,6 +322,13 @@
      (t:lambda unames (parse:term (env-bind* env 'term names unames)
                                   body)))))
 
+(define parse:term:anonymous-var
+  (simple-match-lambda
+    ((env stx) (define uid.next (anonymous-var-count))
+               (unless uid.next (error "misplaced anonymous variable:" stx))
+               (anonymous-var-count (+ uid.next 1))
+               (t:var uid.next))))
+
 (define bindings.initial.quasiquote
   (binding-alist/class
     'quasiquote
@@ -317,6 +338,7 @@
 (define bindings.initial.term
   (binding-alist/class
     'term
+    '_          parse:term:anonymous-var
     'query      (simple-parser parse:term:query)
     'quote      (simple-parser parse:term:quote)
     'quasiquote (simple-parser parse:term:quasiquote)
