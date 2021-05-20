@@ -1,7 +1,7 @@
 #lang racket/base
 (provide
   define-dbk dbk link import input output
-  current-dbk-environment
+  current-dbk-environment with-fresh-names
   binding:empty binding-ref binding-set binding-set* binding-remove binding-alist/class
   env:empty env-ref env-set env-set* env-set-alist
   env-bind env-bind* env-bind-alist env-map/merge env-forget-pattern-variables
@@ -14,16 +14,22 @@
 ;; Names and parameter trees
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; TODO: maybe use a dynamic uid parameter, and instead represent names as pairs of uid and symbol
-(struct uname (name)
-        #:methods gen:custom-write
-        ((define write-proc
-           (make-constructor-style-printer
-             (lambda (x) 'uname)
-             (lambda (x) (list (uname-name x)))))))
+(define fresh-name-count (make-parameter #f))
+
+(define (call-with-fresh-names thunk)
+  (if (fresh-name-count)
+    (thunk)
+    (parameterize ((fresh-name-count 0))
+      (thunk))))
+
+(define-syntax-rule (with-fresh-names body ...)
+  (call-with-fresh-names (lambda () body ...)))
 
 (define (fresh-name name)
-  (if (symbol? name) (uname name) (fresh-name (uname-name name))))
+  (define uid.next (fresh-name-count))
+  (unless uid.next (error "fresh name not available:" name))
+  (fresh-name-count (+ uid.next 1))
+  (cons uid.next (if (pair? name) (cdr name) name)))
 
 (define (param-names param)
   (match param
@@ -103,23 +109,25 @@
 
 (define (parse:module env stx)
   (unless (list? stx) (error "invalid module syntax:" stx))
-  (m:link (map (lambda (stx) (parse:module-clause env stx)) stx)))
+  (with-fresh-names
+    (m:link (map (lambda (stx) (parse:module-clause env stx)) stx))))
 
 (define (binding-module-clause b) (binding-ref b 'module-clause))
 
 (define (parse:module-clause env stx)
-  (match stx
-    ((? symbol? name)
-     (define mc.b (binding-module-clause (env-ref env name)))
-     (cond ((procedure? mc.b) (mc.b env stx))
-           (else              (error "unknown module clause keyword:"
-                                     name (env-ref env name)))))
-    (`(,operator ,@operands)
-      (define mc.b (binding-module-clause (env-ref env operator)))
-      (cond ((procedure? mc.b) (mc.b env stx))
-            (else              (error "unknown module clause operator:"
-                                      operator (env-ref env operator)))))
-    ((? procedure? self-parse) (self-parse env))))
+  (with-fresh-names
+    (match stx
+      ((? symbol? name)
+       (define mc.b (binding-module-clause (env-ref env name)))
+       (cond ((procedure? mc.b) (mc.b env stx))
+             (else              (error "unknown module clause keyword:"
+                                       name (env-ref env name)))))
+      (`(,operator ,@operands)
+        (define mc.b (binding-module-clause (env-ref env operator)))
+        (cond ((procedure? mc.b) (mc.b env stx))
+              (else              (error "unknown module clause operator:"
+                                        operator (env-ref env operator)))))
+      ((? procedure? self-parse) (self-parse env)))))
 
 (define (rule-parser type)
   (simple-parser
@@ -175,18 +183,19 @@
 (define (binding-formula b) (binding-ref b 'formula))
 
 (define (parse:formula env stx)
-  (match stx
-    ((? literal? data) (f:const (literal data)))
-    ((? symbol? name)
-     (define f.b (binding-formula (env-ref env name)))
-     (cond ((procedure? f.b) (f.b env stx))
-           (else             (f:const (if f.b f.b name)))))
-    (`(,operator ,@operands)
-      (define f.b (binding-formula (env-ref env operator)))
-      (cond ((procedure? f.b) (f.b env stx))
-            (else             (parse:formula:relate
-                                env (if f.b f.b operator) operands))))
-    ((? procedure? self-parse) (self-parse env))))
+  (with-fresh-names
+    (match stx
+      ((? literal? data) (f:const (literal data)))
+      ((? symbol? name)
+       (define f.b (binding-formula (env-ref env name)))
+       (cond ((procedure? f.b) (f.b env stx))
+             (else             (f:const (if f.b f.b name)))))
+      (`(,operator ,@operands)
+        (define f.b (binding-formula (env-ref env operator)))
+        (cond ((procedure? f.b) (f.b env stx))
+              (else             (parse:formula:relate
+                                  env (if f.b f.b operator) operands))))
+      ((? procedure? self-parse) (self-parse env)))))
 
 (define (parse:formula* env formulas)
   (map (lambda (f) (parse:formula env f)) formulas))
@@ -254,18 +263,19 @@
 (define (binding-term b) (binding-ref b 'term))
 
 (define (parse:term env stx)
-  (match stx
-    ((? literal? data) (t:quote (literal data)))
-    ((? symbol? name)
-     (define t.b (binding-term (env-ref env name)))
-     (cond ((procedure? t.b) (t.b env stx))
-           (else             (t:var (if t.b t.b name)))))
-    (`(,operator ,@operands)
-      (define t.b (binding-term (env-ref env operator)))
-      (cond ((procedure? t.b) (t.b env stx))
-            (else             (t:app (parse:term  env operator)
-                                     (parse:term* env operands)))))
-    ((? procedure? self-parse) (self-parse env))))
+  (with-fresh-names
+    (match stx
+      ((? literal? data) (t:quote (literal data)))
+      ((? symbol? name)
+       (define t.b (binding-term (env-ref env name)))
+       (cond ((procedure? t.b) (t.b env stx))
+             (else             (t:var (if t.b t.b name)))))
+      (`(,operator ,@operands)
+        (define t.b (binding-term (env-ref env operator)))
+        (cond ((procedure? t.b) (t.b env stx))
+              (else             (t:app (parse:term  env operator)
+                                       (parse:term* env operands)))))
+      ((? procedure? self-parse) (self-parse env)))))
 
 (define (parse:term* env stxs) (map (lambda (stx) (parse:term env stx)) stxs))
 
@@ -356,7 +366,7 @@
 
 (define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
 
-(define-syntax-rule (dbk clauses ...)          (dbk-parse () clauses ...))
+(define-syntax-rule (dbk clauses ...)          (with-fresh-names (dbk-parse () clauses ...)))
 
 (define-syntax link   (syntax-rules ()))
 (define-syntax import (syntax-rules ()))
