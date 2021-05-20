@@ -159,11 +159,26 @@
     ((env (relation . attrs) . args)      (m:link (list (m:declare relation (hash 'attributes attrs))
                                                         (apply parse:module-clause:declare
                                                                env relation args))))
-    ((env relation property value . args) (m:declare relation (hash property value)))
-    ((env relation)                       (m:declare relation (hash)))))
+    ((env relation)                       (m:declare relation (hash)))
+    ((env relation property value . args)
+     (define p.b (binding-ref (env-ref env property) 'declare))
+     (m:declare relation
+                (cond ((procedure? p.b) (match-define (cons p v) (p.b env value))
+                                        (hash p v))
+                      (else             (hash (if p.b p.b property) value)))))))
 
 (define parse:module-clause:assert
   (simple-match-lambda ((env formula) (m:assert (parse:formula env formula)))))
+
+(define parse:declare:indexes
+  (lambda (env projections)
+    (cons 'indexes (map (lambda (projection) (parse:term* env projection))
+                        projections))))
+
+(define bindings.initial.declare
+  (binding-alist/class
+    'declare
+    'indexes parse:declare:indexes))
 
 (define bindings.initial.module
   (binding-alist/class
@@ -362,6 +377,7 @@
   (make-parameter (env-set-alist env:empty (append bindings.initial.quasiquote
                                                    bindings.initial.term
                                                    bindings.initial.formula
+                                                   bindings.initial.declare
                                                    bindings.initial.module))))
 
 (define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
