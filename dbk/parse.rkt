@@ -275,6 +275,24 @@
 (define parse:term:quote
   (parser-lambda env ((_ value) (t:quote value))))
 
+(define parse:term:quasiquote
+  (parser-lambda env
+    ((_ template)
+     (define ((keyword? k) n) (eq? k (binding-ref (env-ref env n) 'quasiquote)))
+     (define (lift tag e)     (t:cons (t:quote tag) (t:cons e (t:quote '()))))
+     ;; NOTE: unquote-splicing support requires a safe definition of append
+     (let loop ((t template) (level 0))
+       (match t
+         ((list (? (keyword? 'unquote)    k) e) (if (= level 0)
+                                                  (parse:term env e)
+                                                  (lift k (loop e (- level 1)))))
+         ((list (? (keyword? 'quasiquote) k) t) (lift k (loop t (+ level 1))))
+         (`(,t.a . ,t.d)                        (t:cons (loop t.a level) (loop t.d level)))
+         ((? vector?)                           (t:list->vector (loop (vector->list t) level)))
+         ((or (? (keyword? 'quasiquote))
+              (? (keyword? 'unquote)))          (error "invalid quasiquote:" t template))
+         (v                                     (t:quote v)))))))
+
 (define parse:term:lambda
   (parser-lambda env
     ((_ params body)
@@ -285,13 +303,18 @@
      (t:lambda unames (parse:term (env-bind* env 'term names unames)
                                   body)))))
 
+(define bindings.initial.quasiquote
+  (binding-alist/class
+    'quasiquote
+    'quasiquote 'quasiquote
+    'unquote    'unquote))
+
 (define bindings.initial.term
   (binding-alist/class
     'term
     'query      parse:term:query
     'quote      parse:term:quote
-    ;; TODO:
-    ;'quasiquote parse:term:quasiquote
+    'quasiquote parse:term:quasiquote
     'lambda     parse:term:lambda))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -299,7 +322,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define current-dbk-environment
-  (make-parameter (env-set-alist env:empty (append bindings.initial.term
+  (make-parameter (env-set-alist env:empty (append bindings.initial.quasiquote
+                                                   bindings.initial.term
                                                    bindings.initial.formula
                                                    bindings.initial.module))))
 
