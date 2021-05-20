@@ -143,23 +143,26 @@
                                         names.argument params)))
                           formulas))))))
 
+(define parse:module-clause:define
+  (parser-lambda env
+    ((_ (name . params) body) (m:define (hash name (parse:term:lambda env (list (void) params body)))))
+    ((_ name            body) (m:define (hash name (parse:term        env                     body))))))
+
+(define parse:module-clause:assert
+  (parser-lambda env ((_ formula) (m:assert (parse:formula env formula)))))
+
 (define bindings.initial.module
   (binding-alist/class
     'module-clause
-    'define  (parser-lambda env
-               ((_ (name . params) body) (m:define (hash name (parse:term:lambda env (list (void) params body)))))
-               ((_ name            body) (m:define (hash name (parse:term        env                     body)))))
+    'define  parse:module-clause:define
     ;; TODO:
     ;'declare
-    ;'input
-    ;'output
 
     '<<=     (rule-parser '<<=)
     '<<+     (rule-parser '<<+)
     '<<-     (rule-parser '<<-)
     '<<~     (rule-parser '<<~)
-
-    'assert  (parser-lambda env ((_ formula) (m:assert (parse:formula env formula))))))
+    'assert  parse:module-clause:assert))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Formula parsing
