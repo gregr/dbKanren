@@ -98,6 +98,13 @@
 (define (literal? x) (or (number? x) (boolean? x) (string? x) (bytes? x)))
 (define (literal  x) (if (and (number? x) (inexact? x)) (inexact->exact x) x))
 
+(define (binding-pairs?! bps)
+  (unless (and (list? bps)
+               (andmap (lambda (bp) (and (list? bp)
+                                         (= 2 (length bp))))
+                       bps))
+    (error "invalid binding pairs:" bps)))
+
 (define (simple-parser proc)
   (lambda (env stx)
     (cond ((list? stx) (apply proc env (cdr stx)))
@@ -183,13 +190,15 @@
 (define bindings.initial.module
   (binding-alist/class
     'module-clause
-    'define  (simple-parser parse:module-clause:define)
-    'declare (simple-parser parse:module-clause:declare)
-    'assert  (simple-parser parse:module-clause:assert)
-    '<<=     (rule-parser '<<=)
-    '<<+     (rule-parser '<<+)
-    '<<-     (rule-parser '<<-)
-    '<<~     (rule-parser '<<~)))
+    'define          (simple-parser parse:module-clause:define)
+    'declare         (simple-parser parse:module-clause:declare)
+    'assert          (simple-parser parse:module-clause:assert)
+    '<<=             (rule-parser '<<=)
+    '<<+             (rule-parser '<<+)
+    '<<-             (rule-parser '<<-)
+    '<<~             (rule-parser '<<~)
+    ;; miniKanren style module clauses
+    'define-relation (rule-parser '<<=)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Formula parsing
@@ -246,15 +255,28 @@
   (simple-match-lambda
     ((env f) (f:not (parse:formula env f)))))
 
-(define parse:formula:exist
+(define (parse:formula:quantifier f:quantifier msg.name)
   (simple-match-lambda
     ((env params . body)
      (define names (param-names params))
      (unless (unique? names)
-       (error "existential quantifier parameter names must be unique:" names))
+       (error (string-append msg.name " parameter names must be unique:") names))
      (define unames (map fresh-name names))
-     (f:exist unames (apply parse:formula:and
-                            (env-bind* env 'term names unames) body)))))
+     (f:quantifier unames (apply parse:formula:and
+                                 (env-bind* env 'term names unames) body)))))
+
+(define parse:formula:exist (parse:formula:quantifier f:exist "existential quantifier"))
+(define parse:formula:all   (parse:formula:quantifier f:all   "universal quantifier"))
+
+(define parse:formula:implies
+  (simple-match-lambda
+    ((env hypothesis conclusion)
+     (f:implies (parse:formula env hypothesis) (parse:formula env conclusion)))))
+
+(define parse:formula:iff
+  (simple-match-lambda
+    ((env f.a f.b)
+     (f:iff (parse:formula env f.a) (parse:formula env f.b)))))
 
 (define parse:formula:=/=
   (simple-match-lambda
@@ -262,14 +284,31 @@
                  (f:=/= (parse:term env u)
                         (parse:term env v))))))
 
+;; miniKanren style formulas
+(define parse:formula:fresh (parse:formula:quantifier f:exist "fresh"))
+
+(define parse:formula:conde
+  (simple-match-lambda
+    ((env clause . clauses)
+     (apply parse:formula:or
+            env (map (lambda (conjuncts)
+                       (lambda (env) (apply parse:formula:and env conjuncts)))
+                     (cons clause clauses))))))
+
 (define bindings.initial.formula
   (binding-alist/class
     'formula
-    '=/=   (simple-parser parse:formula:=/=)
-    'or    (simple-parser parse:formula:or)
-    'and   (simple-parser parse:formula:and)
-    'not   (simple-parser parse:formula:not)
-    'exist (simple-parser parse:formula:exist)))
+    '=/=     (simple-parser parse:formula:=/=)
+    'or      (simple-parser parse:formula:or)
+    'and     (simple-parser parse:formula:and)
+    'not     (simple-parser parse:formula:not)
+    'implies (simple-parser parse:formula:implies)
+    'iff     (simple-parser parse:formula:iff)
+    'exist   (simple-parser parse:formula:exist)
+    'all     (simple-parser parse:formula:all)
+    ;; miniKanren style formulas
+    'fresh   (simple-parser parse:formula:fresh)
+    'conde   (simple-parser parse:formula:conde)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Term parsing
@@ -288,8 +327,7 @@
       (`(,operator ,@operands)
         (define t.b (binding-term (env-ref env operator)))
         (cond ((procedure? t.b) (t.b env stx))
-              (else             (t:app (parse:term  env operator)
-                                       (parse:term* env operands)))))
+              (else             (parse:term:app env operator operands))))
       ((? procedure? self-parse) (self-parse env)))))
 
 (define (parse:term* env stxs) (map (lambda (stx) (parse:term env stx)) stxs))
@@ -337,6 +375,10 @@
               (? (keyword? 'unquote)))          (error "invalid quasiquote:" t template))
          (v                                     (t:quote v)))))))
 
+(define parse:term:app
+  (simple-match-lambda
+    ((env proc args) (t:app (parse:term env proc) (parse:term* env args)))))
+
 (define parse:term:lambda
   (simple-match-lambda
     ((env params body)
@@ -346,6 +388,30 @@
      (define unames (map fresh-name names))
      (t:lambda unames (parse:term (env-bind* env 'term names unames)
                                   body)))))
+
+(define parse:term:if
+  (simple-match-lambda
+    ((env c t f) (t:if (parse:term env c) (parse:term env t) (parse:term env f)))))
+
+(define parse:term:let
+  (simple-match-lambda
+    ((env bps body)
+     (binding-pairs?! bps)
+     (parse:term:app
+       env (lambda (env) (parse:term:lambda env (map car bps) body))
+       (map cadr bps)))))
+
+(define parse:term:letrec
+  (simple-match-lambda
+    ((env bps body)
+     (binding-pairs?! bps)
+     (define names (param-names (map car bps)))
+     (unless (unique? names)
+       (error "letrec parameter names must be unique:" names))
+     (define unames (map fresh-name names))
+     (define rhss (parse:term* env (map cadr bps)))
+     (t:letrec (map cons unames rhss)
+               (parse:term (env-bind* env 'term names unames) body)))))
 
 (define parse:term:anonymous-var
   (simple-match-lambda
@@ -367,7 +433,10 @@
     'query      (simple-parser parse:term:query)
     'quote      (simple-parser parse:term:quote)
     'quasiquote (simple-parser parse:term:quasiquote)
-    'lambda     (simple-parser parse:term:lambda)))
+    'lambda     (simple-parser parse:term:lambda)
+    'if         (simple-parser parse:term:if)
+    'let        (simple-parser parse:term:let)
+    'letrec     (simple-parser parse:term:letrec)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Module macro expansion
