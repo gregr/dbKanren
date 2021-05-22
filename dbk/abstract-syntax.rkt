@@ -3,7 +3,7 @@
   m:link m:define m:declare m:rule m:assert
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
-  t:query t:map/merge t:quote t:var t:app t:lambda
+  t:query t:map/merge t:quote t:var t:prim t:app t:lambda
   t:if t:let t:letrec t:match
   t:apply t:cons t:car t:cdr t:vector t:list->vector t:vector-ref t:vector-length
   t-free-vars f-free-vars t-free-vars*
@@ -253,10 +253,10 @@
   (f:exist   params body)
   (f:all     params body))
 
-;; TODO: is this the right way to describe constraints?
-(define (f:any<= u v) (f:relate 'any<= (list u v)))
-(define (f:==    u v) (f:relate '==    (list u v)))
-(define (f:=/=   u v) (f:not (f:== u v)))
+(define (f:any<= u v) (f:relate '(prim any<=) (list u v)))
+(define (f:any<  u v) (f:relate '(prim any<)  (list u v)))
+(define (f:==    u v) (f:relate '(prim ==)    (list u v)))
+(define (f:=/=   u v) (f:relate '(prim =/=)   (list u v)))
 
 ;; lambda calculus extended with constants (quote), logical queries, map/merge comprehensions
 (define-variant term?
@@ -264,6 +264,7 @@
   (t:map/merge proc.map proc.merge default xs)
   (t:quote     value)
   (t:var       name)
+  (t:prim      name args)
   (t:app       proc args)
   (t:lambda    params body)  ; omit for first order systems
   ;; possibly derived terms
@@ -300,14 +301,14 @@
 ;                                        (f:implies (f:==  condition (t:quote #f))
 ;                                                   (f:== qresult f))))))))
 
-(define (t:apply f . args)  (t:app (t:quote apply        ) args))
-(define (t:cons a d)        (t:app (t:quote cons         ) (list a d)))
-(define (t:car p)           (t:app (t:quote car          ) (list p)))
-(define (t:cdr p)           (t:app (t:quote cdr          ) (list p)))
-(define (t:vector . args)   (t:app (t:quote vector       ) args))
-(define (t:list->vector xs) (t:app (t:quote list->vector ) (list xs)))
-(define (t:vector-ref v i)  (t:app (t:quote vector-ref   ) (list v i)))
-(define (t:vector-length v) (t:app (t:quote vector-length) (list v)))
+(define (t:apply f . args)  (t:prim 'apply         args))
+(define (t:cons a d)        (t:prim 'cons          (list a d)))
+(define (t:car p)           (t:prim 'car           (list p)))
+(define (t:cdr p)           (t:prim 'cdr           (list p)))
+(define (t:vector . args)   (t:prim 'vector        args))
+(define (t:list->vector xs) (t:prim 'list->vector  (list xs)))
+(define (t:vector-ref v i)  (t:prim 'vector-ref    (list v i)))
+(define (t:vector-length v) (t:prim 'vector-length (list v)))
 
 ;; TODO: use CPS yielding to efficiently support partial-answer variations
 (define (t-free-vars t)
@@ -315,6 +316,7 @@
     ((t:query  name f)      (set-subtract (f-free-vars f) (set name)))
     ((t:quote  _)           (set))
     ((t:var    name)        (set name))
+    ((t:prim   _    args)   (t-free-vars* args))
     ((t:app    func args)   (set-union (t-free-vars func) (t-free-vars* args)))
     ((t:lambda params body) (set-subtract (t-free-vars body) (list->set params)))
     ;((t:if     c t f)       (set-union (t-free-vars c) (t-free-vars t) (t-free-vars f)))
@@ -326,6 +328,7 @@
     ((t:query  name f) (set-subtract (f-free-vars-first-order f) (set name)))
     ((t:quote  _)      (set))
     ((t:var    name)   (set name))
+    ((t:prim   _ args) (t-free-vars-first-order* args))
     ((t:app    _ args) (t-free-vars-first-order* args))
     ((t:lambda _ _)    (set))
     ;((t:if     c t f)       (set-union (t-free-vars c) (t-free-vars t) (t-free-vars f)))
@@ -374,6 +377,7 @@
     ((t:query  _ f)         (f-relations f))
     ((t:quote  _)           (set))
     ((t:var    _)           (set))
+    ((t:prim   _    args)   (t-relations* args))
     ((t:app    func args)   (set-union (t-relations func) (t-relations* args)))
     ((t:lambda params body) (t-relations body))
     ;; TODO: ?

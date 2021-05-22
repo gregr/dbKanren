@@ -292,6 +292,13 @@
 (define bindings.initial.formula
   (binding-alist/class
     'formula
+
+    ;; TODO: for modularity, these names should instead be defined as normal relations delegating to primitives
+    '==      '(prim ==)
+    '=/=     '(prim =/=)
+    'any<=   '(prim any<=)
+    'any<    '(prim any<)
+
     'or      (simple-parser parse:formula:or)
     'and     (simple-parser parse:formula:and)
     'not     (simple-parser parse:formula:not)
