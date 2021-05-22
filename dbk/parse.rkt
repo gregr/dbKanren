@@ -224,15 +224,15 @@
 (define (parse:formula* env formulas)
   (map (lambda (f) (parse:formula env f)) formulas))
 
-(define anonymous-var-count (make-parameter #f))
+(define anonymous-vars (make-parameter #f))
 
 (define-syntax formula/anonymous-vars
   (syntax-rules ()
-    ((_ body ...) (parameterize ((anonymous-var-count 0))
+    ((_ body ...) (parameterize ((anonymous-vars '()))
                     (define f (let () body ...))
-                    (if (= 0 (anonymous-var-count))
+                    (if (null? (anonymous-vars))
                       f
-                      (f:exist (range (anonymous-var-count)) f))))))
+                      (f:exist (anonymous-vars) f))))))
 
 (define parse:formula:relate
   (lambda (env relation operands)
@@ -415,10 +415,10 @@
 
 (define parse:term:anonymous-var
   (simple-match-lambda
-    ((env stx) (define uid.next (anonymous-var-count))
-               (unless uid.next (error "misplaced anonymous variable:" stx))
-               (anonymous-var-count (+ uid.next 1))
-               (t:var uid.next))))
+    ((env stx) (unless (anonymous-vars) (error "misplaced anonymous variable:" stx))
+               (define name (fresh-name '_))
+               (anonymous-vars (cons name (anonymous-vars)))
+               (t:var name))))
 
 (define bindings.initial.quasiquote
   (binding-alist/class
