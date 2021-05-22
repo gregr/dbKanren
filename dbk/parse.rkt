@@ -278,12 +278,6 @@
     ((env f.a f.b)
      (f:iff (parse:formula env f.a) (parse:formula env f.b)))))
 
-(define parse:formula:=/=
-  (simple-match-lambda
-    ((env u v) (formula/anonymous-vars
-                 (f:=/= (parse:term env u)
-                        (parse:term env v))))))
-
 ;; miniKanren style formulas
 (define parse:formula:fresh (parse:formula:quantifier f:exist "fresh"))
 
@@ -298,7 +292,6 @@
 (define bindings.initial.formula
   (binding-alist/class
     'formula
-    '=/=     (simple-parser parse:formula:=/=)
     'or      (simple-parser parse:formula:or)
     'and     (simple-parser parse:formula:and)
     'not     (simple-parser parse:formula:not)
