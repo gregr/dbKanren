@@ -6,7 +6,7 @@
   env:empty env-ref env-set env-set* env-set-alist
   env-bind env-bind* env-bind-alist env-map/merge env-forget-pattern-variables
   literal? literal simple-parser
-  parse:module parse:module-clause parse:formula parse:term)
+  parse:module* parse:module parse:formula parse:term)
 (require "abstract-syntax.rkt" "misc.rkt"
          racket/list racket/match racket/set racket/struct)
 
@@ -114,23 +114,23 @@
 ;; Module parsing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (parse:module env stx)
+(define (parse:module* env stx)
   (unless (list? stx) (error "invalid module syntax:" stx))
   (with-fresh-names
-    (m:link (map (lambda (stx) (parse:module-clause env stx)) stx))))
+    (m:link (map (lambda (stx) (parse:module env stx)) stx))))
 
-(define (binding-module-clause b) (binding-ref b 'module-clause))
+(define (binding-module b) (binding-ref b 'module))
 
-(define (parse:module-clause env stx)
+(define (parse:module env stx)
   (with-fresh-names
     (match stx
       ((? symbol? name)
-       (define mc.b (binding-module-clause (env-ref env name)))
+       (define mc.b (binding-module (env-ref env name)))
        (cond ((procedure? mc.b) (mc.b env stx))
              (else              (error "unknown module clause keyword:"
                                        name (env-ref env name)))))
       (`(,operator ,@operands)
-        (define mc.b (binding-module-clause (env-ref env operator)))
+        (define mc.b (binding-module (env-ref env operator)))
         (cond ((procedure? mc.b) (mc.b env stx))
               (else              (error "unknown module clause operator:"
                                         operator (env-ref env operator)))))
@@ -156,15 +156,15 @@
                                     names.argument params)))
                       formulas))))))
 
-(define parse:module-clause:define
+(define parse:module:define
   (simple-match-lambda
     ((env (name . params) body) (m:define (hash name (parse:term:lambda env params body))))
     ((env name            body) (m:define (hash name (parse:term        env        body))))))
 
-(define parse:module-clause:declare
+(define parse:module:declare
   (simple-match-lambda
     ((env (relation . attrs) . args)      (m:link (list (m:declare relation (hash 'attributes attrs))
-                                                        (apply parse:module-clause:declare
+                                                        (apply parse:module:declare
                                                                env relation args))))
     ((env relation)                       (m:declare relation (hash)))
     ((env relation property value . args)
@@ -174,7 +174,7 @@
                                         (hash p v))
                       (else             (hash (if p.b p.b property) value)))))))
 
-(define parse:module-clause:assert
+(define parse:module:assert
   (simple-match-lambda ((env formula) (m:assert (parse:formula env formula)))))
 
 (define parse:declare:indexes
@@ -189,10 +189,10 @@
 
 (define bindings.initial.module
   (binding-alist/class
-    'module-clause
-    'define          (simple-parser parse:module-clause:define)
-    'declare         (simple-parser parse:module-clause:declare)
-    'assert          (simple-parser parse:module-clause:assert)
+    'module
+    'define          (simple-parser parse:module:define)
+    'declare         (simple-parser parse:module:declare)
+    'assert          (simple-parser parse:module:assert)
     '<<=             (rule-parser '<<=)
     '<<+             (rule-parser '<<+)
     '<<-             (rule-parser '<<-)
@@ -489,7 +489,5 @@
                 (output outputs ...) clauses ...))
 
     ((_ (parsed ...) clause clauses ...)
-     (dbk-parse (parsed ... (parse:module-clause
-                              (current-dbk-environment)
-                              'clause))
+     (dbk-parse (parsed ... (parse:module (current-dbk-environment) 'clause))
                 clauses ...))))
