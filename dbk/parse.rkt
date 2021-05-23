@@ -1,7 +1,9 @@
 #lang racket/base
 (provide
   define-dbk dbk link import input output
-  current-dbk-environment with-fresh-names
+  dbk-environment dbk-environment-update dbk-environment-set-alist dbk-environment-remove
+  with-dbk-environment-update with-dbk-environment-set-alist with-dbk-environment-remove
+  with-fresh-names
   binding:empty binding-ref binding-set binding-set* binding-remove binding-alist/class
   env:empty env-ref env-set env-set* env-set-alist
   env-bind env-bind* env-bind-alist env-map/merge env-forget-pattern-variables
@@ -62,6 +64,8 @@
 (define (env-ref       env n)     (hash-ref env n binding:empty))
 (define (env-set       env n  b)  (hash-set env n b))
 (define (env-set*      env ns bs) (foldl (lambda (n b env) (env-set env n b)) env ns bs))
+(define (env-remove    env n)     (hash-remove env n))
+(define (env-remove*   env ns)    (foldl (lambda (n e) (env-remove e n)) ns))
 (define (env-set-alist env nbs)   (env-set* env (map car nbs) (map cdr nbs)))
 
 (define (env-bind  env class name  value)
@@ -442,12 +446,26 @@
 ;; Module macro expansion
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define current-dbk-environment
+(define dbk-environment
   (make-parameter (env-set-alist env:empty (append bindings.initial.quasiquote
                                                    bindings.initial.term
                                                    bindings.initial.formula
                                                    bindings.initial.declare
                                                    bindings.initial.module))))
+
+(define (dbk-environment-update     env->env) (dbk-environment (env->env (dbk-environment))))
+(define ((dbk-environment-set-alist nbs) env) (dbk-environment (env-set-alist env nbs)))
+(define ((dbk-environment-remove names)  env) (dbk-environment (env-remove* env names)))
+
+(define-syntax-rule (with-dbk-environment-update env->env body ...)
+  (parameterize ((dbk-environment (env->env (dbk-environment))))
+    body ...))
+(define-syntax-rule (with-dbk-environment-set-alist nbs body ...)
+  (parameterize ((dbk-environment (env-set-alist (dbk-environment) nbs)))
+    body ...))
+(define-syntax-rule (with-dbk-environment-remove names body ...)
+  (parameterize ((dbk-environment (env-remove* (dbk-environment) names)))
+    body ...))
 
 (define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
 
@@ -489,5 +507,5 @@
                 (output outputs ...) clauses ...))
 
     ((_ (parsed ...) clause clauses ...)
-     (dbk-parse (parsed ... (parse:module (current-dbk-environment) 'clause))
+     (dbk-parse (parsed ... (parse:module (dbk-environment) 'clause))
                 clauses ...))))
