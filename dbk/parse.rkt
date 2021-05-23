@@ -186,12 +186,12 @@
     (cons 'indexes (map (lambda (projection) (parse:term* env projection))
                         projections))))
 
-(define bindings.initial.declare
+(define bindings.initial.module.declare
   (binding-alist/class
     'declare
     'indexes parse:declare:indexes))
 
-(define bindings.initial.module
+(define bindings.initial.module.clause
   (binding-alist/class
     'module
     'define          (simple-parser parse:module:define)
@@ -203,6 +203,10 @@
     '<<~             (rule-parser '<<~)
     ;; miniKanren style module clauses
     'define-relation (rule-parser '<<=)))
+
+(define bindings.initial.module
+  (append bindings.initial.module.declare
+          bindings.initial.module.clause))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Formula parsing
@@ -424,13 +428,43 @@
                (anonymous-vars (cons name (anonymous-vars)))
                (t:var name))))
 
-(define bindings.initial.quasiquote
+(define (parse:term:prim name)
+  (simple-match-lambda
+    ((env . args) (t:prim name (parse:term* env args)))))
+
+(define bindings.initial.term.quasiquote
   (binding-alist/class
     'quasiquote
     'quasiquote 'quasiquote
     'unquote    'unquote))
 
-(define bindings.initial.term
+(define bindings.initial.term.primitive
+  (append*
+    (map (lambda (name)
+           (binding-alist/class 'term name (simple-parser (parse:term:prim name))))
+         ;; TODO: some of these can be derived rather than primitive
+         '(apply
+            cons car cdr
+            list->vector vector vector-ref vector-length
+            bytes-ref bytes-length bytes->string string->bytes
+            symbol->string string->symbol
+            floor + - * / =
+
+            equal?
+            ;; TODO: these should be variadic and punned as relations
+            ;not  ; except this one is not variadic
+            ;<= < >= >
+            ;any<= any< any>= any>
+            ;.< .<= .> .>=  ; polymorphic point-wise monotonic comparisons
+
+            ;; TODO: can some of these be defined relationally?
+            set set-count set-member? set-union set-intersect set-subtract
+            dict dict-count dict-ref dict-set dict-update dict-remove dict-union dict-intersect
+
+            min max sum length
+            map/merge map merge filter foldl foldr))))
+
+(define bindings.initial.term.special
   (binding-alist/class
     'term
     '_          parse:term:anonymous-var
@@ -442,15 +476,18 @@
     'let        (simple-parser parse:term:let)
     'letrec     (simple-parser parse:term:letrec)))
 
+(define bindings.initial.term
+  (append bindings.initial.term.quasiquote
+          bindings.initial.term.primitive
+          bindings.initial.term.special))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Module macro expansion
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define dbk-environment
-  (make-parameter (env-set-alist env:empty (append bindings.initial.quasiquote
-                                                   bindings.initial.term
+  (make-parameter (env-set-alist env:empty (append bindings.initial.term
                                                    bindings.initial.formula
-                                                   bindings.initial.declare
                                                    bindings.initial.module))))
 
 (define (dbk-environment-update     env->env) (dbk-environment (env->env (dbk-environment))))
