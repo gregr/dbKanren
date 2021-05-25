@@ -340,10 +340,7 @@
   (with-fresh-names
     (match stx
       ((? literal? data) (t:quote (literal data)))
-      ((? symbol? name)
-       (define t.b (binding-term (env-ref env name)))
-       (cond ((procedure? t.b) (t.b env stx))
-             (else             (t:var (if t.b t.b name)))))
+      ((? symbol?  name) (parse:term:ref env name))
       (`(,operator ,@operands)
         (define t.b (binding-term (env-ref env operator)))
         (cond ((procedure? t.b) (t.b env stx))
@@ -351,6 +348,11 @@
       ((? procedure? self-parse) (self-parse env)))))
 
 (define (parse:term* env stxs) (map (lambda (stx) (parse:term env stx)) stxs))
+
+(define (parse:term:ref env name)
+  (define t.b (binding-term (env-ref env name)))
+  (cond ((procedure? t.b) (t.b env name))
+        (else             (t:var (if t.b t.b name)))))
 
 (define parse:term:query
   (simple-match-lambda
@@ -369,7 +371,7 @@
 (define (parse:term:simple env pattern)
   (let loop ((pattern pattern))
     (match pattern
-      ((? symbol?)    (t:var (binding-term (env-ref env pattern))))
+      ((? symbol?)    (parse:term:ref env pattern))
       ('()            (t:quote '()))
       ((cons p.a p.d) (t:cons (loop p.a) (loop p.d)))
       ((? vector?)    (t:list->vector (loop (vector->list pattern)))))))
