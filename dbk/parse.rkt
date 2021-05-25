@@ -167,7 +167,7 @@
                       env names.params
                       (lambda (env)
                         (foldl f:and
-                               (f:== (t:quote #t) (t:quote #t))
+                               (f:== (quote-literal #t) (quote-literal #t))
                                (map (lambda (n p) (f:== (t:var n) (parse:term env p)))
                                     names.argument params)))
                       formulas))))))
@@ -336,10 +336,12 @@
 
 (define (binding-term b) (binding-ref b 'term))
 
+(define (quote-literal v) (t:quote (literal v)))
+
 (define (parse:term env stx)
   (with-fresh-names
     (match stx
-      ((? literal? data) (t:quote (literal data)))
+      ((? literal? data) (quote-literal data))
       ((? symbol?  name) (parse:term:ref env name))
       (`(,operator ,@operands)
         (define t.b (binding-term (env-ref env operator)))
@@ -372,18 +374,18 @@
   (let loop ((pattern pattern))
     (match pattern
       ((? symbol?)    (parse:term:ref env pattern))
-      ('()            (t:quote '()))
+      ('()            (quote-literal '()))
       ((cons p.a p.d) (t:cons (loop p.a) (loop p.d)))
       ((? vector?)    (t:list->vector (loop (vector->list pattern)))))))
 
 (define parse:term:quote
-  (simple-match-lambda ((env value) (t:quote value))))
+  (simple-match-lambda ((env value) (quote-literal value))))
 
 (define parse:term:quasiquote
   (simple-match-lambda
     ((env template)
      (define ((keyword? k) n) (eq? k (binding-ref (env-ref env n) 'quasiquote)))
-     (define (lift tag e)     (t:cons (t:quote tag) (t:cons e (t:quote '()))))
+     (define (lift tag e)     (t:cons (quote-literal tag) (t:cons e (quote-literal '()))))
      ;; NOTE: unquote-splicing support requires a safe definition of append
      (let loop ((t template) (level 0))
        (match t
@@ -395,7 +397,7 @@
          ((? vector?)                           (t:list->vector (loop (vector->list t) level)))
          ((or (? (keyword? 'quasiquote))
               (? (keyword? 'unquote)))          (error "invalid quasiquote:" t template))
-         (v                                     (t:quote v)))))))
+         (v                                     (quote-literal v)))))))
 
 (define parse:term:app
   (simple-match-lambda
@@ -437,16 +439,16 @@
 
 (define parse:term:and
   (simple-match-lambda
-    ((env)            (t:quote #t))
+    ((env)            (quote-literal #t))
     ((env arg)        (parse:term env arg))
     ((env arg . args) (parse:term:if env
                                      arg
                                      (lambda (_) (apply parse:term:and env args))
-                                     (lambda (_) (t:quote #f))))))
+                                     (lambda (_) (quote-literal #f))))))
 
 (define parse:term:or
   (simple-match-lambda
-    ((env)            (t:quote #f))
+    ((env)            (quote-literal #f))
     ((env arg)        (parse:term env arg))
     ((env arg . args) (parse:term:let env
                                       (list (list 'temp arg))
@@ -560,7 +562,7 @@
     ((_ parsed       (import)                        clauses ...)
      (dbk-parse parsed clauses ...))
     ((_ (parsed ...) (import name value imports ...) clauses ...)
-     (dbk-parse (parsed ... (m:define (hash 'name (t:quote value))))
+     (dbk-parse (parsed ... (m:define (hash 'name (quote-literal value))))
                 (import imports ...) clauses ...))
 
     ((_ parsed       (input)                                           clauses ...)
