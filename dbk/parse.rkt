@@ -435,6 +435,27 @@
      (t:letrec (map cons unames rhss)
                (parse:term (env-bind* env 'term names unames) body)))))
 
+(define parse:term:and
+  (simple-match-lambda
+    ((env)            (t:quote #t))
+    ((env arg)        (parse:term env arg))
+    ((env arg . args) (parse:term:if env
+                                     arg
+                                     (lambda (_) (apply parse:term:and env args))
+                                     (lambda (_) (t:quote #f))))))
+
+(define parse:term:or
+  (simple-match-lambda
+    ((env)            (t:quote #f))
+    ((env arg)        (parse:term env arg))
+    ((env arg . args) (parse:term:let env
+                                      (list (list 'temp arg))
+                                      (lambda (env.1)
+                                        (parse:term:if env.1
+                                                       (lambda (_) (parse:term:ref env.1 'temp))
+                                                       (lambda (_) (parse:term:ref env.1 'temp))
+                                                       (lambda (_) (apply parse:term:or env args))))))))
+
 (define parse:term:anonymous-var
   (simple-match-lambda
     ((env stx) (unless (anonymous-vars) (error "misplaced anonymous variable:" stx))
@@ -463,13 +484,10 @@
             bytes-ref bytes-length bytes->string string->bytes
             symbol->string string->symbol
             floor + - * / =
-
-            equal?
-            ;; TODO: these should be variadic and punned as relations
-            ;not  ; except this one is not variadic
-            ;<= < >= >
-            ;any<= any< any>= any>
-            ;.< .<= .> .>=  ; polymorphic point-wise monotonic comparisons
+            equal? not
+            <= < >= >
+            any<= any< any>= any>
+            .< .<= .> .>=  ; polymorphic point-wise monotonic comparisons
 
             ;; TODO: can some of these be defined relationally?
             set set-count set-member? set-union set-intersect set-subtract
@@ -485,10 +503,14 @@
     'query      (simple-parser parse:term:query)
     'quote      (simple-parser parse:term:quote)
     'quasiquote (simple-parser parse:term:quasiquote)
-    'lambda     (simple-parser parse:term:lambda)
+
     'if         (simple-parser parse:term:if)
+    'lambda     (simple-parser parse:term:lambda)
     'let        (simple-parser parse:term:let)
-    'letrec     (simple-parser parse:term:letrec)))
+    'letrec     (simple-parser parse:term:letrec)
+
+    'and        (simple-parser parse:term:and)
+    'or         (simple-parser parse:term:or)))
 
 (define bindings.initial.term
   (append bindings.initial.term.quasiquote
@@ -500,9 +522,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define dbk-environment
-  (make-parameter (env-set-alist env:empty (append bindings.initial.term
-                                                   bindings.initial.formula
-                                                   bindings.initial.module))))
+  (make-parameter (env-set-alist/union env:empty (append bindings.initial.term
+                                                         bindings.initial.formula
+                                                         bindings.initial.module))))
 
 (define (dbk-environment-update     env->env) (dbk-environment (env->env (dbk-environment))))
 (define ((dbk-environment-set-alist nbs) env) (dbk-environment (env-set-alist env nbs)))
