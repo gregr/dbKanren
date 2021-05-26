@@ -1,13 +1,8 @@
 #lang racket/base
 (provide
   define-dbk dbk link import input output
-  dbk-environment dbk-environment-update dbk-environment-set-alist dbk-environment-remove
-  with-dbk-environment-update with-dbk-environment-set-alist with-dbk-environment-remove
-  with-fresh-names
-  binding:empty binding-ref binding-update binding-set binding-set* binding-remove binding-union binding-alist/class
-  env:empty env-ref env-update env-set env-set* env-set-alist env-set/union env-set*/union env-set-alist/union
-  env-bind env-bind* env-bind-alist env-bind/union env-bind*/union env-bind-alist/union
-  env-map/merge env-forget-pattern-variables
+  dbk-environment dbk-environment-update with-dbk-environment-update with-fresh-names
+  env:empty env:new env-ref env-set env-set* env-remove env-remove* env-bind env-bind* env-union env-map
   literal? literal simple-parser
   parse:module* parse:module parse:formula parse:term)
 (require "abstract-syntax.rkt" "misc.rkt"
@@ -44,68 +39,41 @@
 (define (unique? names) (= (set-count (list->set names)) (length names)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Environments and bindings
+;; Environments with vocabularies
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define binding:empty (hash))
-(define (binding-ref    b class)    (hash-ref b class #f))
-(define (binding-update b class f)  (hash-update b class f #f))
-(define (binding-set    b class x)  (hash-set b class x))
-(define (binding-set*   b cs    xs) (foldl (lambda (c x b) (binding-set b c x))
-                                           binding:empty cs xs))
-(define (binding-remove b class)    (hash-remove b class))
-(define (binding-union  b.0 b.1)    (hash-union b.0 b.1 #:combine (lambda (_ v) v)))
-(define (binding-alist/class class . args)
-  (map (lambda (nv)
-         (match-define (cons n v) nv)
-         (cons n (binding-set binding:empty class v)))
-       (plist->alist args)))
 
 (define env:empty (hash))
-(define (env-ref             env n)     (hash-ref env n binding:empty))
-(define (env-update          env n f)   (hash-update env n f binding:empty))
 
-(define (env-set             env n  b)  (hash-set env n b))
-(define (env-set*            env ns bs) (foldl (lambda (n b env) (env-set env n b)) env ns bs))
-(define (env-set-alist       env nbs)   (env-set* env (map car nbs) (map cdr nbs)))
+(define (env-ref     env vocab n)     (hash-ref (hash-ref env n (hash)) vocab #f))
+(define (env-set     env vocab n  v)  (hash-update env n (lambda (vocab=>v) (hash-set vocab=>v vocab v)) (hash)))
+(define (env-set*    env vocab ns vs) (foldl (lambda (n v env) (env-set env vocab n v)) env ns vs))
 
-(define (env-set/union       env n  b)  (env-update env n (lambda (b.0) (binding-union b.0 b))))
-(define (env-set*/union      env ns bs) (foldl (lambda (n b env) (env-set/union env n b)) env ns bs))
-(define (env-set-alist/union env nbs)   (env-set*/union env (map car nbs) (map cdr nbs)))
+(define (env-remove  env       n)     (hash-remove env n))
+(define (env-remove* env       ns)    (foldl (lambda (n e) (env-remove env n)) env ns))
 
-(define (env-remove          env n)     (hash-remove env n))
-(define (env-remove*         env ns)    (foldl (lambda (n e) (env-remove e n)) ns))
+(define (env-bind    env vocab n  v)  (env-set  (env-remove  env n)  vocab n  v))
+(define (env-bind*   env vocab ns vs) (env-set* (env-remove* env ns) vocab ns vs))
 
-(define (env-bind       env class name  value)  (env-set   env name (binding-set binding:empty class value)))
-(define (env-bind*      env class names values) (env-set*  env names
-                                                           (map (lambda (v) (binding-set binding:empty class v))
-                                                                values)))
-(define (env-bind-alist env class nvs)          (env-bind* env class (map car nvs) (map cdr nvs)))
+(define (env-union   env . envs)      (foldl (lambda (e e.0)
+                                               (hash-union e.0 e #:combine
+                                                           (lambda (vocab=>v.0 vocab=>v)
+                                                             (hash-union vocab=>v.0 vocab=>v #:combine
+                                                                         (lambda (v.0 v) v)))))
+                                             env envs))
 
-(define (env-bind/union       env class name  value)  (env-set/union   env name (binding-set binding:empty class value)))
-(define (env-bind*/union      env class names values) (env-set*/union  env names
-                                                                       (map (lambda (v) (binding-set binding:empty class v))
-                                                                            values)))
-(define (env-bind-alist/union env class nvs)          (env-bind*/union env class (map car nvs) (map cdr nvs)))
+(define (env:new vocab . args)
+  (define nvs (plist->alist args))
+  (env-set* env:empty vocab
+            (map car nvs)
+            (map cdr nvs)))
 
-(define (env-map/merge env default f merge)
-  (if (hash-empty? env)
-    default
-    (let ((mapped (map f (hash->list env))))
-      (foldl merge (car mapped) (cdr mapped)))))
+(define (env-map env vocab v->v) (make-immutable-hash
+                                   (hash-map env (lambda (n vocab=>v)
+                                                   (cons n (hash-update vocab=>v vocab v->v #f))))))
 
 (define (env-forget-pattern-variables env)
-  (env-set-alist
-    env:empty
-    (env-map/merge
-      env env:empty
-      (lambda (nb)
-        (match-define (cons n b) nb)
-        (define current (binding-ref b 'term))
-        (list (cons n (if (and current (not (procedure? current)))
-                        (binding-remove b 'term)
-                        b))))
-      append)))
+  (env-map env 'term (lambda (current) (and (procedure? current) current))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Parsing
@@ -134,21 +102,17 @@
   (with-fresh-names
     (m:link (map (lambda (stx) ((parse:module stx) env)) stx))))
 
-(define (binding-module b) (binding-ref b 'module))
-
 (define ((parse:module stx) env)
   (with-fresh-names
     (match stx
       ((? symbol? name)
-       (define mc.b (binding-module (env-ref env name)))
+       (define mc.b (env-ref env 'module name))
        (cond ((procedure? mc.b) ((mc.b stx) env))
-             (else              (error "unknown module clause keyword:"
-                                       name (env-ref env name)))))
+             (else              (error "unknown module clause keyword:" name mc.b))))
       (`(,operator ,@operands)
-        (define mc.b (binding-module (env-ref env operator)))
+        (define mc.b (env-ref env 'module operator))
         (cond ((procedure? mc.b) ((mc.b stx) env))
-              (else              (error "unknown module clause operator:"
-                                        operator (env-ref env operator)))))
+              (else              (error "unknown module clause operator:" operator mc.b))))
       ((? procedure? self-parse) (self-parse env)))))
 
 (define (rule-parser type)
@@ -183,7 +147,7 @@
                                                                    env)))))
     ((relation)                       (lambda (env) (m:declare relation (hash))))
     ((relation property value . args) (lambda (env)
-                                        (define p.b (binding-ref (env-ref env property) 'declare))
+                                        (define p.b (env-ref env 'declare property))
                                         (m:declare relation
                                                    (cond ((procedure? p.b) (match-define (cons p v) ((p.b value) env))
                                                                            (hash p v))
@@ -197,13 +161,13 @@
     ((projections) (lambda (env) (cons 'indexes (map (lambda (proj) ((parse:term* proj) env))
                                                      projections))))))
 
-(define bindings.initial.module.declare
-  (binding-alist/class
+(define env.initial.module.declare
+  (env:new
     'declare
     'indexes parse:declare:indexes))
 
-(define bindings.initial.module.clause
-  (binding-alist/class
+(define env.initial.module.clause
+  (env:new
     'module
     'define          (simple-parser parse:module:define)
     'declare         (simple-parser parse:module:declare)
@@ -215,26 +179,23 @@
     ;; miniKanren style module clauses
     'define-relation (rule-parser '<<=)))
 
-(define bindings.initial.module
-  (append bindings.initial.module.declare
-          bindings.initial.module.clause))
+(define env.initial.module (env-union env.initial.module.declare
+                                      env.initial.module.clause))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Formula parsing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define (binding-formula b) (binding-ref b 'formula))
 
 (define ((parse:formula stx) env)
   (with-fresh-names
     (match stx
       ((? literal? data) (f:const (literal data)))
       ((? symbol? name)
-       (define f.b (binding-formula (env-ref env name)))
+       (define f.b (env-ref env 'formula name))
        (cond ((procedure? f.b) ((f.b stx) env))
              (else             (f:const (if f.b f.b name)))))
       (`(,operator ,@operands)
-        (define f.b (binding-formula (env-ref env operator)))
+        (define f.b (env-ref env 'formula operator))
         ((cond ((procedure? f.b) (f.b stx))
                (else             (parse:formula:relate (if f.b f.b operator) operands)))
          env))
@@ -302,8 +263,8 @@
     (clauses (apply parse:formula:or (map (lambda (conjuncts) (apply parse:formula:and conjuncts))
                                           clauses)))))
 
-(define bindings.initial.formula
-  (binding-alist/class
+(define env.initial.formula
+  (env:new
     'formula
 
     ;; TODO: for modularity, these names should instead be defined as normal relations delegating to primitives
@@ -327,8 +288,6 @@
 ;; Term parsing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (binding-term b) (binding-ref b 'term))
-
 (define (quote-literal v) (t:quote (literal v)))
 
 (define ((parse:term stx) env)
@@ -337,7 +296,7 @@
       ((? literal? data) (quote-literal data))
       ((? symbol?  name) ((parse:term:ref name) env))
       (`(,operator ,@operands)
-        (define t.b (binding-term (env-ref env operator)))
+        (define t.b (env-ref env 'term operator))
         ((cond ((procedure? t.b) (t.b stx))
                (else             (parse:term:app operator operands)))
          env))
@@ -347,7 +306,7 @@
   (map (lambda (stx) ((parse:term stx) env)) stxs))
 
 (define ((parse:term:ref name) env)
-  (define t.b (binding-term (env-ref env name)))
+  (define t.b (env-ref env 'term name))
   (cond ((procedure? t.b) ((t.b name) env))
         (else             (t:var (if t.b t.b name)))))
 
@@ -381,7 +340,7 @@
   (simple-match-lambda
     ((template)
      (lambda (env)
-       (define ((keyword? k) n) (eq? k (binding-ref (env-ref env n) 'quasiquote)))
+       (define ((keyword? k) n) (eq? k (env-ref env 'quasiquote n)))
        (define (lift tag e)     (t:cons (quote-literal tag) (t:cons e (quote-literal '()))))
        ;; NOTE: unquote-splicing support requires a safe definition of append
        (let loop ((t template) (level 0))
@@ -468,37 +427,36 @@
   (simple-match-lambda
     (args (lambda (env) (t:prim name ((parse:term* args) env))))))
 
-(define bindings.initial.term.quasiquote
-  (binding-alist/class
+(define env.initial.term.quasiquote
+  (env:new
     'quasiquote
     'quasiquote 'quasiquote
     'unquote    'unquote))
 
-(define bindings.initial.term.primitive
-  (append*
-    (map (lambda (name)
-           (binding-alist/class 'term name (simple-parser (parse:term:prim name))))
-         ;; TODO: some of these can be derived rather than primitive
-         '(apply
-            cons car cdr
-            list->vector vector vector-ref vector-length
-            bytes-ref bytes-length bytes->string string->bytes
-            symbol->string string->symbol
-            floor + - * / =
-            equal? not
-            <= < >= >
-            any<= any< any>= any>
-            .< .<= .> .>=  ; polymorphic point-wise monotonic comparisons
+(define env.initial.term.primitive
+  (apply env-union env:empty
+         (map (lambda (name) (env:new 'term name (simple-parser (parse:term:prim name))))
+              ;; TODO: some of these can be derived rather than primitive
+              '(apply
+                 cons car cdr
+                 list->vector vector vector-ref vector-length
+                 bytes-ref bytes-length bytes->string string->bytes
+                 symbol->string string->symbol
+                 floor + - * / =
+                 equal? not
+                 <= < >= >
+                 any<= any< any>= any>
+                 .< .<= .> .>=  ; polymorphic point-wise monotonic comparisons
 
-            ;; TODO: can some of these be defined relationally?
-            set set-count set-member? set-union set-intersect set-subtract
-            dict dict-count dict-ref dict-set dict-update dict-remove dict-union dict-intersect
+                 ;; TODO: can some of these be defined relationally?
+                 set set-count set-member? set-union set-intersect set-subtract
+                 dict dict-count dict-ref dict-set dict-update dict-remove dict-union dict-intersect
 
-            min max sum length
-            map/merge map merge filter foldl foldr))))
+                 min max sum length
+                 map/merge map merge filter foldl foldr))))
 
-(define bindings.initial.term.special
-  (binding-alist/class
+(define env.initial.term.special
+  (env:new
     'term
     '_          parse:term:anonymous-var
     'query      (simple-parser parse:term:query)
@@ -513,32 +471,22 @@
     'and        (simple-parser parse:term:and)
     'or         (simple-parser parse:term:or)))
 
-(define bindings.initial.term
-  (append bindings.initial.term.quasiquote
-          bindings.initial.term.primitive
-          bindings.initial.term.special))
+(define env.initial.term (env-union env.initial.term.quasiquote
+                                    env.initial.term.primitive
+                                    env.initial.term.special))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Module macro expansion
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define dbk-environment
-  (make-parameter (env-set-alist/union env:empty (append bindings.initial.term
-                                                         bindings.initial.formula
-                                                         bindings.initial.module))))
+(define dbk-environment (make-parameter (env-union env.initial.term
+                                                   env.initial.formula
+                                                   env.initial.module)))
 
-(define (dbk-environment-update     env->env) (dbk-environment (env->env (dbk-environment))))
-(define ((dbk-environment-set-alist nbs) env) (dbk-environment (env-set-alist env nbs)))
-(define ((dbk-environment-remove names)  env) (dbk-environment (env-remove* env names)))
+(define (dbk-environment-update env->env) (dbk-environment (env->env    (dbk-environment))))
 
 (define-syntax-rule (with-dbk-environment-update env->env body ...)
-  (parameterize ((dbk-environment (env->env (dbk-environment))))
-    body ...))
-(define-syntax-rule (with-dbk-environment-set-alist nbs body ...)
-  (parameterize ((dbk-environment (env-set-alist (dbk-environment) nbs)))
-    body ...))
-(define-syntax-rule (with-dbk-environment-remove names body ...)
-  (parameterize ((dbk-environment (env-remove* (dbk-environment) names)))
+  (parameterize ((dbk-environment (env->env    (dbk-environment))))
     body ...))
 
 (define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
