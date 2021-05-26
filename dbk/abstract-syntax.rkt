@@ -3,8 +3,7 @@
   m:link m:define m:declare m:rule m:assert
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
-  t:query t:map/merge t:quote t:var t:prim t:app t:lambda
-  t:if t:let t:letrec t:match
+  t:query t:map/merge t:quote t:var t:prim t:app t:lambda t:if t:let t:letrec
   t:apply t:cons t:car t:cdr t:vector t:list->vector t:vector-ref t:vector-length
   t-free-vars f-free-vars t-free-vars*
   t-free-vars-first-order f-free-vars-first-order t-free-vars-first-order*
@@ -266,40 +265,10 @@
   (t:var       name)
   (t:prim      name args)
   (t:app       proc args)
-  (t:lambda    params body)  ; omit for first order systems
-  ;; possibly derived terms
+  (t:lambda    params body)
   (t:if        c t f)
-  (t:let       bindings body)
-  (t:letrec    bindings body)
-  (t:match     arg clauses))
-
-;; possible derived term expansions, but these interpretations may vary per strategy/logic
-;(define (t:let bindings body)  ; this expansion only works in higher order systems
-;  (t:app (t:lambda (map car bindings) body) (map cadr bindings)))
-;(define (t:letrec bindings body)
-;  ;; Bind via single assignment of logic vars
-;  (define lhss (map car  bindings))
-;  (define rhss (map cadr bindings))
-;  (define qresult (gensym "query.letrec"))
-;  (t:apply (t:lambda lhss body)
-;           (t:car (t:query qresult
-;                           (f:exist lhss
-;                                    (f:and (cons (f:== (t:var qresult)
-;                                                       (foldr (lambda (param terms)
-;                                                                (t:cons (t:var param) terms))
-;                                                              (t:quote '()) lhss))
-;                                                 (map (lambda (lhs rhs) (f:== (t:var lhs) rhs))
-;                                                      lhss rhss))))))))
-;(define (t:if c t f)  ; this may be unhelpfully indirect
-;  (define qresult   (gensym "query.if"))
-;  (define condition (gensym "condition"))
-;  (t:car (t:query qresult
-;                  (f:exist (list condition)
-;                           (f:and (list (f:== condition c)
-;                                        (f:implies (f:=/= condition (t:quote #f))
-;                                                   (f:== qresult t))
-;                                        (f:implies (f:==  condition (t:quote #f))
-;                                                   (f:== qresult f))))))))
+  (t:let       bpairs body)
+  (t:letrec    bpairs body))
 
 (define (t:apply f . args)  (t:prim 'apply         args))
 (define (t:cons a d)        (t:prim 'cons          (list a d)))
@@ -319,21 +288,27 @@
     ((t:prim   _    args)   (t-free-vars* args))
     ((t:app    func args)   (set-union (t-free-vars func) (t-free-vars* args)))
     ((t:lambda params body) (set-subtract (t-free-vars body) (list->set params)))
-    ;((t:if     c t f)       (set-union (t-free-vars c) (t-free-vars t) (t-free-vars f)))
-    ;; TODO: t:let t:letrec ?
-    ))
+    ((t:if     c t f)       (set-union (t-free-vars c) (t-free-vars t) (t-free-vars f)))
+    ((t:let    bpairs body) (set-union (t-free-vars* (map cdr bpairs))
+                                       (set-subtract (t-free-vars body) (list->set (map car bpairs)))))
+    ((t:letrec bpairs body) (set-subtract (set-union (t-free-vars* (map cdr bpairs))
+                                                     (t-free-vars body))
+                                          (list->set (map car bpairs))))))
 
 (define (t-free-vars-first-order t)
   (match t
-    ((t:query  name f) (set-subtract (f-free-vars-first-order f) (set name)))
-    ((t:quote  _)      (set))
-    ((t:var    name)   (set name))
-    ((t:prim   _ args) (t-free-vars-first-order* args))
-    ((t:app    _ args) (t-free-vars-first-order* args))
-    ((t:lambda _ _)    (set))
-    ;((t:if     c t f)       (set-union (t-free-vars c) (t-free-vars t) (t-free-vars f)))
-    ;; TODO: t:let t:letrec ?
-    ))
+    ((t:query  name f)      (set-subtract (f-free-vars-first-order f) (set name)))
+    ((t:quote  _)           (set))
+    ((t:var    name)        (set name))
+    ((t:prim   _ args)      (t-free-vars-first-order* args))
+    ((t:app    _ args)      (t-free-vars-first-order* args))  ; This is the only difference from t-free-vars
+    ((t:lambda params body) (set-subtract (t-free-vars-first-order body) (list->set params)))
+    ((t:if     c t f)       (set-union (t-free-vars-first-order c) (t-free-vars-first-order t) (t-free-vars-first-order f)))
+    ((t:let    bpairs body) (set-union (t-free-vars-first-order* (map cdr bpairs))
+                                       (set-subtract (t-free-vars-first-order body) (list->set (map car bpairs)))))
+    ((t:letrec bpairs body) (set-subtract (set-union (t-free-vars-first-order* (map cdr bpairs))
+                                                     (t-free-vars-first-order body))
+                                          (list->set (map car bpairs))))))
 
 (define (f-free-vars f)
   (match f
@@ -380,8 +355,9 @@
     ((t:prim   _    args)   (t-relations* args))
     ((t:app    func args)   (set-union (t-relations func) (t-relations* args)))
     ((t:lambda params body) (t-relations body))
-    ;; TODO: ?
-    ))
+    ((t:if     c t f)       (set-union (t-relations c) (t-relations t) (t-relations f)))
+    ((t:let    bpairs body) (set-union (t-relations* (map cdr bpairs)) (t-relations body)))
+    ((t:letrec bpairs body) (set-union (t-relations* (map cdr bpairs)) (t-relations body)))))
 
 (define (t-relations* ts)
   (foldl (lambda (t rs) (set-union rs (t-relations t)))
