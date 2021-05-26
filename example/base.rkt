@@ -2,6 +2,13 @@
 (provide m.base)
 
 (define-dbk m.base
+  (<<= (==    u u))
+  (<<= (=/=   u v) (not (== u u)))
+  (<<= (any<= u v) (== #t (any<= u v)))
+  (<<= (any<  u v) (=/= u v) (any<= u v))
+  (<<= (any>= u v) (any<= v u))
+  (<<= (any>  u v) (any<  v u))
+
   (declare (member x ys)
     modes ((ys)))  ;; this mode could be inferred
   (<<= (member x (cons x ys)))
