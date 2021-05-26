@@ -42,7 +42,6 @@
 ;; Environments with vocabularies
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-
 (define env:empty (hash))
 
 (define (env-ref     env vocab n)     (hash-ref (hash-ref env n (hash)) vocab #f))
@@ -420,7 +419,8 @@
 
 (define (parse:term:prim name)
   (simple-match-lambda
-    (args (lambda (env) (t:prim name ((parse:term* args) env))))))
+    (((_ . args)) (lambda (env) (t:app (t:prim name) ((parse:term* args) env))))
+    ((_)          (lambda (env) (t:prim name)))))
 
 (define env.initial.term.quasiquote
   (env:new
@@ -430,7 +430,7 @@
 
 (define env.initial.term.primitive
   (apply env-union env:empty
-         (map (lambda (name) (env:new 'term name (simple-parser (parse:term:prim name))))
+         (map (lambda (name) (env:new 'term name (parse:term:prim name)))
               ;; TODO: some of these can be derived rather than primitive
               '(apply
                  cons car cdr
