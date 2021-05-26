@@ -2,7 +2,7 @@
 (provide
   define-dbk dbk link import input output
   dbk-environment dbk-environment-update with-dbk-environment-update with-fresh-names
-  env:empty env:new env-ref env-set env-set* env-remove env-remove* env-bind env-bind* env-union env-map
+  env:empty env:new env-ref env-set env-set* env-remove env-remove* env-bind env-bind* env-union
   literal? literal simple-parser
   parse:module* parse:module parse:formula parse:term)
 (require "abstract-syntax.rkt" "misc.rkt"
@@ -68,13 +68,6 @@
             (map car nvs)
             (map cdr nvs)))
 
-(define (env-map env vocab v->v) (make-immutable-hash
-                                   (hash-map env (lambda (n vocab=>v)
-                                                   (cons n (hash-update vocab=>v vocab v->v #f))))))
-
-(define (env-forget-pattern-variables env)
-  (env-map env 'term (lambda (current) (and (procedure? current) current))))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Parsing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -120,8 +113,10 @@
     (simple-match-lambda
       (((relation . params) . formulas)
        (lambda (env)
-         (define env.pattern  (env-forget-pattern-variables env))
-         (define ts.params    (map (lambda (p) ((parse:term p) env.pattern)) params))
+         ;; NOTE: extracting variables in first-order positions as pattern
+         ;; variables may be brittle.  It may be better to introduce a pattern
+         ;; matching vocabulary to explicitly identify pattern variables.
+         (define ts.params    (map (lambda (p) ((parse:term p) env)) params))
          (define names.params (set->list (t-free-vars-first-order* ts.params)))
          (define names.argument
            (map (lambda (i) (fresh-name (string->symbol (string-append "x." (number->string i)))))
