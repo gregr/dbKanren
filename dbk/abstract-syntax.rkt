@@ -5,8 +5,7 @@
   f:any<= f:== f:=/=
   t:query t:map/merge t:quote t:var t:prim t:app t:lambda t:if t:let t:letrec
   t:apply t:cons t:car t:cdr t:vector t:list->vector t:vector-ref t:vector-length
-  t-free-vars f-free-vars t-free-vars*
-  t-free-vars-first-order f-free-vars-first-order t-free-vars-first-order*
+  t-free-vars f-free-vars t-free-vars* t-free-vars-first-order t-free-vars-first-order*
   f-relations t-relations t-relations*)
 (require "misc.rkt" racket/match racket/set)
 
@@ -280,62 +279,40 @@
 (define (t:vector-length v) (t:prim 'vector-length (list v)))
 
 ;; TODO: use CPS yielding to efficiently support partial-answer variations
-(define (t-free-vars t)
-  (match t
-    ((t:query  name f)      (set-subtract (f-free-vars f) (set name)))
-    ((t:quote  _)           (set))
-    ((t:var    name)        (set name))
-    ((t:prim   _    args)   (t-free-vars* args))
-    ((t:app    func args)   (set-union (t-free-vars func) (t-free-vars* args)))
-    ((t:lambda params body) (set-subtract (t-free-vars body) (list->set params)))
-    ((t:if     c t f)       (set-union (t-free-vars c) (t-free-vars t) (t-free-vars f)))
-    ((t:let    bpairs body) (set-union (t-free-vars* (map cdr bpairs))
-                                       (set-subtract (t-free-vars body) (list->set (map car bpairs)))))
-    ((t:letrec bpairs body) (set-subtract (set-union (t-free-vars* (map cdr bpairs))
-                                                     (t-free-vars body))
-                                          (list->set (map car bpairs))))))
+(define (t-free-vars t (first-order? #f))
+  (let loop ((t t))
+    (match t
+      ((t:query  name f)      (set-subtract (f-free-vars f first-order?) (set name)))
+      ((t:quote  _)           (set))
+      ((t:var    name)        (set name))
+      ((t:prim   _    args)   (t-free-vars* args first-order?))
+      ((t:app    func args)   (set-union (t-free-vars* args first-order?)
+                                         (if first-order? (set) (loop func))))
+      ((t:lambda params body) (set-subtract (loop body) (list->set params)))
+      ((t:if     c t f)       (set-union (loop c) (loop t) (loop f)))
+      ((t:let    bpairs body) (set-union (t-free-vars* (map cdr bpairs) first-order?)
+                                         (set-subtract (loop body) (list->set (map car bpairs)))))
+      ((t:letrec bpairs body) (set-subtract (set-union (t-free-vars* (map cdr bpairs) first-order?)
+                                                       (loop body))
+                                            (list->set (map car bpairs)))))))
 
-(define (t-free-vars-first-order t)
-  (match t
-    ((t:query  name f)      (set-subtract (f-free-vars-first-order f) (set name)))
-    ((t:quote  _)           (set))
-    ((t:var    name)        (set name))
-    ((t:prim   _ args)      (t-free-vars-first-order* args))
-    ((t:app    _ args)      (t-free-vars-first-order* args))  ; This is the only difference from t-free-vars
-    ((t:lambda params body) (set-subtract (t-free-vars-first-order body) (list->set params)))
-    ((t:if     c t f)       (set-union (t-free-vars-first-order c) (t-free-vars-first-order t) (t-free-vars-first-order f)))
-    ((t:let    bpairs body) (set-union (t-free-vars-first-order* (map cdr bpairs))
-                                       (set-subtract (t-free-vars-first-order body) (list->set (map car bpairs)))))
-    ((t:letrec bpairs body) (set-subtract (set-union (t-free-vars-first-order* (map cdr bpairs))
-                                                     (t-free-vars-first-order body))
-                                          (list->set (map car bpairs))))))
+(define (t-free-vars-first-order t) (t-free-vars t #t))
 
-(define (f-free-vars f)
-  (match f
-    ((f:const   _)             (set))
-    ((f:or      f1 f2)         (set-union (f-free-vars f1) (f-free-vars f2)))
-    ((f:and     f1 f2)         (set-union (f-free-vars f1) (f-free-vars f2)))
-    ((f:implies if then)       (set-union (f-free-vars if) (f-free-vars then)))
-    ((f:relate  relation args) (t-free-vars* args))
-    ((f:exist   vnames body)   (set-subtract (f-free-vars body) (list->set vnames)))
-    ((f:all     vnames body)   (set-subtract (f-free-vars body) (list->set vnames)))))
+(define (f-free-vars f (first-order? #f))
+  (let loop ((f f))
+    (match f
+      ((f:const   _)             (set))
+      ((f:or      f1 f2)         (set-union (loop f1) (loop f2)))
+      ((f:and     f1 f2)         (set-union (loop f1) (loop f2)))
+      ((f:implies if then)       (set-union (loop if) (loop then)))
+      ((f:relate  relation args) (t-free-vars* args first-order?))
+      ((f:exist   vnames body)   (set-subtract (loop body) (list->set vnames)))
+      ((f:all     vnames body)   (set-subtract (loop body) (list->set vnames))))))
 
-(define (f-free-vars-first-order f)
-  (match f
-    ((f:const   _)             (set))
-    ((f:or      f1 f2)         (set-union (f-free-vars-first-order f1) (f-free-vars-first-order f2)))
-    ((f:and     f1 f2)         (set-union (f-free-vars-first-order f1) (f-free-vars-first-order f2)))
-    ((f:implies if then)       (set-union (f-free-vars-first-order if) (f-free-vars-first-order then)))
-    ((f:relate  relation args) (t-free-vars-first-order* args))
-    ((f:exist   vnames body)   (set-subtract (f-free-vars-first-order body) (list->set vnames)))
-    ((f:all     vnames body)   (set-subtract (f-free-vars-first-order body) (list->set vnames)))))
-
-(define (t-free-vars* ts)
-  (foldl (lambda (t vs) (set-union vs (t-free-vars t)))
+(define (t-free-vars* ts (first-order? #f))
+  (foldl (lambda (t vs) (set-union vs (t-free-vars t first-order?)))
          (set) ts))
-(define (t-free-vars-first-order* ts)
-  (foldl (lambda (t vs) (set-union vs (t-free-vars-first-order t)))
-         (set) ts))
+(define (t-free-vars-first-order* ts) (t-free-vars* ts #t))
 
 (define (f-relations f)
   (match f
