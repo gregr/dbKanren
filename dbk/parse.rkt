@@ -2,7 +2,7 @@
 (provide
   define-dbk dbk link import input output
   dbk-environment dbk-environment-update with-dbk-environment-update with-fresh-names
-  env:empty env:new env-ref env-set env-set* env-remove env-remove* env-bind env-bind* env-union
+  env.empty env:new env-ref env-set env-set* env-remove env-remove* env-bind env-bind* env-union
   literal? literal simple-parser
   parse:module* parse:module parse:formula parse:term)
 (require "abstract-syntax.rkt" "misc.rkt"
@@ -42,7 +42,7 @@
 ;; Environments with vocabularies
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define env:empty (hash))
+(define env.empty (hash))
 
 (define (env-ref     env vocab n)     (hash-ref (hash-ref env n (hash)) vocab #f))
 (define (env-set     env vocab n  v)  (hash-update env n (lambda (vocab=>v) (hash-set vocab=>v vocab v)) (hash)))
@@ -63,7 +63,7 @@
 
 (define (env:new vocab . args)
   (define nvs (plist->alist args))
-  (env-set* env:empty vocab
+  (env-set* env.empty vocab
             (map car nvs)
             (map cdr nvs)))
 
@@ -422,7 +422,7 @@
     'unquote    'unquote))
 
 (define env.initial.term.primitive
-  (apply env-union env:empty
+  (apply env-union env.empty
          (map (lambda (name) (env:new 'term name (parse:term:prim name)))
               ;; TODO: some of these can be derived rather than primitive
               '(apply
