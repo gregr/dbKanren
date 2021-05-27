@@ -457,3 +457,32 @@ x?!  = assert x        ; a predicate/guard that throws an error if false
 - [Dedalus: Datalog in Time and Space](http://www2.eecs.berkeley.edu/Pubs/TechRpts/2009/EECS-2009-173.pdf)
 - [Datafun Programming Language](http://www.rntz.net/datafun/)
 - [Flix Programming Language](https://flix.dev/)
+
+### Datalog and Bottom-up Evaluation Techniques
+
+- [What You Always Wanted to Know About Datalog (And Never Dared to Ask)](https://personal.utdallas.edu/~gupta/courses/acl/papers/datalog-paper.pdf)
+- [Integrating Datalog and Constraint Solving](https://biblio.ugent.be/publication/5646054/file/5646069.pdf)
+- [Compilation Of Bottom-Up Evaluation For a Pure Logic Programming Language](https://researchcommons.waikato.ac.nz/bitstream/handle/10289/12882/thesis.pdf)
+- [Bottom-Up Evaluation](http://users.informatik.uni-halle.de/~brass/lp07/c6_botup.pdf)
+- [Magic Sets](http://users.informatik.uni-halle.de/~brass/lp07/c7_magic.pdf)
+
+### Recursive Relations
+
+- [A Cost Estimation Technique for Recursive Relational Algebra](https://hal.inria.fr/hal-03004218/document)
+- [On the Optimization of Recursive Relational Queries: Application to Graph Queries](http://pierre.geneves.net/papers/mura-sigmod20.pdf)
+- [Cost-Based Optimization for Magic: Algebra and Implementation](https://dsf.berkeley.edu/papers/sigmod96-magic.pdf)
+
+### Query Plans
+
+- [How Good Are Query Optimizers, Really?](https://www.vldb.org/pvldb/vol9/p204-leis.pdf)
+- [Cardinality Estimation Done Right: Index-Based Join Sampling](http://cidrdb.org/cidr2017/papers/p9-leis-cidr17.pdf)
+- [A New Heuristic for Optimizing Large Queries](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.31.737)
+- [Looking Ahead Makes Query Plans Robust](http://www.vldb.org/pvldb/vol10/p889-zhu.pdf)
+- [Worst-case Optimal Join Algorithms](http://pages.cs.wisc.edu/~chrisre/papers/paper49.Ngo.pdf)
+
+### Low-level Efficiency
+
+- [Sort vs. Hash joins](http://www.vldb.org/pvldb/vol7/p85-balkesen.pdf)
+- [Efficiently Compiling Efficient Query Plans for Modern Hardware](http://www.vldb.org/pvldb/vol4/p539-neumann.pdf)
+- [Push vs. Pull-Based Loop Fusion in Query Engines](https://arxiv.org/pdf/1610.09166.pdf)
+- [How to Architect a Query Compiler, Revisited](https://www.cs.purdue.edu/homes/rompf/papers/tahboub-sigmod18.pdf)
