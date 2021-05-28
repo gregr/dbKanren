@@ -89,28 +89,45 @@
 ;; Module parsing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define current-env (make-parameter #f))
+
+(define (current-env-bind  vocab n  v)  (current-env (env-bind  (current-env) vocab n  v)))
+(define (current-env-bind* vocab ns vs) (current-env (env-bind* (current-env) vocab ns vs)))
+
 (define ((parse:module* stx) env)
   (unless (list? stx) (error "invalid module syntax:" stx))
   (with-fresh-names
-    (m:link (map (lambda (stx) ((parse:module stx) env)) stx))))
+    (parameterize ((current-env env))
+      (define resume (apply parse:module:begin stx))
+      (define env    (current-env))
+      (cons (resume env)
+            ;; TODO: choose a better way to package the final env with the result
+            ;; TODO: restrict env to names defined by this module
+            env))))
 
-(define ((parse:module stx) env)
+(define (parse:module:begin . stxs)
+  (define deferred (map parse:module stxs))
+  (lambda (env) (m:link (map (lambda (d) (d env)) deferred))))
+
+(define (parse:module stx)
   (with-fresh-names
     (match stx
       ((? symbol? name)
-       (define mc.b (env-ref env 'module name))
-       (cond ((procedure? mc.b) ((mc.b stx) env))
+       (define mc.b (env-ref (current-env) 'module name))
+       (cond ((procedure? mc.b) (mc.b stx))
              (else              (error "unknown module clause keyword:" name mc.b))))
       (`(,operator ,@operands)
-        (define mc.b (env-ref env 'module operator))
-        (cond ((procedure? mc.b) ((mc.b stx) env))
+        (define mc.b (env-ref (current-env) 'module operator))
+        (cond ((procedure? mc.b) (mc.b stx))
               (else              (error "unknown module clause operator:" operator mc.b))))
-      ((? procedure? self-parse) (self-parse env)))))
+      ((? procedure? self-parse) (self-parse)))))
 
 (define (rule-parser type)
   (simple-parser
     (simple-match-lambda
       (((relation . params) . formulas)
+       (define relation.fresh (fresh-name relation))
+       (current-env-bind 'formula relation relation.fresh)
        (lambda (env)
          ;; NOTE: extracting variables in first-order positions as pattern
          ;; variables may be brittle.  It may be better to introduce a pattern
@@ -120,7 +137,10 @@
          (define names.argument
            (map (lambda (i) (fresh-name (string->symbol (string-append "x." (number->string i)))))
                 (range (length params))))
-         (m:rule type relation names.argument
+         (define relation.fresh (env-ref env 'formula relation))
+         (when (procedure? relation.fresh)
+           (error "invalid relation renaming:" relation relation.fresh))
+         (m:rule type relation relation.fresh names.argument
                  ((apply parse:formula:exist names.params
                          (lambda (env) (foldl f:and
                                               (f:== (quote-literal #t) (quote-literal #t))
@@ -136,50 +156,55 @@
 (define parse:module:import
   (simple-match-lambda
     (kvs (define kwargs (plist->alist kvs))
-         (lambda (env)
-           (m:link (map (lambda (name value)
-                          ((parse:module:define name (lambda (_) (quote-literal value)))
-                           env))
-                        (map car kwargs) (map cdr kwargs)))))))
+         (apply parse:module:begin
+                (map (lambda (name value)
+                       (lambda () (parse:module:define name (lambda (_) (quote-literal value)))))
+                     (map car kwargs) (map cdr kwargs))))))
 
 (define (parse:module:io type)
   (simple-match-lambda
     (kvs (define kwargs (plist->alist kvs))
-         (lambda (env)
-           (m:link (map (lambda (rsig io-device)
-                          ((parse:module:declare rsig type io-device)
-                           env))
-                        (map car kwargs) (map cdr kwargs)))))))
+         (apply parse:module:begin
+                (map (lambda (rsig io-device)
+                       (lambda () (parse:module:declare rsig type io-device)))
+                     (map car kwargs) (map cdr kwargs))))))
 
 (define parse:module:input  (parse:module:io 'input))
 (define parse:module:output (parse:module:io 'output))
 
 (define parse:module:define
   (simple-match-lambda
-    (((name . params) body) (lambda (env) (m:define (hash name ((parse:term:lambda params body) env)))))
-    ((name            body) (lambda (env) (m:define (hash name ((parse:term               body) env)))))))
+    (((name . params) body) (parse:module:define name (lambda (env) ((parse:term:lambda params body) env))))
+    ((name            body) (define uname (fresh-name name))
+                            (current-env-bind 'term name uname)
+                            (lambda (env) (m:define (hash name  uname)
+                                                    (hash uname ((parse:term body) env)))))))
 
 (define parse:module:declare
   (simple-match-lambda
-    (((relation . attrs) . args)      (lambda (env) (m:link (list (m:declare relation (hash 'attributes attrs))
-                                                                  ((apply parse:module:declare relation args)
-                                                                   env)))))
-    ((relation)                       (lambda (env) (m:declare relation (hash))))
-    ((relation property value . args) (lambda (env)
-                                        (define p.b (env-ref env 'declare property))
-                                        (define pmap (cond ((procedure? p.b) (match-define (cons p v) ((p.b value) env))
-                                                                             (hash p v))
-                                                           (else             (hash (if p.b p.b property) value))))
-                                        (m:link (list (m:declare relation pmap)
-                                                      ((apply parse:module:declare relation args)
-                                                       env)))))))
+    (((relation . attrs) . kvs) (apply parse:module:declare relation 'attributes attrs kvs))
+    ((relation           . kvs) (define kwargs         (plist->alist kvs))
+                                (define relation.fresh (fresh-name relation))
+                                (current-env-bind 'formula relation relation.fresh)
+                                (apply parse:module:begin
+                                       (map (lambda (property value)
+                                              (lambda ()
+                                                (lambda (env)
+                                                  (define p.b (env-ref env 'declare property))
+                                                  (define pmap (cond ((procedure? p.b) ((p.b value) env))
+                                                                     (else             (hash (if p.b p.b property) value))))
+                                                  (define relation.fresh (env-ref env 'formula relation))
+                                                  (when (procedure? relation.fresh)
+                                                    (error "invalid relation renaming:" relation relation.fresh))
+                                                  (m:declare relation relation.fresh pmap))))
+                                            (map car kwargs) (map cdr kwargs))))))
 
 (define parse:module:assert
   (simple-match-lambda ((formula) (lambda (env) (m:assert ((parse:formula formula) env))))))
 
 (define parse:declare:indexes
   (simple-match-lambda
-    ((projections) (lambda (env) (cons 'indexes (map (lambda (proj) ((parse:term* proj) env))
+    ((projections) (lambda (env) (hash 'indexes (map (lambda (proj) ((parse:term* proj) env))
                                                      projections))))))
 
 (define env.initial.module.declare
@@ -190,6 +215,7 @@
 (define env.initial.module.clause
   (env:new
     'module
+    'begin           (simple-parser parse:module:begin)
     'link            (simple-parser parse:module:link)
     'import          (simple-parser parse:module:import)
     'input           (simple-parser parse:module:input)
@@ -259,13 +285,12 @@
 
 (define (parse:formula:quantifier f:quantifier msg.name)
   (simple-match-lambda
-    ((params . body) (define names (param-names params))
-                     (unless (unique? names)
-                       (error (string-append msg.name " parameter names must be unique:") names))
-                     (lambda (env)
-                       (define unames (map fresh-name names))
-                       (f:quantifier unames ((apply parse:formula:and body)
-                                             (env-bind* env 'term names unames)))))))
+    ((names . body) (unless (unique? names)
+                      (error (string-append msg.name " parameter names must be unique:") names))
+                    (lambda (env)
+                      (define unames (map fresh-name names))
+                      (f:quantifier unames ((apply parse:formula:and body)
+                                            (env-bind* env 'term names unames)))))))
 
 (define parse:formula:exist (parse:formula:quantifier f:exist "existential quantifier"))
 (define parse:formula:all   (parse:formula:quantifier f:all   "universal quantifier"))

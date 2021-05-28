@@ -230,14 +230,14 @@
   ;(m:unlink  m1 m2)          ; subtract from m1 any components that are exact matches for anything present in m2
 
   (m:link    modules)
-  (m:define  name=>term)
-  (m:declare relation property=>value)
+  (m:define  name.public=>name.private name.private=>term)
+  (m:declare relation.public relation.private property=>value)
   ;; type of rule:
   ;;  merge (<<=): include immediately with fixed point
   ;; insert (<<+): add at next time step
   ;; delete (<<-): omit from next time step
   ;;   send (<<~): deliver asynchronously at indeterminate time step
-  (m:rule    type relation params body)
+  (m:rule    type relation.public relation.private params body)
   (m:assert  formula))
 
 (define-variant formula?
