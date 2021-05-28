@@ -1,6 +1,6 @@
 #lang racket/base
 (provide
-  define-dbk dbk link import input output
+  define-dbk dbk dbk-syntax link import input output
   dbk-environment dbk-environment-update with-dbk-environment-update with-fresh-names
   env.empty env:new env-ref env-set env-set* env-remove env-remove* env-bind env-bind* env-union
   literal? literal simple-parser
@@ -129,6 +129,31 @@
                          formulas)
                   env)))))))
 
+(define parse:module:link
+  (simple-match-lambda
+    (ms (lambda (_) (m:link ms)))))
+
+(define parse:module:import
+  (simple-match-lambda
+    (kvs (define kwargs (plist->alist kvs))
+         (lambda (env)
+           (m:link (map (lambda (name value)
+                          ((parse:module:define name (lambda (_) (quote-literal value)))
+                           env))
+                        (map car kwargs) (map cdr kwargs)))))))
+
+(define (parse:module:io type)
+  (simple-match-lambda
+    (kvs (define kwargs (plist->alist kvs))
+         (lambda (env)
+           (m:link (map (lambda (rsig io-device)
+                          ((parse:module:declare rsig type io-device)
+                           env))
+                        (map car kwargs) (map cdr kwargs)))))))
+
+(define parse:module:input  (parse:module:io 'input))
+(define parse:module:output (parse:module:io 'output))
+
 (define parse:module:define
   (simple-match-lambda
     (((name . params) body) (lambda (env) (m:define (hash name ((parse:term:lambda params body) env)))))
@@ -165,6 +190,10 @@
 (define env.initial.module.clause
   (env:new
     'module
+    'link            (simple-parser parse:module:link)
+    'import          (simple-parser parse:module:import)
+    'input           (simple-parser parse:module:input)
+    'output          (simple-parser parse:module:output)
     'define          (simple-parser parse:module:define)
     'declare         (simple-parser parse:module:declare)
     'assert          (simple-parser parse:module:assert)
@@ -481,43 +510,25 @@
 
 (define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
 
-(define-syntax-rule (dbk clauses ...)          (with-fresh-names (dbk-parse () clauses ...)))
+(define-syntax-rule (dbk clauses ...)          (with-fresh-names
+                                                 ((parse:module* (dbk-syntax clauses ...))
+                                                  (dbk-environment))))
 
 (define-syntax link   (syntax-rules ()))
 (define-syntax import (syntax-rules ()))
 (define-syntax input  (syntax-rules ()))
 (define-syntax output (syntax-rules ()))
 
-(define-syntax dbk-parse
+(define-syntax plist-syntax
+  (syntax-rules ()
+    ((_ key val plist ...) `(key ,val . ,(plist-syntax plist ...)))
+    ((_)                   '())))
+
+(define-syntax dbk-syntax
   (syntax-rules (link import input output)
-    ((_ (parsed ...)) (m:link (list parsed ...)))
-
-    ((_ (parsed ...) (link modules ...) clauses ...)
-     (dbk-parse (parsed ... (m:link (list modules ...)))
-                clauses ...))
-
-    ((_ parsed       (import)                        clauses ...)
-     (dbk-parse parsed clauses ...))
-    ((_ (parsed ...) (import name value imports ...) clauses ...)
-     (dbk-parse (parsed ... (m:define (hash 'name (quote-literal value))))
-                (import imports ...) clauses ...))
-
-    ((_ parsed       (input)                                           clauses ...)
-     (dbk-parse parsed clauses ...))
-    ((_ (parsed ...) (input (relation attrs ...) io-device inputs ...) clauses ...)
-     (dbk-parse (parsed ...  (m:declare 'relation
-                                        (hash 'attributes '(attrs ...)
-                                              'input      io-device)))
-                (input inputs ...) clauses ...))
-
-    ((_ parsed       (output)                                            clauses ...)
-     (dbk-parse parsed clauses ...))
-    ((_ (parsed ...) (output (relation attrs ...) io-device outputs ...) clauses ...)
-     (dbk-parse (parsed ...  (m:declare 'relation
-                                        (hash 'attributes '(attrs ...)
-                                              'output     io-device)))
-                (output outputs ...) clauses ...))
-
-    ((_ (parsed ...) clause clauses ...)
-     (dbk-parse (parsed ... ((parse:module 'clause) (dbk-environment)))
-                clauses ...))))
+    ((_ (link modules ...)   clauses ...) (cons `(link ,modules ...)                    (dbk-syntax clauses ...)))
+    ((_ (import imports ...) clauses ...) (cons `(import . ,(plist-syntax imports ...)) (dbk-syntax clauses ...)))
+    ((_ (input inputs ...)   clauses ...) (cons `(input  . ,(plist-syntax inputs  ...)) (dbk-syntax clauses ...)))
+    ((_ (output outputs ...) clauses ...) (cons `(output . ,(plist-syntax outputs ...)) (dbk-syntax clauses ...)))
+    ((_ clause               clauses ...) (cons 'clause                                 (dbk-syntax clauses ...)))
+    ((_)                                  '())))
