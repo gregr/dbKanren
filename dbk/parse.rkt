@@ -142,10 +142,12 @@
     ((relation)                       (lambda (env) (m:declare relation (hash))))
     ((relation property value . args) (lambda (env)
                                         (define p.b (env-ref env 'declare property))
-                                        (m:declare relation
-                                                   (cond ((procedure? p.b) (match-define (cons p v) ((p.b value) env))
-                                                                           (hash p v))
-                                                         (else             (hash (if p.b p.b property) value))))))))
+                                        (define pmap (cond ((procedure? p.b) (match-define (cons p v) ((p.b value) env))
+                                                                             (hash p v))
+                                                           (else             (hash (if p.b p.b property) value))))
+                                        (m:link (list (m:declare relation pmap)
+                                                      ((apply parse:module:declare relation args)
+                                                       env)))))))
 
 (define parse:module:assert
   (simple-match-lambda ((formula) (lambda (env) (m:assert ((parse:formula formula) env))))))
