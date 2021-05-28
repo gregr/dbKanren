@@ -6,6 +6,7 @@
   t:query t:map/merge t:quote t:var t:prim t:app t:lambda t:if t:let t:letrec
   t:apply t:cons t:car t:cdr t:vector t:list->vector t:vector-ref t:vector-length
   t-free-vars f-free-vars t-free-vars* t-free-vars-first-order t-free-vars-first-order*
+  t-substitute f-substitute t-substitute* t-substitute-first-order t-substitute-first-order*
   f-relations t-relations t-relations*)
 (require "misc.rkt" racket/match racket/set)
 
@@ -306,8 +307,8 @@
       ((f:and     f1 f2)         (set-union (loop f1) (loop f2)))
       ((f:implies if then)       (set-union (loop if) (loop then)))
       ((f:relate  relation args) (t-free-vars* args first-order?))
-      ((f:exist   vnames body)   (set-subtract (loop body) (list->set vnames)))
-      ((f:all     vnames body)   (set-subtract (loop body) (list->set vnames))))))
+      ((f:exist   params body)   (set-subtract (loop body) (list->set params)))
+      ((f:all     params body)   (set-subtract (loop body) (list->set params))))))
 
 (define (t-free-vars* ts (first-order? #f))
   (foldl (lambda (t vs) (set-union vs (t-free-vars t first-order?)))
@@ -321,8 +322,8 @@
     ((f:and     f1 f2)         (set-union (f-relations f1) (f-relations f2)))
     ((f:implies if then)       (set-union (f-relations if) (f-relations then)))
     ((f:relate  relation args) (set-add (t-relations* args) relation))
-    ((f:exist   vnames body)   (f-relations body))
-    ((f:all     vnames body)   (f-relations body))))
+    ((f:exist   params body)   (f-relations body))
+    ((f:all     params body)   (f-relations body))))
 
 (define (t-relations t)
   (match t
@@ -339,6 +340,58 @@
 (define (t-relations* ts)
   (foldl (lambda (t rs) (set-union rs (t-relations t)))
          (set) ts))
+
+(define (t-substitute t name=>name (first-order? #f))
+  (let loop ((t t))
+    (match t
+      ((t:query  name f)      (t:query name (f-substitute f (hash-remove name=>name name) first-order?)))
+      ((t:quote  _)           t)
+      ((t:var    name)        (t:var (hash-ref name=>name name name)))
+      ((t:prim   _)           t)
+      ((t:app    func args)   (t:app func (t-substitute* args name=>name first-order?)))
+      ((t:lambda params body) (t:lambda params (t-substitute body
+                                                             (hash-remove* name=>name params)
+                                                             first-order?)))
+      ((t:if     c t f)       (t:if (loop c) (loop t) (loop f)))
+      ((t:let    bpairs body) (define params (map car bpairs))
+                              (t:let (map cons params (t-substitute* (map cdr bpairs)
+                                                                     name=>name
+                                                                     first-order?))
+                                     (t-substitute body
+                                                   (hash-remove* name=>name params)
+                                                   first-order?)))
+      ((t:letrec bpairs body) (define params (map car bpairs))
+                              (define n=>n   (hash-remove* name=>name params))
+                              (t:let (map cons params (t-substitute* (map cdr bpairs)
+                                                                     n=>n
+                                                                     first-order?))
+                                     (t-substitute body
+                                                   n=>n
+                                                   first-order?))))))
+
+(define (t-substitute* ts name=>name (first-order? #f))
+  (map (lambda (t) (t-substitute t name=>name first-order?)) ts))
+
+(define (f-substitute f name=>name (first-order? #f))
+  (let loop ((f f))
+    (match f
+      ((f:const   _)             f)
+      ((f:or      f1 f2)         (f:or      (loop f1)
+                                            (loop f2)))
+      ((f:and     f1 f2)         (f:and     (loop f1)
+                                            (loop f2)))
+      ((f:implies if then)       (f:implies (loop if)
+                                            (loop then)))
+      ((f:relate  relation args) (f:relate relation (t-substitute* args name=>name first-order?)))
+      ((f:exist   params body)   (f:exist params (f-substitute body
+                                                               (hash-remove* name=>name params)
+                                                               first-order?)))
+      ((f:all   params body)     (f:all   params (f-substitute body
+                                                               (hash-remove* name=>name params)
+                                                               first-order?))))))
+
+(define (t-substitute-first-order  t  name=>name) (t-substitute  t  name=>name #t))
+(define (t-substitute-first-order* ts name=>name) (t-substitute* ts name=>name #t))
 
 ;; TODO: simplify within some context (which may bind/constrain variables)?
 ;(define (t-simplify t)

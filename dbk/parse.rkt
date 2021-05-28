@@ -2,7 +2,7 @@
 (provide
   define-dbk dbk dbk-syntax link import input output
   dbk-environment dbk-environment-update with-dbk-environment-update with-fresh-names
-  env.empty env:new env-ref env-set env-set* env-remove env-remove* env-bind env-bind* env-union
+  env.empty env:new env-ref env-ref* env-set env-set* env-remove env-remove* env-bind env-bind* env-union
   literal? literal simple-parser
   parse:module* parse:module parse:formula parse:term)
 (require "abstract-syntax.rkt" "misc.rkt"
@@ -45,6 +45,7 @@
 (define env.empty (hash))
 
 (define (env-ref     env vocab n)     (hash-ref (hash-ref env n (hash)) vocab #f))
+(define (env-ref*    env vocab ns)    (map (lambda (n) (env-ref env vocab n)) ns))
 (define (env-set     env vocab n  v)  (hash-update env n (lambda (vocab=>v) (hash-set vocab=>v vocab v)) (hash)))
 (define (env-set*    env vocab ns vs) (foldl (lambda (n v env) (env-set env vocab n v)) env ns vs))
 
@@ -142,10 +143,15 @@
            (error "invalid relation renaming:" relation relation.fresh))
          (m:rule type relation relation.fresh names.argument
                  ((apply parse:formula:exist names.params
-                         (lambda (env) (foldl f:and
-                                              (f:== (quote-literal #t) (quote-literal #t))
-                                              (map (lambda (n p) (f:== (t:var n) ((parse:term p) env)))
-                                                   names.argument params)))
+                         (lambda (env)
+                           (foldl f:and
+                                  (f:== (quote-literal #t) (quote-literal #t))
+                                  (map (lambda (n t) (f:== (t:var n) t))
+                                       names.argument
+                                       (t-substitute-first-order*
+                                         ts.params
+                                         (make-immutable-hash
+                                           (map cons names.params (env-ref* env 'term names.params)))))))
                          formulas)
                   env)))))))
 

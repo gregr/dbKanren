@@ -3,6 +3,7 @@
          method-lambda method-choose method-unknown method-except method-only
          foldl/and let*/and define-variant
          plist->alist alist-ref alist-remove alist-update alist-set
+         hash-remove*
          call/files let/files)
 (require (for-syntax racket/base) racket/match)
 
@@ -187,6 +188,9 @@
 
 (define (alist-set alist key value)
   (alist-update alist key (lambda (_) value) #f))
+
+(define (hash-remove* h keys)
+  (foldl (lambda (k h) (hash-remove h k)) h keys))
 
 (define (call/files fins fouts p)
   (let loop ((fins fins) (ins '()))
