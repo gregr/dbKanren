@@ -386,7 +386,7 @@
       ((f:exist   params body)   (f:exist params (f-substitute body
                                                                (hash-remove* name=>name params)
                                                                first-order?)))
-      ((f:all   params body)     (f:all   params (f-substitute body
+      ((f:all     params body)   (f:all   params (f-substitute body
                                                                (hash-remove* name=>name params)
                                                                first-order?))))))
 
