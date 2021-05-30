@@ -1,6 +1,6 @@
 #lang racket/base
 (provide
-  define-dbk dbk dbk-syntax link import input output
+  define-dbk dbk dbk-parse dbk-syntax link import input output
   dbk-environment dbk-environment-update with-dbk-environment-update with-fresh-names
   env.empty env:new env-ref env-ref* env-set env-set* env-remove env-remove* env-bind env-bind* env-union
   literal? literal simple-parser
@@ -547,9 +547,10 @@
 
 (define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
 
-(define-syntax-rule (dbk clauses ...)          (with-fresh-names
-                                                 ((parse:module* (dbk-syntax clauses ...))
-                                                  (dbk-environment))))
+(define-syntax-rule (dbk clauses ...)          (dbk-parse (dbk-syntax clauses ...)))
+
+(define-syntax-rule (dbk-parse stx)            (with-fresh-names
+                                                 ((parse:module* stx) (dbk-environment))))
 
 (define-syntax link   (syntax-rules ()))
 (define-syntax import (syntax-rules ()))
