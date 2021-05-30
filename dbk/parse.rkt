@@ -123,6 +123,11 @@
              (else              (error "unknown module clause operator:" operator mc.b))))
       ((? procedure? self-parse) (self-parse)))))
 
+(define parse:module:module
+  (simple-match-lambda
+    ((name . body) (define resume (apply parse:module:begin body))
+                   (lambda (env) (m:named name (resume env))))))
+
 (define (rule-parser type)
   (simple-parser
     (simple-match-lambda
@@ -221,6 +226,7 @@
 (define env.initial.module.clause
   (env:new
     'module
+    'module          (simple-parser parse:module:module)
     'begin           (simple-parser parse:module:begin)
     'link            (simple-parser parse:module:link)
     'import          (simple-parser parse:module:import)
@@ -556,8 +562,9 @@
     ((_)                   '())))
 
 (define-syntax dbk-syntax
-  (syntax-rules (link import input output)
-    ((_ (link modules ...)   clauses ...) (cons `(link ,modules ...)                    (dbk-syntax clauses ...)))
+  (syntax-rules (module link import input output)
+    ((_ (module name cs ...) clauses ...) (cons `(module ,name . ,(dbk-syntax cs ...))  (dbk-syntax clauses ...)))
+    ((_ (link modules ...)   clauses ...) (cons `(link   ,modules ...)                  (dbk-syntax clauses ...)))
     ((_ (import imports ...) clauses ...) (cons `(import . ,(plist-syntax imports ...)) (dbk-syntax clauses ...)))
     ((_ (input inputs ...)   clauses ...) (cons `(input  . ,(plist-syntax inputs  ...)) (dbk-syntax clauses ...)))
     ((_ (output outputs ...) clauses ...) (cons `(output . ,(plist-syntax outputs ...)) (dbk-syntax clauses ...)))

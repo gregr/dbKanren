@@ -1,6 +1,6 @@
 #lang racket/base
 (provide
-  m:link m:define m:declare m:rule m:assert
+  m:named m:link m:define m:declare m:rule m:assert
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
   t:query t:map/merge t:quote t:var t:prim t:app t:lambda t:if t:let t:letrec
@@ -230,6 +230,7 @@
   ;(m:rename  m name=>name?)  ; if target name is #f, consider the original name private
   ;(m:unlink  m1 m2)          ; subtract from m1 any components that are exact matches for anything present in m2
 
+  (m:named   name m)
   (m:link    modules)
   (m:define  name.public=>name.private name.private=>term)
   (m:declare relation.public relation.private property=>value)
