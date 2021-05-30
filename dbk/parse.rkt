@@ -159,19 +159,21 @@
          (define relation.fresh (env-ref env 'formula relation))
          (when (procedure? relation.fresh)
            (error "invalid relation renaming:" relation relation.fresh))
-         (m:rule type relation relation.fresh names.argument
-                 ((apply parse:formula:exist names.params
-                         (lambda (env)
-                           (foldl f:and
-                                  (f:== (quote-literal #t) (quote-literal #t))
-                                  (map (lambda (n t) (f:== (t:var n) t))
-                                       names.argument
-                                       (t-substitute-first-order*
-                                         ts.params
-                                         (make-immutable-hash
-                                           (map cons names.params (env-ref* env 'term names.params)))))))
-                         formulas)
-                  env)))))))
+         (define formula
+           ((apply parse:formula:exist names.params
+                   (lambda (env)
+                     (foldl f:and
+                            (f:== (quote-literal #t) (quote-literal #t))
+                            (map (lambda (n t) (f:== (t:var n) t))
+                                 names.argument
+                                 (t-substitute-first-order*
+                                   ts.params
+                                   (make-immutable-hash
+                                     (map cons names.params (env-ref* env 'term names.params)))))))
+                   formulas)
+            env))
+         (m:relations (hash relation       relation.fresh)
+                      (hash relation.fresh (hash 'rules (list (vector type names.argument formula))))))))))
 
 (define parse:module:link
   (simple-match-lambda

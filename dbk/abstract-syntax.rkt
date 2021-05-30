@@ -1,6 +1,6 @@
 #lang racket/base
 (provide
-  m:named m:link m:terms m:relations m:rule m:assert
+  m:named m:link m:terms m:relations m:assert
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
   t:query t:map/merge t:quote t:var t:prim t:app t:lambda t:if t:let t:letrec
@@ -234,13 +234,7 @@
   (m:link      modules)
   (m:terms     name.public=>name.private name.private=>property=>value)
   (m:relations name.public=>name.private name.private=>property=>value)
-  ;; type of rule:
-  ;;  merge (<<=): include immediately with fixed point
-  ;; insert (<<+): add at next time step
-  ;; delete (<<-): omit from next time step
-  ;;   send (<<~): deliver asynchronously at indeterminate time step
-  (m:rule    type relation.public relation.private params body)
-  (m:assert  formula))
+  (m:assert    formula))
 
 (define-variant formula?
   (f:const   value)  ; can be thought of as a relation taking no arguments
