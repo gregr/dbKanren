@@ -186,11 +186,7 @@
 (define parse:module:define
   (simple-match-lambda
     (((name . params) body) (parse:module:define name (parse:term:lambda params body)))
-    ((name            body) (define uname (fresh-name name))
-                            (current-env-bind 'term name uname)
-                            ;; TODO: re-check private term name when resuming
-                            (lambda (env) (m:terms (hash name uname)
-                                                   (hash uname (hash 'definition ((parse:term body) env))))))))
+    ((name            body) (parse:module:term   name 'definition body))))
 
 (define parse:module:relation
   (simple-match-lambda
@@ -212,14 +208,35 @@
                                                                (hash relation.fresh pmap)))))
                                             (map car kwargs) (map cdr kwargs))))))
 
-(define parse:module:relations
+(define parse:module:term
+  (simple-match-lambda
+    ((name . kvs) (define kwargs (plist->alist kvs))
+                  (define uname  (fresh-name name))
+                  (current-env-bind 'term name uname)
+                  (apply parse:module:begin
+                         (map (lambda (property value)
+                                (lambda ()
+                                  (lambda (env)
+                                    (define p.b (env-ref env 'declare-term property))
+                                    (define pmap (cond ((procedure? p.b) ((p.b value) env))
+                                                       (else             (hash (if p.b p.b property) value))))
+                                    (define uname (env-ref env 'term name))
+                                    (when (procedure? uname)
+                                      (error "invalid term renaming:" name uname))
+                                    (m:terms (hash name uname) (hash uname pmap)))))
+                              (map car kwargs) (map cdr kwargs))))))
+
+(define (parse:module:declare* parse-spec)
   (simple-match-lambda
     (specs (apply parse:module:begin
                   (map (lambda (spec)
                          (lambda () (if (list? spec)
-                                      (apply parse:module:relation spec)
-                                      (parse:module:relation       spec))))
+                                      (apply parse-spec spec)
+                                      (parse-spec       spec))))
                        specs)))))
+
+(define parse:module:relations (parse:module:declare* parse:module:relation))
+(define parse:module:terms     (parse:module:declare* parse:module:term))
 
 (define parse:module:assert
   (simple-match-lambda ((formula) (lambda (env) (m:assert ((parse:formula formula) env))))))
@@ -229,10 +246,19 @@
     ((projections) (lambda (env) (hash 'indexes (map (lambda (proj) ((parse:term* proj) env))
                                                      projections))))))
 
+(define parse:declare-term:definition
+  (simple-match-lambda
+    ((body) (lambda (env) (hash 'definition ((parse:term body) env))))))
+
 (define env.initial.module.declare-relation
   (env:new
     'declare-relation
     'indexes parse:declare-relation:indexes))
+
+(define env.initial.module.declare-term
+  (env:new
+    'declare-term
+    'definition parse:declare-term:definition))
 
 (define env.initial.module.clause
   (env:new
@@ -242,6 +268,8 @@
     'link            (simple-parser parse:module:link)
     'relation        (simple-parser parse:module:relation)
     'relations       (simple-parser parse:module:relations)
+    'term            (simple-parser parse:module:term)
+    'terms           (simple-parser parse:module:terms)
     'parameter       (simple-parser parse:module:parameter)
     'input           (simple-parser parse:module:input)
     'output          (simple-parser parse:module:output)
@@ -255,6 +283,7 @@
     'define-relation (rule-parser '<<=)))
 
 (define env.initial.module (env-union env.initial.module.declare-relation
+                                      env.initial.module.declare-term
                                       env.initial.module.clause))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
