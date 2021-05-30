@@ -95,6 +95,19 @@
 (define (current-env-bind  vocab n  v)  (current-env (env-bind  (current-env) vocab n  v)))
 (define (current-env-bind* vocab ns vs) (current-env (env-bind* (current-env) vocab ns vs)))
 
+(define (quote-property property)
+  (lambda (value)
+    (lambda (env) (hash property value))))
+
+(define parse:declare-relation:indexes
+  (lambda (projections)
+    (lambda (env) (hash 'indexes (map (lambda (proj) ((parse:term* proj) env))
+                                      projections)))))
+
+(define parse:declare-term:definition
+  (lambda (body)
+    (lambda (env) (hash 'definition ((parse:term body) env)))))
+
 (define ((parse:module* stx) env)
   (unless (list? stx) (error "invalid module syntax:" stx))
   (with-fresh-names
@@ -180,17 +193,17 @@
                        (lambda () (parse:module:relation rsig type io-device)))
                      (map car kwargs) (map cdr kwargs))))))
 
-(define parse:module:input  (parse:module:io 'input))
-(define parse:module:output (parse:module:io 'output))
+(define parse:module:input  (parse:module:io (quote-property 'input)))
+(define parse:module:output (parse:module:io (quote-property 'output)))
 
 (define parse:module:define
   (simple-match-lambda
     (((name . params) body) (parse:module:define name (parse:term:lambda params body)))
-    ((name            body) (parse:module:term   name 'definition body))))
+    ((name            body) (parse:module:term   name parse:declare-term:definition body))))
 
 (define parse:module:relation
   (simple-match-lambda
-    (((relation . attrs) . kvs) (apply parse:module:relation relation 'attributes attrs kvs))
+    (((relation . attrs) . kvs) (apply parse:module:relation relation (quote-property 'attributes) attrs kvs))
     ((relation           . kvs) (define kwargs         (plist->alist kvs))
                                 (define relation.fresh (fresh-name relation))
                                 (current-env-bind 'formula relation relation.fresh)
@@ -204,7 +217,9 @@
                                          (map (lambda (property value)
                                                 (lambda ()
                                                   (lambda (env)
-                                                    (define p.b (env-ref env 'declare-relation property))
+                                                    (define p.b (if (procedure? property)
+                                                                  property
+                                                                  (env-ref env 'declare-relation property)))
                                                     (define pmap (cond ((procedure? p.b) ((p.b value) env))
                                                                        (else             (hash (if p.b p.b property) value))))
                                                     (define relation.fresh (env-ref env 'formula relation))
@@ -229,7 +244,9 @@
                            (map (lambda (property value)
                                   (lambda ()
                                     (lambda (env)
-                                      (define p.b (env-ref env 'declare-term property))
+                                      (define p.b (if (procedure? property)
+                                                    property
+                                                    (env-ref env 'declare-term property)))
                                       (define pmap (cond ((procedure? p.b) ((p.b value) env))
                                                          (else             (hash (if p.b p.b property) value))))
                                       (define uname (env-ref env 'term name))
@@ -252,15 +269,6 @@
 
 (define parse:module:assert
   (simple-match-lambda ((formula) (lambda (env) (m:assert ((parse:formula formula) env))))))
-
-(define parse:declare-relation:indexes
-  (simple-match-lambda
-    ((projections) (lambda (env) (hash 'indexes (map (lambda (proj) ((parse:term* proj) env))
-                                                     projections))))))
-
-(define parse:declare-term:definition
-  (simple-match-lambda
-    ((body) (lambda (env) (hash 'definition ((parse:term body) env))))))
 
 (define env.initial.module.declare-relation
   (env:new
