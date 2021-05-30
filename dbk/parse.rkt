@@ -188,8 +188,9 @@
     (((name . params) body) (parse:module:define name (parse:term:lambda params body)))
     ((name            body) (define uname (fresh-name name))
                             (current-env-bind 'term name uname)
-                            (lambda (env) (m:define (hash name  uname)
-                                                    (hash uname ((parse:term body) env)))))))
+                            ;; TODO: re-check private term name when resuming
+                            (lambda (env) (m:terms (hash name uname)
+                                                   (hash uname (hash 'definition ((parse:term body) env))))))))
 
 (define parse:module:relation
   (simple-match-lambda
@@ -207,7 +208,8 @@
                                                   (define relation.fresh (env-ref env 'formula relation))
                                                   (when (procedure? relation.fresh)
                                                     (error "invalid relation renaming:" relation relation.fresh))
-                                                  (m:declare relation relation.fresh pmap))))
+                                                  (m:relations (hash relation       relation.fresh)
+                                                               (hash relation.fresh pmap)))))
                                             (map car kwargs) (map cdr kwargs))))))
 
 (define parse:module:relations
