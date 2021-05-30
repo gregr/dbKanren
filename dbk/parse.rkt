@@ -1,6 +1,6 @@
 #lang racket/base
 (provide
-  define-dbk dbk dbk-parse dbk-syntax link import input output
+  define-dbk dbk dbk-parse dbk-syntax link parameter input output
   dbk-environment dbk-environment-update with-dbk-environment-update with-fresh-names
   env.empty env:new env-ref env-ref* env-set env-set* env-remove env-remove* env-bind env-bind* env-union
   literal? literal simple-parser
@@ -164,7 +164,7 @@
   (simple-match-lambda
     (ms (lambda (_) (m:link ms)))))
 
-(define parse:module:import
+(define parse:module:parameter
   (simple-match-lambda
     (kvs (define kwargs (plist->alist kvs))
          (apply parse:module:begin
@@ -229,7 +229,7 @@
     'module          (simple-parser parse:module:module)
     'begin           (simple-parser parse:module:begin)
     'link            (simple-parser parse:module:link)
-    'import          (simple-parser parse:module:import)
+    'parameter       (simple-parser parse:module:parameter)
     'input           (simple-parser parse:module:input)
     'output          (simple-parser parse:module:output)
     'define          (simple-parser parse:module:define)
@@ -552,10 +552,11 @@
 (define-syntax-rule (dbk-parse stx)            (with-fresh-names
                                                  ((parse:module* stx) (dbk-environment))))
 
-(define-syntax link   (syntax-rules ()))
-(define-syntax import (syntax-rules ()))
-(define-syntax input  (syntax-rules ()))
-(define-syntax output (syntax-rules ()))
+;; TODO: implement link as a procedure
+(define-syntax link      (syntax-rules ()))
+(define-syntax parameter (syntax-rules ()))
+(define-syntax input     (syntax-rules ()))
+(define-syntax output    (syntax-rules ()))
 
 (define-syntax plist-syntax
   (syntax-rules ()
@@ -563,11 +564,11 @@
     ((_)                   '())))
 
 (define-syntax dbk-syntax
-  (syntax-rules (module link import input output)
-    ((_ (module name cs ...) clauses ...) (cons `(module ,name . ,(dbk-syntax cs ...))  (dbk-syntax clauses ...)))
-    ((_ (link modules ...)   clauses ...) (cons `(link   ,modules ...)                  (dbk-syntax clauses ...)))
-    ((_ (import imports ...) clauses ...) (cons `(import . ,(plist-syntax imports ...)) (dbk-syntax clauses ...)))
-    ((_ (input inputs ...)   clauses ...) (cons `(input  . ,(plist-syntax inputs  ...)) (dbk-syntax clauses ...)))
-    ((_ (output outputs ...) clauses ...) (cons `(output . ,(plist-syntax outputs ...)) (dbk-syntax clauses ...)))
-    ((_ clause               clauses ...) (cons 'clause                                 (dbk-syntax clauses ...)))
-    ((_)                                  '())))
+  (syntax-rules (module link parameter input output)
+    ((_ (module    name cs ...) clauses ...) (cons `(module    ,name . ,(dbk-syntax cs  ...)) (dbk-syntax clauses ...)))
+    ((_ (link      modules ...) clauses ...) (cons `(link      ,modules ...)                  (dbk-syntax clauses ...)))
+    ((_ (parameter params  ...) clauses ...) (cons `(parameter . ,(plist-syntax params  ...)) (dbk-syntax clauses ...)))
+    ((_ (input     inputs  ...) clauses ...) (cons `(input     . ,(plist-syntax inputs  ...)) (dbk-syntax clauses ...)))
+    ((_ (output    outputs ...) clauses ...) (cons `(output    . ,(plist-syntax outputs ...)) (dbk-syntax clauses ...)))
+    ((_ clause                  clauses ...) (cons 'clause                                    (dbk-syntax clauses ...)))
+    ((_)                                     '())))

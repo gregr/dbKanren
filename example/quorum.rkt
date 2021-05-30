@@ -32,9 +32,9 @@
   (link m.quorum-vote
         ;; Factored out so that m.quorum-vote is reusable
         (dbk
-          (import quorum-size 3)
-          (input  (vote.in    id) _)  ; TODO: fill _ with an actual input device
-          (output (result.out x)  (out:pipe pipe.result)))))
+          (parameter quorum-size 3)
+          (input     (vote.in    id) _)  ; TODO: fill _ with an actual input device
+          (output    (result.out x)  (out:pipe pipe.result)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Run example
