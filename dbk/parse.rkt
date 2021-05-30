@@ -177,7 +177,7 @@
     (kvs (define kwargs (plist->alist kvs))
          (apply parse:module:begin
                 (map (lambda (rsig io-device)
-                       (lambda () (parse:module:declare rsig type io-device)))
+                       (lambda () (parse:module:relation rsig type io-device)))
                      (map car kwargs) (map cdr kwargs))))))
 
 (define parse:module:input  (parse:module:io 'input))
@@ -191,9 +191,9 @@
                             (lambda (env) (m:define (hash name  uname)
                                                     (hash uname ((parse:term body) env)))))))
 
-(define parse:module:declare
+(define parse:module:relation
   (simple-match-lambda
-    (((relation . attrs) . kvs) (apply parse:module:declare relation 'attributes attrs kvs))
+    (((relation . attrs) . kvs) (apply parse:module:relation relation 'attributes attrs kvs))
     ((relation           . kvs) (define kwargs         (plist->alist kvs))
                                 (define relation.fresh (fresh-name relation))
                                 (current-env-bind 'formula relation relation.fresh)
@@ -201,7 +201,7 @@
                                        (map (lambda (property value)
                                               (lambda ()
                                                 (lambda (env)
-                                                  (define p.b (env-ref env 'declare property))
+                                                  (define p.b (env-ref env 'declare-relation property))
                                                   (define pmap (cond ((procedure? p.b) ((p.b value) env))
                                                                      (else             (hash (if p.b p.b property) value))))
                                                   (define relation.fresh (env-ref env 'formula relation))
@@ -210,18 +210,27 @@
                                                   (m:declare relation relation.fresh pmap))))
                                             (map car kwargs) (map cdr kwargs))))))
 
+(define parse:module:relations
+  (simple-match-lambda
+    (specs (apply parse:module:begin
+                  (map (lambda (spec)
+                         (lambda () (if (list? spec)
+                                      (apply parse:module:relation spec)
+                                      (parse:module:relation       spec))))
+                       specs)))))
+
 (define parse:module:assert
   (simple-match-lambda ((formula) (lambda (env) (m:assert ((parse:formula formula) env))))))
 
-(define parse:declare:indexes
+(define parse:declare-relation:indexes
   (simple-match-lambda
     ((projections) (lambda (env) (hash 'indexes (map (lambda (proj) ((parse:term* proj) env))
                                                      projections))))))
 
-(define env.initial.module.declare
+(define env.initial.module.declare-relation
   (env:new
-    'declare
-    'indexes parse:declare:indexes))
+    'declare-relation
+    'indexes parse:declare-relation:indexes))
 
 (define env.initial.module.clause
   (env:new
@@ -229,11 +238,12 @@
     'module          (simple-parser parse:module:module)
     'begin           (simple-parser parse:module:begin)
     'link            (simple-parser parse:module:link)
+    'relation        (simple-parser parse:module:relation)
+    'relations       (simple-parser parse:module:relations)
     'parameter       (simple-parser parse:module:parameter)
     'input           (simple-parser parse:module:input)
     'output          (simple-parser parse:module:output)
     'define          (simple-parser parse:module:define)
-    'declare         (simple-parser parse:module:declare)
     'assert          (simple-parser parse:module:assert)
     '<<=             (rule-parser '<<=)
     '<<+             (rule-parser '<<+)
@@ -242,7 +252,7 @@
     ;; miniKanren style module clauses
     'define-relation (rule-parser '<<=)))
 
-(define env.initial.module (env-union env.initial.module.declare
+(define env.initial.module (env-union env.initial.module.declare-relation
                                       env.initial.module.clause))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

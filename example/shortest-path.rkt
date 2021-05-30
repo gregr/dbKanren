@@ -9,7 +9,7 @@
 (define-dbk m.shortest-path
   (link m.base)
 
-  (declare (edge source target distance)
+  (relation (edge source target distance)
     indexes ((target source)))
 
   ;; Guard against cyclic data

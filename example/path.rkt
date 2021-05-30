@@ -7,7 +7,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-dbk m.path
-  (declare (edge source target)
+  (relation (edge source target)
     indexes ((target source)))
 
   (<<= (path s t) (edge s t))

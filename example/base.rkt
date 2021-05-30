@@ -9,7 +9,7 @@
   (<<= (any>= u v) (any<= v u))
   (<<= (any>  u v) (any<  v u))
 
-  (declare (member x ys)
+  (relation (member x ys)
     modes ((ys)))  ;; this mode could be inferred
   (<<= (member x (cons x ys)))
   (<<= (member x (cons y ys))
@@ -21,7 +21,7 @@
   ;    (or (== x a)
   ;        (and (=/= x a) (member x d)))))
 
-  (declare (append xs ys xsys)
+  (relation (append xs ys xsys)
     modes ((xs) (xsys)))  ;; these modes could be inferred
   (<<= (append '() ys ys))
   (<<= (append `(,x . ,xs) ys `(,x . ,xsys))
