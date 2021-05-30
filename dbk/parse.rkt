@@ -95,19 +95,6 @@
 (define (current-env-bind  vocab n  v)  (current-env (env-bind  (current-env) vocab n  v)))
 (define (current-env-bind* vocab ns vs) (current-env (env-bind* (current-env) vocab ns vs)))
 
-(define (quote-property property)
-  (lambda (value)
-    (lambda (env) (hash property value))))
-
-(define parse:declare-relation:indexes
-  (lambda (projections)
-    (lambda (env) (hash 'indexes (map (lambda (proj) ((parse:term* proj) env))
-                                      projections)))))
-
-(define parse:declare-term:definition
-  (lambda (body)
-    (lambda (env) (hash 'definition ((parse:term body) env)))))
-
 (define ((parse:module* stx) env)
   (unless (list? stx) (error "invalid module syntax:" stx))
   (with-fresh-names
@@ -141,39 +128,53 @@
     ((name . body) (define resume (apply parse:module:begin body))
                    (lambda (env) (m:named name (resume env))))))
 
-(define (rule-parser type)
+(define (quote-property property)
+  (lambda (value)
+    (lambda (env) (hash property value))))
+
+(define parse:declare-relation:indexes
+  (lambda (projections)
+    (lambda (env) (hash 'indexes (map (lambda (proj) ((parse:term* proj) env))
+                                      projections)))))
+
+(define parse:declare-term:definition
+  (lambda (body)
+    (lambda (env) (hash 'definition ((parse:term body) env)))))
+
+(define (parse:declare-relation:rule type)
+  (simple-match-lambda
+    (((params . formulas))
+     (lambda (env)
+       ;; NOTE: extracting variables in first-order positions as pattern
+       ;; variables may be brittle.  It may be better to introduce a pattern
+       ;; matching vocabulary to explicitly identify pattern variables.
+       (define ts.params    (map (lambda (p) ((parse:term p) env)) params))
+       (define names.params (set->list (t-free-vars-first-order* ts.params)))
+       (define names.argument
+         (map (lambda (i) (fresh-name (string->symbol (string-append "x." (number->string i)))))
+              (range (length params))))
+       (define formula
+         ((apply parse:formula:exist names.params
+                 (lambda (env)
+                   (foldl f:and
+                          (f:== (quote-literal #t) (quote-literal #t))
+                          (map (lambda (n t) (f:== (t:var n) t))
+                               names.argument
+                               (t-substitute-first-order*
+                                 ts.params
+                                 (make-immutable-hash
+                                   (map cons names.params (env-ref* env 'term names.params)))))))
+                 formulas)
+          env))
+       (hash 'rules (list (vector type names.argument formula)))))))
+
+(define (parse:module:rule type)
   (simple-parser
     (simple-match-lambda
-      (((relation . params) . formulas)
-       (define relation.fresh (fresh-name relation))
-       (current-env-bind 'formula relation relation.fresh)
-       (lambda (env)
-         ;; NOTE: extracting variables in first-order positions as pattern
-         ;; variables may be brittle.  It may be better to introduce a pattern
-         ;; matching vocabulary to explicitly identify pattern variables.
-         (define ts.params    (map (lambda (p) ((parse:term p) env)) params))
-         (define names.params (set->list (t-free-vars-first-order* ts.params)))
-         (define names.argument
-           (map (lambda (i) (fresh-name (string->symbol (string-append "x." (number->string i)))))
-                (range (length params))))
-         (define relation.fresh (env-ref env 'formula relation))
-         (when (procedure? relation.fresh)
-           (error "invalid relation renaming:" relation relation.fresh))
-         (define formula
-           ((apply parse:formula:exist names.params
-                   (lambda (env)
-                     (foldl f:and
-                            (f:== (quote-literal #t) (quote-literal #t))
-                            (map (lambda (n t) (f:== (t:var n) t))
-                                 names.argument
-                                 (t-substitute-first-order*
-                                   ts.params
-                                   (make-immutable-hash
-                                     (map cons names.params (env-ref* env 'term names.params)))))))
-                   formulas)
-            env))
-         (m:relations (hash relation       relation.fresh)
-                      (hash relation.fresh (hash 'rules (list (vector type names.argument formula))))))))))
+      (((relation . params) . formulas) (parse:module:relation
+                                          relation
+                                          (parse:declare-relation:rule type)
+                                          (cons params formulas))))))
 
 (define parse:module:link
   (simple-match-lambda
@@ -275,6 +276,10 @@
 (define env.initial.module.declare-relation
   (env:new
     'declare-relation
+    '<<=     (parse:declare-relation:rule '<<=)
+    '<<+     (parse:declare-relation:rule '<<+)
+    '<<-     (parse:declare-relation:rule '<<-)
+    '<<~     (parse:declare-relation:rule '<<~)
     'indexes parse:declare-relation:indexes))
 
 (define env.initial.module.declare-term
@@ -297,12 +302,12 @@
     'output          (simple-parser parse:module:output)
     'define          (simple-parser parse:module:define)
     'assert          (simple-parser parse:module:assert)
-    '<<=             (rule-parser '<<=)
-    '<<+             (rule-parser '<<+)
-    '<<-             (rule-parser '<<-)
-    '<<~             (rule-parser '<<~)
+    '<<=             (parse:module:rule '<<=)
+    '<<+             (parse:module:rule '<<+)
+    '<<-             (parse:module:rule '<<-)
+    '<<~             (parse:module:rule '<<~)
     ;; miniKanren style module clauses
-    'define-relation (rule-parser '<<=)))
+    'define-relation (parse:module:rule '<<=)))
 
 (define env.initial.module (env-union env.initial.module.declare-relation
                                       env.initial.module.declare-term
