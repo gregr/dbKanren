@@ -271,7 +271,8 @@
 (define parse:module:terms     (parse:module:declare* parse:module:term))
 
 (define parse:module:assert
-  (simple-match-lambda ((formula) (lambda (env) (m:assert ((parse:formula formula) env))))))
+  (simple-match-lambda
+    ((formula) (lambda (env) (m:assert (set ((parse:formula formula) env)))))))
 
 (define env.initial.module.declare-relation
   (env:new

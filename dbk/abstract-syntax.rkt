@@ -234,7 +234,7 @@
   (m:link      modules)
   (m:terms     name.public=>name.private name.private=>property=>value)
   (m:relations name.public=>name.private name.private=>property=>value)
-  (m:assert    formula))
+  (m:assert    formulas))
 
 (define-variant formula?
   (f:const   value)  ; can be thought of as a relation taking no arguments
