@@ -126,7 +126,7 @@
 (define parse:module:module
   (simple-match-lambda
     ((name . body) (define resume (apply parse:module:begin body))
-                   (lambda (env) (m:named name (resume env))))))
+                   (lambda (env) (m:named (hash name (resume env)))))))
 
 (define (quote-property property)
   (lambda (value)

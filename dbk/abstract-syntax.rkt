@@ -230,7 +230,7 @@
   ;(m:rename  m name=>name?)  ; if target name is #f, consider the original name private
   ;(m:unlink  m1 m2)          ; subtract from m1 any components that are exact matches for anything present in m2
 
-  (m:named     name m)
+  (m:named     name=>module)
   (m:link      modules)
   (m:terms     name.public=>name.private name.private=>property=>value)
   (m:relations name.public=>name.private name.private=>property=>value)
