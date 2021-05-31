@@ -38,6 +38,8 @@
 
 (define (unique? names) (= (set-count (list->set names)) (length names)))
 
+(define (name? x) (not (or (not x) (procedure? x))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Environments with vocabularies
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -213,7 +215,7 @@
                                 (if (null? kwargs)
                                   (lambda (env)
                                     (define relation.fresh (env-ref env 'formula relation))
-                                    (when (procedure? relation.fresh)
+                                    (unless (name? relation.fresh)
                                       (error "invalid relation renaming:" relation relation.fresh))
                                     (m:relations (hash relation relation.fresh) (hash)))
                                   (apply parse:module:begin
@@ -226,7 +228,7 @@
                                                     (define pmap (cond ((procedure? p.b) ((p.b value) env))
                                                                        (else             (hash (if p.b p.b property) value))))
                                                     (define relation.fresh (env-ref env 'formula relation))
-                                                    (when (procedure? relation.fresh)
+                                                    (unless (name? relation.fresh)
                                                       (error "invalid relation renaming:" relation relation.fresh))
                                                     (m:relations (hash relation       relation.fresh)
                                                                  (hash relation.fresh pmap)))))
@@ -240,7 +242,7 @@
                   (if (null? kwargs)
                     (lambda (env)
                       (define uname (env-ref env 'term name))
-                      (when (procedure? uname)
+                      (unless (name? uname)
                         (error "invalid term renaming:" name uname))
                       (m:terms (hash name uname) (hash)))
                     (apply parse:module:begin
@@ -253,7 +255,7 @@
                                       (define pmap (cond ((procedure? p.b) ((p.b value) env))
                                                          (else             (hash (if p.b p.b property) value))))
                                       (define uname (env-ref env 'term name))
-                                      (when (procedure? uname)
+                                      (unless (name? uname)
                                         (error "invalid term renaming:" name uname))
                                       (m:terms (hash name uname) (hash uname pmap)))))
                                 (map car kwargs) (map cdr kwargs)))))))
