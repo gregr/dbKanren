@@ -616,7 +616,8 @@
 
 (define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
 
-(define-syntax-rule (dbk clauses ...)          (dbk-parse (dbk-syntax clauses ...)))
+(define-syntax-rule (dbk clauses ...)          (match-let (((cons m env) (dbk-parse (dbk-syntax clauses ...))))
+                                                 (cons (m->program m) env)))
 
 (define-syntax-rule (dbk-parse stx)            (with-fresh-names
                                                  ((parse:module* stx) (dbk-environment))))

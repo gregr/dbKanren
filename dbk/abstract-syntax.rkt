@@ -1,6 +1,7 @@
 #lang racket/base
 (provide
   m:named m:link m:terms m:relations m:assert
+  m->program
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
   t:query t:map/merge t:quote t:var t:prim t:app t:lambda t:if t:let t:letrec
@@ -8,7 +9,7 @@
   t-free-vars f-free-vars t-free-vars* t-free-vars-first-order t-free-vars-first-order*
   t-substitute f-substitute t-substitute* t-substitute-first-order t-substitute-first-order*
   f-relations t-relations t-relations*)
-(require "misc.rkt" racket/match racket/set)
+(require "misc.rkt" racket/hash racket/match racket/set)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; TODO
@@ -387,6 +388,77 @@
 
 (define (t-substitute-first-order  t  name=>name) (t-substitute  t  name=>name #t))
 (define (t-substitute-first-order* ts name=>name) (t-substitute* ts name=>name #t))
+
+(record program (term:public=>private
+                 term:private=>property=>value
+                 relation:public=>private
+                 relation:private=>property=>value
+                 assertions
+                 name=>subprogram)
+        #:prefab)
+(define program.empty (program (term:public=>private              (hash))
+                               (term:private=>property=>value     (hash))
+                               (relation:public=>private          (hash))
+                               (relation:private=>property=>value (hash))
+                               (assertions                        (set))
+                               (name=>subprogram                  (hash))))
+
+(define (m->program m)
+  (define (combine-names public private.0 private.1)
+    (if (equal? private.0 private.1)
+      private.0
+      (error "different private names for:" public private.0 private.1)))
+  (define (insert-properties private=>p=>vs private=>p=>v)
+    (define ppvs (hash->list private=>p=>v))
+    (foldl (lambda (private p=>v private=>p=>vs)
+             (hash-update private=>p=>vs private
+                          (lambda (p=>vs)
+                            (define pvs (hash->list p=>v))
+                            (foldl (lambda (p v p=>vs)
+                                     (hash-update p=>vs p
+                                                  (lambda (vs) (set-add vs v))
+                                                  (set)))
+                                   p=>vs (map car pvs) (map cdr pvs)))
+                          (hash)))
+           private=>p=>vs (map car ppvs) (map cdr ppvs)))
+  (let loop ((ms (list m)) (prog program.empty))
+    (if (null? ms)
+      (program:set prog (name=>subprogram
+                          (make-immutable-hash
+                            (hash-map (program-name=>subprogram prog)
+                                      (lambda (name sub) (cons name (m->program sub)))))))
+      (match (car ms)
+        ((m:link  modules)      (loop (append modules (cdr ms)) prog))
+        ((m:named name=>module) (loop (cdr ms)
+                                      (program:set
+                                        prog (name=>subprogram
+                                               (hash-union
+                                                 (program-name=>subprogram prog)
+                                                 name=>module
+                                                 #:combine (lambda (m.0 m.1)
+                                                             (m:link (list m.0 m.1))))))))
+        ((m:terms name.public=>name.private name.private=>property=>value)
+         (loop (cdr ms) (program:set prog
+                                     (term:public=>private
+                                       (hash-union (program-term:public=>private prog)
+                                                   name.public=>name.private
+                                                   #:combine/key combine-names))
+                                     (term:private=>property=>value
+                                       (insert-properties (program-term:private=>property=>value prog)
+                                                          name.private=>property=>value)))))
+        ((m:relations name.public=>name.private name.private=>property=>value)
+         (loop (cdr ms) (program:set prog
+                                     (relation:public=>private
+                                       (hash-union (program-relation:public=>private prog)
+                                                   name.public=>name.private
+                                                   #:combine/key combine-names))
+                                     (relation:private=>property=>value
+                                       (insert-properties (program-relation:private=>property=>value prog)
+                                                          name.private=>property=>value)))))
+        ((m:assert formulas)
+         (loop (cdr ms) (program:set prog
+                                     (assertions (set-union (program-assertions prog)
+                                                            formulas)))))))))
 
 ;; TODO: simplify within some context (which may bind/constrain variables)?
 ;(define (t-simplify t)
