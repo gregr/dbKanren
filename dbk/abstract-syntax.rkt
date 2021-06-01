@@ -389,21 +389,10 @@
 (define (t-substitute-first-order  t  name=>name) (t-substitute  t  name=>name #t))
 (define (t-substitute-first-order* ts name=>name) (t-substitute* ts name=>name #t))
 
-(record program (term:public=>private
-                 term:private=>property=>value
-                 relation:public=>private
-                 relation:private=>property=>value
-                 assertions
-                 name=>subprogram)
-        #:prefab)
-(define program.empty (program (term:public=>private              (hash))
-                               (term:private=>property=>value     (hash))
-                               (relation:public=>private          (hash))
-                               (relation:private=>property=>value (hash))
-                               (assertions                        (set))
-                               (name=>subprogram                  (hash))))
+(struct namespace (public=>private private=>property=>value) #:prefab)
+(define namespace.empty (namespace (hash) (hash)))
 
-(define (m->program m)
+(define (namespace-insert ns public=>private private=>p=>v)
   (define (combine-names public private.0 private.1)
     (if (equal? private.0 private.1)
       private.0
@@ -421,6 +410,19 @@
                                    p=>vs (map car pvs) (map cdr pvs)))
                           (hash)))
            private=>p=>vs (map car ppvs) (map cdr ppvs)))
+  (namespace (hash-union (namespace-public=>private ns)
+                         public=>private
+                         #:combine/key combine-names)
+             (insert-properties (namespace-private=>property=>value ns)
+                                private=>p=>v)))
+
+(record program (terms relations assertions name=>subprogram) #:prefab)
+(define program.empty (program (terms            namespace.empty)
+                               (relations        namespace.empty)
+                               (assertions       (set))
+                               (name=>subprogram (hash))))
+
+(define (m->program m)
   (let loop ((ms (list m)) (prog program.empty))
     (if (null? ms)
       (program:set prog (name=>subprogram
@@ -437,24 +439,14 @@
                                                  name=>module
                                                  #:combine (lambda (m.0 m.1)
                                                              (m:link (list m.0 m.1))))))))
-        ((m:terms name.public=>name.private name.private=>property=>value)
-         (loop (cdr ms) (program:set prog
-                                     (term:public=>private
-                                       (hash-union (program-term:public=>private prog)
-                                                   name.public=>name.private
-                                                   #:combine/key combine-names))
-                                     (term:private=>property=>value
-                                       (insert-properties (program-term:private=>property=>value prog)
-                                                          name.private=>property=>value)))))
-        ((m:relations name.public=>name.private name.private=>property=>value)
-         (loop (cdr ms) (program:set prog
-                                     (relation:public=>private
-                                       (hash-union (program-relation:public=>private prog)
-                                                   name.public=>name.private
-                                                   #:combine/key combine-names))
-                                     (relation:private=>property=>value
-                                       (insert-properties (program-relation:private=>property=>value prog)
-                                                          name.private=>property=>value)))))
+        ((m:terms     public=>private private=>property=>value)
+         (loop (cdr ms) (program:set prog (terms     (namespace-insert (program-terms prog)
+                                                                       public=>private
+                                                                       private=>property=>value)))))
+        ((m:relations public=>private private=>property=>value)
+         (loop (cdr ms) (program:set prog (relations (namespace-insert (program-relations prog)
+                                                                       public=>private
+                                                                       private=>property=>value)))))
         ((m:assert formulas)
          (loop (cdr ms) (program:set prog
                                      (assertions (set-union (program-assertions prog)
