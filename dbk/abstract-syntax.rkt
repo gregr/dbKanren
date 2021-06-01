@@ -1,7 +1,7 @@
 #lang racket/base
 (provide
   m:named m:link m:terms m:relations m:assert
-  m->program
+  m->program program-remove program-consolidate
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
   t:query t:map/merge t:quote t:var t:prim t:app t:lambda t:if t:let t:letrec
@@ -418,6 +418,25 @@
                                (relations        namespace.empty)
                                (assertions       (set))
                                (name=>subprogram (hash))))
+
+(define (program-remove p paths)
+  (program:set p (name=>subprogram
+                   (foldl (lambda (path.removed n=>sub)
+                            (match path.removed
+                              ((cons name paths) (hash-update n=>sub name
+                                                              (lambda (p) (program-remove p paths))))
+                              (name              (hash-remove n=>sub name))))
+                          (program-name=>subprogram p)
+                          paths))))
+
+(define (program-consolidate p)
+  (foldl (lambda (p p.0)
+           (program (terms            (namespace-union (program-terms      p) (program-terms      p.0)))
+                    (relations        (namespace-union (program-relations  p) (program-relations  p.0)))
+                    (assertions       (set-union       (program-assertions p) (program-assertions p.0)))
+                    (name=>subprogram (hash))))
+         p
+         (map program-consolidate (hash-values (program-name=>subprogram p)))))
 
 (define (m->program m)
   (define (namespace-insert ns public=>private private=>property=>value)
