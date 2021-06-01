@@ -15,25 +15,7 @@
 ;; TODO
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Support indexing arbitrary term-computational projections
-;; - e.g., indexing `(+ column 1)` or `(hash-ref column "some-key")`
-
-;; parsing the dbk source language
-;; - parse environment separates namespaces for each syntactic class
-;;   - syntactic classes: terms, formulas, module specification clauses
-;;   - same name can be used as both a relation name and a term name
-;;     e.g., punning `<` so that `(< a b)` is valid as both a term and a formula, with the expected meaning
-;;   - similar to the nScheme parser design
-;; - can define new parsers (Racket procedures) to extend the syntax
-;;   - allows metaprogramming for term and/or formula construction
-;;   - defined as either "micros", which describe `cst->ast` transformation,
-;;     or syntax transformers which are `cst->cst` transformations
-;; - maybe try to retain source information via Racket syntax objects?
-
 ;; input and output devices are specified and created using host language
-;; - an input device includes a procedure that produces a stream of tuples
-;; - an output device includes a procedure that consumes a stream of tuples
-;; - keep host I/O complexity out of the dbk language
 ;; - may describe data coming from arbitrary input sources:
 ;;   - filesystem, network, channels, events, etc.
 ;;   - all sources are assumed to be unstable across time, reflecting a dynamic system
@@ -44,36 +26,23 @@
 ;;     - i.e., `<<~` (asynchronous send)
 
 ;; modules
-;; - module body syntax
-;;   - imports from host language
-;;     - constants, functions
-;;     - these have to be chosen carefully to remain safe
-;;   - arity/type/constraint/open-or-closed-world signature declarations for relations
-;;     - declare-relation ?
-;;     - mandatory for all relations
-;;       - to mitigate typos and verify module linking compatibility
-;;       - modules can omit signatures, but cannot be materialized until they are completed
-;;         - to avoid redundancy, common signatures can be declared in one module to be linked with others
-;;     - optional precomputation with indexing choices and retrieval preferences
-;;     - multiple independent declarations may be made for the same relation as long as they are consistent
-;;   - definitions for terms via `define`
-;;   - definitions for relations
-;;     - linking modules extends definitions by adding together all rules
-;;     - rules for immediate inference: `define-relation` and/or `extend-relation`
-;;       - deliver new facts during current time step, until fixed point is reached
-;;       - synonym for `extend-relation`, deliver during current timestep: <<=
-;;     - rules for next-step inference
-;;       - delete at next timestep: <<-
-;;       - insert at next timestep: <<+
-;;     - rules for indeterminate inference
-;;       - deliver at arbitrary (future?) timetep: <<~
-;;       - these will write to output devices for the host system to process
-;;   - assertions: queries used for property/consistency checking or other validation
-;;     - can inform data representation choices and query optimization
-;;     - can use to infer:
-;;       - uniqueness/degrees/cardinalities
-;;       - value information (types, value ranges, frequencies)
-;;       - join dependencies
+;; - optional precomputation with indexing choices and retrieval preferences
+;; - definitions for relations
+;;   - rules for immediate inference: `define-relation` and/or `extend-relation`
+;;     - deliver new facts during current time step, until fixed point is reached
+;;     - synonym for `extend-relation`, deliver during current timestep: <<=
+;;   - rules for next-step inference
+;;     - delete at next timestep: <<-
+;;     - insert at next timestep: <<+
+;;   - rules for indeterminate inference
+;;     - deliver at arbitrary (future?) timetep: <<~
+;;     - these will write to output devices for the host system to process
+;; - assertions: queries used for property/consistency checking or other validation
+;;   - can inform data representation choices and query optimization
+;;   - can use to infer:
+;;     - uniqueness/degrees/cardinalities
+;;     - value information (types, value ranges, frequencies)
+;;     - join dependencies
 ;; - module linking
 ;;   - by default, a module will export all definitions
 ;;   - apply visibility modifiers (such as except, only, rename, prefix) to change a module's exports
@@ -84,38 +53,39 @@
 ;;     - same module may be linked more than once, to produce different variations (mixin-style)
 ;;       - for instance, this may be used to switch io devices
 
-;; process:
-;; - reference to the dbms (named by path) that manages this process
-;; - optional name for stable reference in later program runs
-;;   - anonymous processes may still be saved and restored, but more annoying to reference
-;; - current content of all persistent temporal relations
-;;   - i.e., (indexed) tables keyed by name
+;; process state (like a version control system commit):
+;; - reference to the dbms that manages this process state's database
+;; - database
+;;   - schemas
+;;   - current content of all persistent temporal relations
+;;     - i.e., (indexed) tables keyed by name
+;;   - pending work (incomplete indexes)
 ;; - io device temporal relation bindings and buffers
-;; - current program (a module), describing how the process evolves each time step
-;;   - program must be a complete module (no unsatisfied dependencies)
-;; - history of database transitions: module diff and ingestion metadata at each time step
+;; - current program, describing how the process evolves each time step
+;;   - mapping of public names to internal names
+;;   - mapping of internal names to devices
+;;   - mapping of internal names to tables
+;;   - hierarchically-named subprograms w/ enabled/disabled status
+;;   - in order to run, program must not have unresolved dependencies
+;;     - terms without definitions are unresolved
+;; - residual environment (when used as a library)
+;;   - module specs inheriting from this process will be parsed using this environment
+;; - history of database transitions
+;;   - program changes
+;;   - ingestion metadata per time step
 ;; - how do we check source data consistency?
 ;;   - processes allow data to change, so inconsistency with original sources may be intentional
 ;;   - to check consistency as in the old approach, analyze the process history for data provenance
 ;;     - particularly data io device bindings and their dependencies across time steps
 ;;       - input device metadata should include real world time stamps, filesystem information, transformation code, possibly content hash
-;; - may spawn new process sharing the current database
-;;   - can explore diverging transitions
-;;   - can save earlier database to later revisit
-;;   - analogous to branching in a version control system
-;;     - dbms is a repository
-;;     - named process is a branch
-;;     - process database is a commit
-;;     - explicit garbage collection and compaction can be used to retain only data that is directly-referenced by a process
-;;       - can optionally preserve external data ingestion snapshots to support reproducing intermediate databases
 ;; - main operations:
 ;;   - run a query over the current database
-;;   - change current module
+;;   - change current program
+;;     - enable/disable subprograms
+;;     - rename/hide public names
+;;     - hierarchy rearrangement and linking
 ;;     - nontemporal relations declared to be precomputed will be precomputed before returning
-;;     - will add a module diff to the process history
-;;   - rename relations
-;;     - for consistency, this should accompany any renaming performed on the current module
-;;     - renaming will be logged in the process history
+;;     - will add a program diff to the history
 ;;   - step, with a step/fuel count (`#f` to run continously)
 ;;     - will return unused fuel if (temporary) quiessence is detected, otherwise `#f`
 ;;     - if any work was performed, this will log a new database uid in the process history
@@ -126,15 +96,26 @@
 ;;     - e.g., if temporary quiessence had been achieved, but new input has arrived
 ;;     - `#f` if permanent quiessence has been reached
 ;;       - only possible if no input devices are bound
-;;       - permanence w.r.t. the current module
+;;       - permanence w.r.t. the current program
 ;;   - save/flush (to dbms filesystem, for later reloading)
-;;     - processes should be continuously checkpointed and saved, so this may not be necessary
+;;     - transitions should be continuously checkpointed and saved, so this may not be necessary
 ;;       - if background saving ends up being asynchronous, this operation will wait until the flush catches up
 ;;     - io devices cannot be directly restored from disk
 ;;       - their metadata can still be saved, however
 ;;       - when restoring such a process, io device rebindings must be provided
-;;     - process may be packaged for export to another dbms
-;;       - dbms garbage collection and process export are similar activities
+
+;; process (like a version control system branch):
+;; - process state
+;; - db name for stable reference in later program runs
+;; - performing operations will update the current process
+;;   - produce new process state and reassign stable name to the new state
+;; - may spawn new process sharing the current process state
+;;   - can explore diverging transitions
+;;   - can save earlier state to later revisit
+;;   - explicit garbage collection and compaction can be used to retain only data that is directly-referenced by active processes
+;;     - can optionally preserve external data ingestion snapshots to support reproducing intermediate databases
+;; - may be packaged for export to another dbms
+;;   - dbms garbage collection and process export are similar activities
 
 ;; dbms (database management system):
 ;; - collection of named process databases
@@ -148,7 +129,6 @@
 ;;         - programmer organizes modules according to this decision
 
 ;; modular stratification given a partial order on relation parameters
-;; - omit t:fix
 ;; - would be convenient to define a universal <= that respected point-wise monotonicity (any<= does not)
 ;; - reachability example using equivalence classes reduces materialized space usage from O(n^2) to O(n):
 ;;     (define-relation/source (node n)

@@ -72,6 +72,13 @@
                         ((not (ix.new 'full?)) (loop c=>b (cdr ixs.pending)              ixs.updated))
                         (else                  (table '() c=>b)))))))))))
 
+;; TODO: reorganize to implement dicts and sets
+;; - sets can be thought of as dicts with empty value
+;; - could use same representation both for relations and for terms of these types
+;; - in terms of btrees, tries
+;; - possibly also hash tables for small cardinalities
+;; - consider manipulating low-level memory buffers via FFI
+
 ;; TODO: define a finite-map that is only referenceable by key and immediately provides a single instance
 ;;       of all columns (because the other columns are not sorted/deduped without the key)
 

@@ -12,6 +12,43 @@ Typical use:
 
 ## TODO
 
+* simplify/analyze/evaluate abstract syntax
+  * consolidate modules
+    * link with built-in definitions
+      * == =/= any<= any<
+      * cons car cdr + - * /
+      * etc.
+    * relation declaration property merging and consistency checking
+    * check concistency of definitions
+    * consolidate assertions as conjunction
+      * when checking assertions later, report errors per conjunct for better diagnostics
+  * start with inexpensive simplification and rewriting
+    * `(app (lambda _) _)` becomes `let`
+    * `(not (== x y))` might become `(=/= x y)` ?
+    * `(not (not (<= x y)))`  can we follow this simplification?
+      * `(not (and (=/= x y) (<= y x)))`
+      * `(or (not (=/= x y)) (not (<= y x)))`
+      * `(or (== x y) (and (=/= x y) (<= x y)))`  ;; also `(implies (=/= x y) (<= x y))`
+        * `(or (== x y) (< x y))` maybe this intermediate step
+        * `(<= x y)` leading to this
+      * `(and (or (=/= x y) (== x y)) (or (== x y) (<= x y)))`
+      * `(and #t (<= x y))`
+      * `(<= x y)`
+    * normalize/reorder conjuncts and disjuncts
+    * factor shared conjuncts out of disjunctions
+      * (OR (AND X Y) (AND X Z)) ==> (AND X (OR Y Z))
+    * constant propagation
+    * dead code elimination
+    * push quantifiers inward
+  * dependency/stratification analysis
+  * type inference/checking
+  * safety analysis
+  * mode analysis
+
+* bscm codec for sets and dicts
+
+* GOO join heuristic
+
 * implement checkpointing to avoid losing work with a long materialization process
 
 * `explain` for extracting the database subset needed to reproduce a query's results
@@ -318,7 +355,6 @@ Typical use:
 
 * misc conveniences
   * `apply` to supply a single argument/variable to an n-ary relation
-  * underscore "don't care" logic variables
   * tuple-column/record-field keywords
     * optional keyword argument calling convention for relations
     * optional keyword projection of query results

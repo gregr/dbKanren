@@ -596,6 +596,15 @@
 ;; Module macro expansion
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; TODO: have dbk build process values (move dbk and define-dbk out of parse.rkt)
+;; - built process will optionally inherit from one or more parent processes
+;; - if no parent is specified, automatically use an empty process with primitive environment
+;; - will no longer need dbk-environment
+;; - "vertical" library/language-like linking
+;;   - parent program environment(s unioned) used to initiate parsing
+;;     - as opposed to "horizontal" (symmetric) linking, where environments are not involved
+;;   - result will be automatically linked with parent(s)
+
 (define dbk-environment (make-parameter (env-union env.initial.term
                                                    env.initial.formula
                                                    env.initial.module)))
@@ -606,11 +615,16 @@
   (parameterize ((dbk-environment (env->env    (dbk-environment))))
     body ...))
 
+;; TODO: (define-dbk name (other attributes?) (parent ...) body ...)
 (define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
 
+;; TODO: (dbk (other attributes?) (parent ...) clauses ...) using (dbk-parse (union-of-envs-of parent ...) clauses ...)
+;; dbk-parse produces AST and residual env
+;; semantically process result of dbk-parse to produce a process value
 (define-syntax-rule (dbk clauses ...)          (match-let (((cons m env) (dbk-parse (dbk-syntax clauses ...))))
                                                  (cons (m->program m) env)))
 
+;; TODO: take initial environment as an argument
 (define-syntax-rule (dbk-parse stx)            (with-fresh-names
                                                  ((parse:module* stx) (dbk-environment))))
 
