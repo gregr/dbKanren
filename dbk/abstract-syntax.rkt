@@ -389,32 +389,29 @@
 (define (t-substitute-first-order  t  name=>name) (t-substitute  t  name=>name #t))
 (define (t-substitute-first-order* ts name=>name) (t-substitute* ts name=>name #t))
 
-(struct namespace (public=>private private=>property=>value) #:prefab)
+(struct namespace (public=>private private=>property=>values) #:prefab)
 (define namespace.empty (namespace (hash) (hash)))
+(define (namespace:new public=>private private=>property=>value)
+  (namespace public=>private
+             (make-immutable-hash
+               (hash-map private=>property=>value
+                         (lambda (private p=>v)
+                           (cons private
+                                 (make-immutable-hash
+                                   (hash-map p=>v (lambda (p v) (cons p (set v)))))))))))
 
-(define (namespace-insert ns public=>private private=>p=>v)
-  (define (combine-names public private.0 private.1)
-    (if (equal? private.0 private.1)
-      private.0
-      (error "different private names for:" public private.0 private.1)))
-  (define (insert-properties private=>p=>vs private=>p=>v)
-    (define ppvs (hash->list private=>p=>v))
-    (foldl (lambda (private p=>v private=>p=>vs)
-             (hash-update private=>p=>vs private
-                          (lambda (p=>vs)
-                            (define pvs (hash->list p=>v))
-                            (foldl (lambda (p v p=>vs)
-                                     (hash-update p=>vs p
-                                                  (lambda (vs) (set-add vs v))
-                                                  (set)))
-                                   p=>vs (map car pvs) (map cdr pvs)))
-                          (hash)))
-           private=>p=>vs (map car ppvs) (map cdr ppvs)))
-  (namespace (hash-union (namespace-public=>private ns)
-                         public=>private
-                         #:combine/key combine-names)
-             (insert-properties (namespace-private=>property=>value ns)
-                                private=>p=>v)))
+(define (namespace-union ns.0 ns.1)
+  (match-define (namespace p=>p.0 p=>p=>v.0) ns.0)
+  (match-define (namespace p=>p.1 p=>p=>v.1) ns.1)
+  (namespace (hash-union p=>p.0 p=>p.1
+                         #:combine/key
+                         (lambda (public private.0 private.1)
+                           (if (equal? private.0 private.1)
+                             private.0
+                             (error "different private names for:" public private.0 private.1))))
+             (hash-union p=>p=>v.0 p=>p=>v.1
+                         #:combine (lambda (p=>v.0 p=>v.1)
+                                     (hash-union p=>v.0 p=>v.1 #:combine set-union)))))
 
 (record program (terms relations assertions name=>subprogram) #:prefab)
 (define program.empty (program (terms            namespace.empty)
@@ -423,6 +420,8 @@
                                (name=>subprogram (hash))))
 
 (define (m->program m)
+  (define (namespace-insert ns public=>private private=>property=>value)
+    (namespace-union ns (namespace:new public=>private private=>property=>value)))
   (let loop ((ms (list m)) (prog program.empty))
     (if (null? ms)
       (program:set prog (name=>subprogram
