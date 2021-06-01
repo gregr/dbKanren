@@ -134,10 +134,25 @@
   (lambda (value)
     (lambda (env) (hash property value))))
 
-(define parse:declare-relation:indexes
-  (lambda (projections)
-    (lambda (env) (hash 'indexes (map (lambda (proj) ((parse:term* proj) env))
-                                      projections)))))
+(define (parse:declare-relation:projections property msg.name)
+  (simple-match-lambda
+    (((attrs . projections))
+     (unless (unique? attrs)
+       (error (string-append msg.name " attribute names must be unique:") attrs))
+     (lambda (env.0)
+       (define unames (map fresh-name attrs))
+       (define env    (env-bind* env.0 'term attrs unames))
+       (hash property (cons unames (map (lambda (proj) ((parse:term* proj) env))
+                                        projections)))))))
+
+(define parse:declare-relation:indexes (parse:declare-relation:projections 'indexes "indexes:"))
+(define parse:declare-relation:modes   (parse:declare-relation:projections 'modes   "modes:"))
+
+(define (parse:module:projections property)
+  (simple-parser
+    (simple-match-lambda
+      (((relation . attrs) . projections)
+       (parse:module:relation (cons relation attrs) property (cons attrs projections))))))
 
 (define parse:declare-term:definition
   (lambda (body)
@@ -283,7 +298,8 @@
     '<<+     (parse:declare-relation:rule '<<+)
     '<<-     (parse:declare-relation:rule '<<-)
     '<<~     (parse:declare-relation:rule '<<~)
-    'indexes parse:declare-relation:indexes))
+    'indexes parse:declare-relation:indexes
+    'modes   parse:declare-relation:modes))
 
 (define env.initial.module.declare-term
   (env:new
@@ -300,6 +316,8 @@
     'relations       (simple-parser parse:module:relations)
     'term            (simple-parser parse:module:term)
     'terms           (simple-parser parse:module:terms)
+    'indexes         (parse:module:projections parse:declare-relation:indexes)
+    'modes           (parse:module:projections parse:declare-relation:modes)
     'parameter       (simple-parser parse:module:parameter)
     'input           (simple-parser parse:module:input)
     'output          (simple-parser parse:module:output)
