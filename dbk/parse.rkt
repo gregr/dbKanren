@@ -221,59 +221,38 @@
     (((name . params) body) (parse:module:define name (parse:term:lambda params body)))
     ((name            body) (parse:module:term   name parse:declare-term:definition body))))
 
-(define parse:module:relation
-  (simple-match-lambda
-    (((relation . attrs) . kvs) (apply parse:module:relation relation (quote-property 'attributes) attrs kvs))
-    ((relation           . kvs) (define kwargs         (plist->alist kvs))
-                                (define relation.fresh (fresh-name relation))
-                                (current-env-bind 'formula relation relation.fresh)
-                                (if (null? kwargs)
-                                  (lambda (env)
-                                    (define relation.fresh (env-ref env 'formula relation))
-                                    (unless (name? relation.fresh)
-                                      (error "invalid relation renaming:" relation relation.fresh))
-                                    (m:relations (hash relation relation.fresh) (hash)))
-                                  (apply parse:module:begin
-                                         (map (lambda (property value)
-                                                (lambda ()
-                                                  (lambda (env)
-                                                    (define p.b (if (procedure? property)
-                                                                  property
-                                                                  (env-ref env 'declare-relation property)))
-                                                    (define pmap (cond ((procedure? p.b) ((p.b value) env))
-                                                                       (else             (hash (if p.b p.b property) value))))
-                                                    (define relation.fresh (env-ref env 'formula relation))
-                                                    (unless (name? relation.fresh)
-                                                      (error "invalid relation renaming:" relation relation.fresh))
-                                                    (m:relations (hash relation       relation.fresh)
-                                                                 (hash relation.fresh pmap)))))
-                                              (map car kwargs) (map cdr kwargs)))))))
-
-(define parse:module:term
+(define (parse:module:declaration vocab.declare vocab.entity msg.entity m:entity)
   (simple-match-lambda
     ((name . kvs) (define kwargs (plist->alist kvs))
                   (define uname  (fresh-name name))
-                  (current-env-bind 'term name uname)
+                  (current-env-bind vocab.entity name uname)
                   (if (null? kwargs)
                     (lambda (env)
-                      (define uname (env-ref env 'term name))
+                      (define uname (env-ref env vocab.entity name))
                       (unless (name? uname)
-                        (error "invalid term renaming:" name uname))
-                      (m:terms (hash name uname) (hash)))
+                        (error (string-append "invalid " msg.entity " renaming:" name uname)))
+                      (m:entity (hash name uname) (hash)))
                     (apply parse:module:begin
                            (map (lambda (property value)
                                   (lambda ()
                                     (lambda (env)
                                       (define p.b (if (procedure? property)
                                                     property
-                                                    (env-ref env 'declare-term property)))
+                                                    (env-ref env vocab.declare property)))
                                       (define pmap (cond ((procedure? p.b) ((p.b value) env))
                                                          (else             (hash (if p.b p.b property) value))))
-                                      (define uname (env-ref env 'term name))
+                                      (define uname (env-ref env vocab.entity name))
                                       (unless (name? uname)
-                                        (error "invalid term renaming:" name uname))
-                                      (m:terms (hash name uname) (hash uname pmap)))))
+                                        (error (string-append "invalid " msg.entity " renaming:" name uname)))
+                                      (m:entity (hash name uname) (hash uname pmap)))))
                                 (map car kwargs) (map cdr kwargs)))))))
+
+(define parse:module:relation
+  (simple-match-lambda
+    (((relation . attrs) . kvs) (apply parse:module:relation relation (quote-property 'attributes) attrs kvs))
+    (args                       (apply (parse:module:declaration 'declare-relation 'formula "relation" m:relations) args))))
+
+(define parse:module:term (parse:module:declaration 'declare-term     'term    "term"     m:terms))
 
 (define (parse:module:declare* parse-spec)
   (simple-match-lambda
