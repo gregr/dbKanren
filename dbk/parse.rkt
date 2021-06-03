@@ -125,7 +125,7 @@
 (define parse:module:module
   (simple-match-lambda
     ((name . body) (define resume (apply parse:module:begin body))
-                   (lambda (env) (m:named (hash name (resume env)))))))
+                   (lambda (env) (m:named name (resume env))))))
 
 (define (quote-property property)
   (lambda (value)
@@ -233,15 +233,15 @@
                                                  (env-ref env vocab.declare property)))
                                    (define pmap (cond ((procedure? p.b) ((p.b value) env))
                                                       (else             (hash (if p.b p.b property) value))))
-                                   (m:entity (hash uname pmap)))
+                                   (m:entity uname pmap))
                                  (map car kwargs) (map cdr kwargs)))))))
 
 (define parse:module:relation
   (simple-match-lambda
     (((relation . attrs) . kvs) (apply parse:module:relation relation (quote-property 'attributes) attrs kvs))
-    (args                       (apply (parse:module:declaration 'declare-relation 'formula "relation" m:relations) args))))
+    (args                       (apply (parse:module:declaration 'declare-relation 'formula "relation" m:relation) args))))
 
-(define parse:module:term              (parse:module:declaration 'declare-term     'term    "term"     m:terms))
+(define parse:module:term              (parse:module:declaration 'declare-term     'term    "term"     m:term))
 
 (define (parse:module:declare* parse-spec)
   (simple-match-lambda

@@ -1,6 +1,6 @@
 #lang racket/base
 (provide
-  m:named m:link m:terms m:relations m:assert
+  m:named m:link m:term m:relation m:assert
   program:new program-remove program-consolidate
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
@@ -211,11 +211,11 @@
   ;(m:rename  m name=>name?)  ; if target name is #f, consider the original name private
   ;(m:unlink  m1 m2)          ; subtract from m1 any components that are exact matches for anything present in m2
 
-  (m:named     name=>module)
-  (m:link      modules)
-  (m:terms     name.private=>property=>value)
-  (m:relations name.private=>property=>value)
-  (m:assert    formulas))
+  (m:named    name module)
+  (m:link     modules)
+  (m:term     name.private property=>value)
+  (m:relation name.private property=>value)
+  (m:assert   formulas))
 
 (define-variant formula?
   (f:const   value)  ; can be thought of as a relation taking no arguments
@@ -419,25 +419,21 @@
                             (hash-map (program-name=>subprogram prog)
                                       (lambda (name sub) (cons name (program:new sub env)))))))
       (match (car ms)
-        ((m:link  modules)      (loop (append modules (cdr ms)) prog))
-        ((m:named name=>module) (loop (cdr ms)
-                                      (program:set
-                                        prog (name=>subprogram
-                                               (hash-union
-                                                 (program-name=>subprogram prog)
-                                                 name=>module
-                                                 #:combine (lambda (m.0 m.1)
-                                                             (m:link (list m.0 m.1))))))))
-        ((m:terms     private=>property=>value)
-         (loop (cdr ms) (program:set prog (terms     (schema-insert (program-terms prog)
-                                                                    private=>property=>value)))))
-        ((m:relations private=>property=>value)
-         (loop (cdr ms) (program:set prog (relations (schema-insert (program-relations prog)
-                                                                    private=>property=>value)))))
-        ((m:assert formula)
-         (loop (cdr ms) (program:set prog
-                                     (assertions (set-union (program-assertions prog)
-                                                            (set formula))))))))))
+        ((m:link     modules)     (loop (append modules (cdr ms)) prog))
+        ((m:named    name module)
+         (loop (cdr ms) (program:set prog (name=>subprogram (hash-update   (program-name=>subprogram prog)
+                                                                           name
+                                                                           (lambda (m.0) (m:link (list m.0 module)))
+                                                                           (m:link '()))))))
+        ((m:term     private property=>value)
+         (loop (cdr ms) (program:set prog (terms            (schema-insert (program-terms prog)
+                                                                           (hash private property=>value))))))
+        ((m:relation private property=>value)
+         (loop (cdr ms) (program:set prog (relations        (schema-insert (program-relations prog)
+                                                                           (hash private property=>value))))))
+        ((m:assert   formula)
+         (loop (cdr ms) (program:set prog (assertions       (set-union     (program-assertions prog)
+                                                                           (set formula))))))))))
 
 ;; TODO: simplify within some context (which may bind/constrain variables)?
 ;(define (t-simplify t)
