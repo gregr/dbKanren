@@ -1,7 +1,7 @@
 #lang racket/base
 (provide
   m:named m:link m:term m:relation m:assert
-  program:new program-remove program-consolidate
+  program:new program-remove program-flatten
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
   t:query t:map/merge t:quote t:var t:prim t:app t:lambda t:if t:let t:letrec
@@ -206,17 +206,6 @@
 ;; Abstract syntax
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define-variant module?
-  ;; Should these nonconstructive operations be part of the module AST, or the meta-level?
-  ;(m:rename  m name=>name?)  ; if target name is #f, consider the original name private
-  ;(m:unlink  m1 m2)          ; subtract from m1 any components that are exact matches for anything present in m2
-
-  (m:named    name module)
-  (m:link     modules)
-  (m:term     name.private property=>value)
-  (m:relation name.private property=>value)
-  (m:assert   formulas))
-
 (define-variant formula?
   (f:const   value)  ; can be thought of as a relation taking no arguments
   (f:relate  relation args)
@@ -385,55 +374,48 @@
               #:combine (lambda (p=>v.0 p=>v.1)
                           (hash-union p=>v.0 p=>v.1 #:combine set-union))))
 
-(record program (terms relations assertions name=>subprogram) #:prefab)
-(define program.empty (program (terms            schema.empty)
-                               (relations        schema.empty)
-                               (assertions       (set))
-                               (name=>subprogram (hash))))
+(record module (terms relations assertions name=>submodule) #:prefab)
+(define module.empty (module
+                       (terms           schema.empty)
+                       (relations       schema.empty)
+                       (assertions      (set))
+                       (name=>submodule (hash))))
 
-(define (program-remove p paths)
-  (program:set p (name=>subprogram
-                   (foldl (lambda (path.removed n=>sub)
-                            (match path.removed
-                              ((cons name paths) (hash-update n=>sub name
-                                                              (lambda (p) (program-remove p paths))))
-                              (name              (hash-remove n=>sub name))))
-                          (program-name=>subprogram p)
-                          paths))))
+(define (m:link     ms)        (foldl (lambda (m m.0)
+                                             (match-define (module:struct ts.0 rs.0 as.0 n=>s.0) m.0)
+                                             (match-define (module:struct ts   rs   as   n=>s)   m)
+                                             (module
+                                               (terms           (schema-union ts.0 ts))
+                                               (relations       (schema-union rs.0 rs))
+                                               (assertions      (set-union    as.0 as))
+                                               (name=>submodule (hash-union n=>s.0 n=>s #:combine
+                                                                            (lambda (s.0 s)
+                                                                              (m:link (list s.0 s)))))))
+                                           module.empty
+                                           ms))
+(define (m:named    name m)    (module:set module.empty (name=>submodule (hash       name m))))
+(define (m:term     name p=>v) (module:set module.empty (terms           (schema:new (hash name p=>v)))))
+(define (m:relation name p=>v) (module:set module.empty (relations       (schema:new (hash name p=>v)))))
+(define (m:assert   formula)   (module:set module.empty (assertions      (set        formula))))
 
-(define (program-consolidate p)
-  (foldl (lambda (p p.0)
-           (program (terms            (schema-union (program-terms      p) (program-terms      p.0)))
-                    (relations        (schema-union (program-relations  p) (program-relations  p.0)))
-                    (assertions       (set-union    (program-assertions p) (program-assertions p.0)))
-                    (name=>subprogram (hash))))
-         p (map program-consolidate (hash-values (program-name=>subprogram p)))))
+(define (module-remove m paths)
+  (module:set m (name=>submodule
+                  (foldl (lambda (path n=>sub)
+                           (match path
+                             ((cons name paths) (hash-update n=>sub name (lambda (m) (module-remove m paths))))
+                             (name              (hash-remove n=>sub name))))
+                         (module-name=>submodule m)
+                         paths))))
 
-(define (program:new m env)
-  (define (schema-insert ns private=>property=>value)
-    (schema-union ns (schema:new private=>property=>value)))
-  (let loop ((ms (list m)) (prog program.empty))
-    (if (null? ms)
-      (program:set prog (name=>subprogram
-                          (make-immutable-hash
-                            (hash-map (program-name=>subprogram prog)
-                                      (lambda (name sub) (cons name (program:new sub env)))))))
-      (match (car ms)
-        ((m:link     modules)     (loop (append modules (cdr ms)) prog))
-        ((m:named    name module)
-         (loop (cdr ms) (program:set prog (name=>subprogram (hash-update   (program-name=>subprogram prog)
-                                                                           name
-                                                                           (lambda (m.0) (m:link (list m.0 module)))
-                                                                           (m:link '()))))))
-        ((m:term     private property=>value)
-         (loop (cdr ms) (program:set prog (terms            (schema-insert (program-terms prog)
-                                                                           (hash private property=>value))))))
-        ((m:relation private property=>value)
-         (loop (cdr ms) (program:set prog (relations        (schema-insert (program-relations prog)
-                                                                           (hash private property=>value))))))
-        ((m:assert   formula)
-         (loop (cdr ms) (program:set prog (assertions       (set-union     (program-assertions prog)
-                                                                           (set formula))))))))))
+(define (module-flatten m)
+  (m:link (cons (module:set m (module-name=>submodule (hash)))
+                (map module-flatten (hash-values (module-name=>submodule m))))))
+
+(record program (module env) #:prefab)
+(define (program:new m env) (program (module m) (env env)))
+
+(define (program-remove  p paths) (program:set p (module (module-remove  (program-module p) paths))))
+(define (program-flatten p)       (program:set p (module (module-flatten (program-module p)))))
 
 ;; TODO: simplify within some context (which may bind/constrain variables)?
 ;(define (t-simplify t)
