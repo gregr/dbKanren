@@ -227,22 +227,21 @@
                     (define uname (env-ref env vocab.entity name))
                     (unless (name? uname)
                       (error (string-append "invalid " msg.entity " renaming:" name uname)))
-                    (m:link (cons (m:entity (hash name uname) (hash))
-                                  (map (lambda (property value)
-                                         (define p.b (if (procedure? property)
-                                                       property
-                                                       (env-ref env vocab.declare property)))
-                                         (define pmap (cond ((procedure? p.b) ((p.b value) env))
-                                                            (else             (hash (if p.b p.b property) value))))
-                                         (m:entity (hash) (hash uname pmap)))
-                                       (map car kwargs) (map cdr kwargs))))))))
+                    (m:link (map (lambda (property value)
+                                   (define p.b (if (procedure? property)
+                                                 property
+                                                 (env-ref env vocab.declare property)))
+                                   (define pmap (cond ((procedure? p.b) ((p.b value) env))
+                                                      (else             (hash (if p.b p.b property) value))))
+                                   (m:entity (hash uname pmap)))
+                                 (map car kwargs) (map cdr kwargs)))))))
 
 (define parse:module:relation
   (simple-match-lambda
     (((relation . attrs) . kvs) (apply parse:module:relation relation (quote-property 'attributes) attrs kvs))
     (args                       (apply (parse:module:declaration 'declare-relation 'formula "relation" m:relations) args))))
 
-(define parse:module:term (parse:module:declaration 'declare-term     'term    "term"     m:terms))
+(define parse:module:term              (parse:module:declaration 'declare-term     'term    "term"     m:terms))
 
 (define (parse:module:declare* parse-spec)
   (simple-match-lambda

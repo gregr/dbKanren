@@ -213,8 +213,8 @@
 
   (m:named     name=>module)
   (m:link      modules)
-  (m:terms     name.public=>name.private name.private=>property=>value)
-  (m:relations name.public=>name.private name.private=>property=>value)
+  (m:terms     name.private=>property=>value)
+  (m:relations name.private=>property=>value)
   (m:assert    formulas))
 
 (define-variant formula?
@@ -369,33 +369,25 @@
 (define (t-substitute-first-order  t  name=>name) (t-substitute  t  name=>name #t))
 (define (t-substitute-first-order* ts name=>name) (t-substitute* ts name=>name #t))
 
-(struct namespace (public=>private private=>property=>values) #:prefab)
-(define namespace.empty (namespace (hash) (hash)))
-(define (namespace:new public=>private private=>property=>value)
-  (namespace public=>private
-             (make-immutable-hash
-               (hash-map private=>property=>value
-                         (lambda (private p=>v)
-                           (cons private
-                                 (make-immutable-hash
-                                   (hash-map p=>v (lambda (p v) (cons p (set v)))))))))))
+;; A schema is a finite map of names to finite maps of properties to sets of
+;; values, i.e.: (=> name (=> property (set value)))
+(define schema.empty (hash))
+(define (schema:new private=>property=>value)
+  (make-immutable-hash
+    (hash-map private=>property=>value
+              (lambda (private p=>v)
+                (cons private
+                      (make-immutable-hash
+                        (hash-map p=>v (lambda (p v) (cons p (set v))))))))))
 
-(define (namespace-union ns.0 ns.1)
-  (match-define (namespace p=>p.0 p=>p=>v.0) ns.0)
-  (match-define (namespace p=>p.1 p=>p=>v.1) ns.1)
-  (namespace (hash-union p=>p.0 p=>p.1
-                         #:combine/key
-                         (lambda (public private.0 private.1)
-                           (if (equal? private.0 private.1)
-                             private.0
-                             (error "different private names for:" public private.0 private.1))))
-             (hash-union p=>p=>v.0 p=>p=>v.1
-                         #:combine (lambda (p=>v.0 p=>v.1)
-                                     (hash-union p=>v.0 p=>v.1 #:combine set-union)))))
+(define (schema-union p=>p=>v.0 p=>p=>v.1)
+  (hash-union p=>p=>v.0 p=>p=>v.1
+              #:combine (lambda (p=>v.0 p=>v.1)
+                          (hash-union p=>v.0 p=>v.1 #:combine set-union))))
 
 (record program (terms relations assertions name=>subprogram) #:prefab)
-(define program.empty (program (terms            namespace.empty)
-                               (relations        namespace.empty)
+(define program.empty (program (terms            schema.empty)
+                               (relations        schema.empty)
                                (assertions       (set))
                                (name=>subprogram (hash))))
 
@@ -411,16 +403,15 @@
 
 (define (program-consolidate p)
   (foldl (lambda (p p.0)
-           (program (terms            (namespace-union (program-terms      p) (program-terms      p.0)))
-                    (relations        (namespace-union (program-relations  p) (program-relations  p.0)))
-                    (assertions       (set-union       (program-assertions p) (program-assertions p.0)))
+           (program (terms            (schema-union (program-terms      p) (program-terms      p.0)))
+                    (relations        (schema-union (program-relations  p) (program-relations  p.0)))
+                    (assertions       (set-union    (program-assertions p) (program-assertions p.0)))
                     (name=>subprogram (hash))))
-         p
-         (map program-consolidate (hash-values (program-name=>subprogram p)))))
+         p (map program-consolidate (hash-values (program-name=>subprogram p)))))
 
 (define (program:new m env)
-  (define (namespace-insert ns public=>private private=>property=>value)
-    (namespace-union ns (namespace:new public=>private private=>property=>value)))
+  (define (schema-insert ns private=>property=>value)
+    (schema-union ns (schema:new private=>property=>value)))
   (let loop ((ms (list m)) (prog program.empty))
     (if (null? ms)
       (program:set prog (name=>subprogram
@@ -437,14 +428,12 @@
                                                  name=>module
                                                  #:combine (lambda (m.0 m.1)
                                                              (m:link (list m.0 m.1))))))))
-        ((m:terms     public=>private private=>property=>value)
-         (loop (cdr ms) (program:set prog (terms     (namespace-insert (program-terms prog)
-                                                                       public=>private
-                                                                       private=>property=>value)))))
-        ((m:relations public=>private private=>property=>value)
-         (loop (cdr ms) (program:set prog (relations (namespace-insert (program-relations prog)
-                                                                       public=>private
-                                                                       private=>property=>value)))))
+        ((m:terms     private=>property=>value)
+         (loop (cdr ms) (program:set prog (terms     (schema-insert (program-terms prog)
+                                                                    private=>property=>value)))))
+        ((m:relations private=>property=>value)
+         (loop (cdr ms) (program:set prog (relations (schema-insert (program-relations prog)
+                                                                    private=>property=>value)))))
         ((m:assert formulas)
          (loop (cdr ms) (program:set prog
                                      (assertions (set-union (program-assertions prog)
