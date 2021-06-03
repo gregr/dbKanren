@@ -434,10 +434,10 @@
         ((m:relations private=>property=>value)
          (loop (cdr ms) (program:set prog (relations (schema-insert (program-relations prog)
                                                                     private=>property=>value)))))
-        ((m:assert formulas)
+        ((m:assert formula)
          (loop (cdr ms) (program:set prog
                                      (assertions (set-union (program-assertions prog)
-                                                            formulas)))))))))
+                                                            (set formula))))))))))
 
 ;; TODO: simplify within some context (which may bind/constrain variables)?
 ;(define (t-simplify t)
