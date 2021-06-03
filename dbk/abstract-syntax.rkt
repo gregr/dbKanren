@@ -1,7 +1,7 @@
 #lang racket/base
 (provide
   m:named m:link m:terms m:relations m:assert
-  m->program program-remove program-consolidate
+  program:new program-remove program-consolidate
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
   t:query t:map/merge t:quote t:var t:prim t:app t:lambda t:if t:let t:letrec
@@ -418,7 +418,7 @@
          p
          (map program-consolidate (hash-values (program-name=>subprogram p)))))
 
-(define (m->program m)
+(define (program:new m env)
   (define (namespace-insert ns public=>private private=>property=>value)
     (namespace-union ns (namespace:new public=>private private=>property=>value)))
   (let loop ((ms (list m)) (prog program.empty))
@@ -426,7 +426,7 @@
       (program:set prog (name=>subprogram
                           (make-immutable-hash
                             (hash-map (program-name=>subprogram prog)
-                                      (lambda (name sub) (cons name (m->program sub)))))))
+                                      (lambda (name sub) (cons name (program:new sub env)))))))
       (match (car ms)
         ((m:link  modules)      (loop (append modules (cdr ms)) prog))
         ((m:named name=>module) (loop (cdr ms)

@@ -4,7 +4,7 @@
   dbk-environment dbk-environment-update with-dbk-environment-update with-fresh-names
   env.empty env:new env-ref env-ref* env-set env-set* env-remove env-remove* env-bind env-bind* env-union
   literal? literal simple-parser
-  parse:module* parse:module parse:formula parse:term)
+  parse:program parse:module parse:formula parse:term)
 (require "abstract-syntax.rkt" "misc.rkt"
          racket/hash racket/list racket/match racket/set racket/struct)
 
@@ -97,16 +97,13 @@
 (define (current-env-bind  vocab n  v)  (current-env (env-bind  (current-env) vocab n  v)))
 (define (current-env-bind* vocab ns vs) (current-env (env-bind* (current-env) vocab ns vs)))
 
-(define ((parse:module* stx) env)
-  (unless (list? stx) (error "invalid module syntax:" stx))
+(define ((parse:program stx) env)
+  (unless (list? stx) (error "invalid program syntax:" stx))
   (with-fresh-names
     (parameterize ((current-env env))
       (define resume (apply parse:module:begin stx))
       (define env    (current-env))
-      (cons (resume env)
-            ;; TODO: choose a better way to package the final env with the result
-            ;; TODO: restrict env to names defined by this module
-            env))))
+      (program:new (resume env) env))))
 
 (define (parse:module:begin . stxs)
   (define deferred (map parse:module stxs))
@@ -621,12 +618,11 @@
 ;; TODO: (dbk (other attributes?) (parent ...) clauses ...) using (dbk-parse (union-of-envs-of parent ...) clauses ...)
 ;; dbk-parse produces AST and residual env
 ;; semantically process result of dbk-parse to produce a process value
-(define-syntax-rule (dbk clauses ...)          (match-let (((cons m env) (dbk-parse (dbk-syntax clauses ...))))
-                                                 (cons (m->program m) env)))
+(define-syntax-rule (dbk clauses ...)          (dbk-parse (dbk-syntax clauses ...)))
 
 ;; TODO: take initial environment as an argument
 (define-syntax-rule (dbk-parse stx)            (with-fresh-names
-                                                 ((parse:module* stx) (dbk-environment))))
+                                                 ((parse:program stx) (dbk-environment))))
 
 ;; TODO: implement link as a procedure
 (define-syntax link      (syntax-rules ()))
