@@ -799,8 +799,8 @@
                "Allow ~s to be used as an empty relation for now?" (list path))
              (vector))))
   (define kwargs.1 (foldl (lambda (k v kvs) (hash-set kvs k v)) kwargs
-                          '(    key-name attribute-types table-layouts)
-                          (list key-name attribute-types table-layouts)))
+                          '(    path     key-name attribute-types table-layouts)
+                          (list path.dir key-name attribute-types table-layouts)))
   (cond (src:vector
           ;; TODO: currently only supported for vector sources
           (define sort?  (hash-ref kwargs 'sort?  (not src:vector)))
@@ -815,7 +815,7 @@
                                                              src:path src:format src:header kwargs.1))
                                     (materialization/path (hash-ref kwargs 'relation-name)
                                                           (hash-ref kwargs 'retrieval-type 'disk)
-                                                          path path.dir (get-metadata)))
+                                                          path path.dir (hash-set (get-metadata) 'path path.dir)))
         ((or src:path.0 src:stream) (materialization/stream src:path src:format src:header kwargs.1))
         (else                       (error "missing relation path or source:" kwargs))))
 
