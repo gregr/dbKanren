@@ -1,14 +1,15 @@
 #lang racket/base
 (provide
   m:named m:link m:term m:relation m:assert
-  program:new program-remove program-flatten
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
   t:query t:map/merge t:quote t:var t:prim t:app t:lambda t:if t:let t:letrec
   t:apply t:cons t:car t:cdr t:vector t:list->vector t:vector-ref t:vector-length
   t-free-vars f-free-vars t-free-vars* t-free-vars-first-order t-free-vars-first-order*
   t-substitute f-substitute t-substitute* t-substitute-first-order t-substitute-first-order*
-  f-relations t-relations t-relations*)
+  f-relations t-relations t-relations*
+  module-flatten module-ref module-add module-remove module-remove* module-wrap module-unwrap
+  program:new program:set program-module program-env program-flatten program-remove*)
 (require "misc.rkt" racket/hash racket/match racket/set)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -398,31 +399,52 @@
 (define (m:relation name p=>v) (module:set module.empty (relations       (schema:new (hash name p=>v)))))
 (define (m:assert   formula)   (module:set module.empty (assertions      (set        formula))))
 
-(define (module-remove m paths)
-  (module:set m (name=>submodule
-                  (foldl (lambda (path n=>sub)
-                           (match path
-                             ((cons name paths) (hash-update n=>sub name (lambda (m) (module-remove m paths))))
-                             (name              (hash-remove n=>sub name))))
-                         (module-name=>submodule m)
-                         paths))))
+(define (module-flatten m)          (m:link (cons (module:set m (module-name=>submodule (hash)))
+                                                  (map module-flatten (hash-values (module-name=>submodule m))))))
 
-(define (module-flatten m)
-  (m:link (cons (module:set m (module-name=>submodule (hash)))
-                (map module-flatten (hash-values (module-name=>submodule m))))))
+(define (module-ref     m path)     (foldl (lambda (name m)
+                                             (hash-ref (module-name=>submodule m) name module.empty))
+                                           m path))
+
+(define (module-add     m path sub) (if (null? path)
+                                      (m:link (list m sub))
+                                      (module:set m (name=>submodule
+                                                      (hash-update (module-name=>submodule m) (car path)
+                                                                   (lambda (m) (module-add m (cdr path) sub))
+                                                                   module.empty)))))
+
+(define (module-remove  m path)     (if (null? path)
+                                      module.empty
+                                      (let loop ((m m) (path path))
+                                        (module:set m (name=>submodule
+                                                        (if (null? (cdr path))
+                                                          (hash-remove (module-name=>submodule m) (car path))
+                                                          (hash-update (module-name=>submodule m) (car path)
+                                                                       (lambda (m) (loop m (cdr path)))
+                                                                       module.empty)))))))
+
+(define (module-remove* m paths)    (foldl (lambda (path m) (module-remove m path)) m paths))
+
+(define (module-wrap    m path)     (foldl (lambda (name m)
+                                             (module:set module.empty (name=>submodules (hash name m))))
+                                           m path))
+
+(define (module-unwrap  m path)     (foldl (lambda (name m)
+                                             (hash-ref (module-name=>submodule m) name module.empty))
+                                           m path))
 
 (record program (module env) #:prefab)
 (define (program:new m env) (program (module m) (env env)))
 
-(define (program-remove  p paths) (program:set p (module (module-remove  (program-module p) paths))))
+(define (program-remove* p paths) (program:set p (module (module-remove* (program-module p) paths))))
 (define (program-flatten p)       (program:set p (module (module-flatten (program-module p)))))
 
-;; TODO: simplify within some context (which may bind/constrain variables)?
-;(define (t-simplify t)
-;  (match t
-;    ((t:var   name)   t)
-;    ((t:quote value)  t)
-;    ((t:app   f args) (let ((args (map t-simplify args)))
-;                        (if (andmap t:quote? args)
-;                          (apply f args)
-;                          (t:app f args))))))
+;; TODO: program-link defined via m:link and env-union
+;(define (program-link . ps)
+  ;;; with-fresh-names
+  ;(foldl (lambda (p p.0)
+           ;;; TODO: rename all private names for safety
+           ;;; need to know where terms and formulas live
+           ;)
+         ;program.empty
+         ;ps))
