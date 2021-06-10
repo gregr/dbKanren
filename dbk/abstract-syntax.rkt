@@ -383,17 +383,17 @@
                        (name=>submodule (hash))))
 
 (define (m:link     ms)        (foldl (lambda (m m.0)
-                                             (match-define (module:struct ts.0 rs.0 as.0 n=>s.0) m.0)
-                                             (match-define (module:struct ts   rs   as   n=>s)   m)
-                                             (module
-                                               (terms           (schema-union ts.0 ts))
-                                               (relations       (schema-union rs.0 rs))
-                                               (assertions      (set-union    as.0 as))
-                                               (name=>submodule (hash-union n=>s.0 n=>s #:combine
-                                                                            (lambda (s.0 s)
-                                                                              (m:link (list s.0 s)))))))
-                                           module.empty
-                                           ms))
+                                        (match-define (module:struct ts.0 rs.0 as.0 n=>s.0) m.0)
+                                        (match-define (module:struct ts   rs   as   n=>s)   m)
+                                        (module
+                                          (terms           (schema-union ts.0 ts))
+                                          (relations       (schema-union rs.0 rs))
+                                          (assertions      (set-union    as.0 as))
+                                          (name=>submodule (hash-union n=>s.0 n=>s #:combine
+                                                                       (lambda (s.0 s)
+                                                                         (m:link (list s.0 s)))))))
+                                      module.empty
+                                      ms))
 (define (m:named    name m)    (module:set module.empty (name=>submodule (hash       name m))))
 (define (m:term     name p=>v) (module:set module.empty (terms           (schema:new (hash name p=>v)))))
 (define (m:relation name p=>v) (module:set module.empty (relations       (schema:new (hash name p=>v)))))
