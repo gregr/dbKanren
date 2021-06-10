@@ -61,7 +61,7 @@
                                                (hash-union e.0 e #:combine
                                                            (lambda (vocab=>v.0 vocab=>v)
                                                              (hash-union vocab=>v.0 vocab=>v #:combine
-                                                                         (lambda (v.0 v) v)))))
+                                                                         (lambda (v.0 v) (if v v v.0))))))
                                              env envs))
 
 (define (env:new vocab . args)
