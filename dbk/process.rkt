@@ -25,7 +25,7 @@
 (define (pmod:remove path)       (pmod:move   path #f))
 (define (pmod:hide   vocab name) (pmod:rename vocab name #f))
 
-(define (pstate-program-modify pst.0 pm)
+(define (pstate-modify pst.0 pm)
   (define pst   (pstate:set pst.0 (history (cons pm (pstate-history pst.0)))))
   (define prg   (pstate-program pst))
   (define m     (program-module prg))
@@ -50,29 +50,27 @@
 (define (pstate-step pst)
   #f)
 
-(record process (name state) #:prefab)
+(define (process name state)
+  (define dbms (pstate-dbms state))
+  (method-lambda
+    ((branch name.new) (dbms-process-add!  dbms name.new state)
+                       (process name.new state))
+    ((move   name.new) (dbms-process-move! dbms name name.new)
+                       (set! name name.new))
+    ((modify pm)       (define state.new (pstate-modify state pm))
+                       (dbms-process-set!  dbms name state.new)
+                       (set! state state.new))
+    ((step)            (define state.new (pstate-step state))
+                       (and state.new (dbms-process-set! dbms name state.new)))
+    ((query  . args)   (apply pstate-query state args))))
 
-(define (process-dbms  p)        (pstate-dbms (process-state p)))
-(define (process-query p . args) (apply pstate-query (process-state p) args))
+(define (process-query   p . args)   (apply p 'query args))
+(define (process-branch  p name.new) (p 'branch name.new))
+(define (process-move!   p name.new) (p 'move   name.new))
+(define (process-step!   p)          (p 'step))
+(define (process-modify! p pm)       (p 'modify pm))
 
-(define (process-branch p name.new)
-  (dbms-process-add! (process-dbms p) name.new (process-state p))
-  (process:set p (name name.new)))
 
-(define (process-move   p name.new)
-  (dbms-process-move! (process-dbms p) (process-name p) name.new)
-  (process:set p (name name.new)))
-
-(define (process-program-modify! p pm)
-  (define pst.new (pstate-program-modify (process-state p) pm))
-  (dbms-process-set! (process-dbms p) (process-name p) pst.new)
-  (process:set p (state pst.new)))
-
-(define (process-step! p)
-  (define pst.new (pstate-step (process-state p)))
-  (cond ((not pst.new) p)
-        (else          (dbms-process-set! (process-dbms p) (process-name p) pst.new)
-                       (process:set p (state pst.new)))))
 
 ;; TODO:
 (define (dbms-process-set!    dbms name pst)
