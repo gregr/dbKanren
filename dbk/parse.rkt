@@ -25,7 +25,13 @@
 
 (define (env-ref     env vocab n)     (hash-ref (hash-ref env n (hash)) vocab #f))
 (define (env-ref*    env vocab ns)    (map (lambda (n) (env-ref env vocab n)) ns))
-(define (env-set     env vocab n  v)  (hash-update env n (lambda (vocab=>v) (hash-set vocab=>v vocab v)) (hash)))
+(define (env-set     env vocab n  v)  (let* ((vocab=>v (hash-ref env n (hash)))
+                                             (vocab=>v (if v
+                                                         (hash-set    vocab=>v vocab v)
+                                                         (hash-remove vocab=>v vocab))))
+                                        (if (hash-empty? vocab=>v)
+                                          (hash-remove env n)
+                                          (hash-set env n vocab=>v))))
 (define (env-set*    env vocab ns vs) (foldl (lambda (n v env) (env-set env vocab n v)) env ns vs))
 
 (define (env-remove  env       n)     (hash-remove env n))
