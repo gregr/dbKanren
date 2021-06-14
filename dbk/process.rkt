@@ -5,9 +5,8 @@
          racket/list racket/match racket/set)
 
 (record pstate (dbms history data program) #:prefab)
-
 (define (pstate:new dbms prg) (pstate (dbms                dbms)
-                                      (history             '())
+                                      (history             prg)
                                       (data                'TODO)
                                       (program             prg)))
 
@@ -15,8 +14,9 @@
 (define (pstate-query pst params formula)
   (set))
 
+;; TODO: include stepping as a modification?
 (define-variant pmod?
-  (pmod:add     path module)
+  (pmod:merge   pstates)
   (pmod:move    path.old path.new)
   (pmod:wrap    path)
   (pmod:unwrap  path)
@@ -26,12 +26,45 @@
 (define (pmod:hide   vocab name) (pmod:rename vocab name #f))
 
 (define (pstate-modify pst.0 pm)
-  (define pst   (pstate:set pst.0 (history (cons pm (pstate-history pst.0)))))
-  (define prg   (pstate-program pst))
-  (define m     (program-module prg))
+  ;; TODO: record new pstate using dbms
+  (define pst (pstate:set pst.0 (history (cons pm (pstate-history pst.0)))))
+  (define prg (pstate-program pst))
+  (define m   (program-module prg))
+  (define env (program-env prg))
+  ;; TODO: produce renamings for public names that are shared across pstates
+  (define (public-renamings envs)
+    (hash))
+  (define (module-rename m)
+    ;; TODO: traverse (parameterized) formulas and terms
+    #f)
+  (define (data-rename d n=>n)
+    ;; TODO:
+    #f)
+  (define (data-union . ds)
+    ;; TODO:
+    #f)
   (match pm
-    ;; TODO: for safety, recreate all private names of both current and newly-added module?
-    ((pmod:add     path module)       (pstate:set pst (program (program:set prg (module (module-add    m path module))))))
+    ((pmod:merge   pstates)           (define dbms (pstate-dbms pst))
+                                      (unless (andmap (lambda (s) (eqv? dbms (pstate-dbms s))) pstates)
+                                        (error "cannot merge processes managed by a different dbms:"
+                                               dbms (map pstate-dbms pstates)))
+                                      (with-fresh-names
+                                        (define n=>n.0 (public-renamings (map (lambda (ps) (program-env (pstate-program ps)))
+                                                                              (cons pst pstates))))
+                                        (apply (lambda (ms es ds)
+                                                 (pstate:set pst
+                                                             (program (program:set program.empty
+                                                                                   (module (m:link ms))
+                                                                                   (env    (apply env-union es))))
+                                                             (data (apply data-union ds))))
+                                               (apply map list
+                                                      (map (lambda (ps)
+                                                             (define prg                 (pstate-program ps))
+                                                             (match-define (cons m n=>n) (module-rename  (program-module prg) n=>n.0))
+                                                             (define env                 (env-rename     (program-env prg)    n=>n))
+                                                             (define data                (data-rename    (pstate-data ps)     n=>n))
+                                                             (list m env data))
+                                                           (cons pst pstates))))))
     ((pmod:move    path.old path.new) (define m.1 (module-remove m path.old))
                                       (define m.new (if path.new
                                                       (module-add m.1 path.new (module-ref m path.old))
@@ -39,10 +72,9 @@
                                       (pstate:set pst (program (program:set prg (module m.new)))))
     ((pmod:wrap    path)              (pstate:set pst (program (program:set prg (module (module-wrap   m path))))))
     ((pmod:unwrap  path)              (pstate:set pst (program (program:set prg (module (module-unwrap m path))))))
-    ((pmod:rename  vocab n.old n.new) (define env.0   (program-env prg))
-                                      (define env.1   (env-set env.0 vocab n.old #f))
+    ((pmod:rename  vocab n.old n.new) (define env.1   (env-set env vocab n.old #f))
                                       (define env.new (if n.new
-                                                        (env-set env.1 vocab n.new (env-ref env.0 vocab n.old))
+                                                        (env-set env.1 vocab n.new (env-ref env vocab n.old))
                                                         env.1))
                                       (pstate:set pst (program (program:set prg (env env.new)))))))
 
@@ -53,6 +85,7 @@
 (define (process name state)
   (define dbms (pstate-dbms state))
   (method-lambda
+    ((state)           state)
     ((branch name.new) (dbms-process-add!  dbms name.new state)
                        (process name.new state))
     ((move   name.new) (dbms-process-move! dbms name name.new)
@@ -70,9 +103,19 @@
 (define (process-step!   p)          (p 'step))
 (define (process-modify! p pm)       (p 'modify pm))
 
+(define (process-merge! p ps)
+  (process-modify! p (pmod:merge (map (lambda (p) (p 'state)) ps))))
 
+(define (merge-processes name ps)
+  (when (null? ps) (error "cannot merge empty list of processes:" name))
+  (define p (process-branch (car ps) name))
+  (process-merge! p (cdr ps))
+  p)
 
 ;; TODO:
+(define (dbms-process-ref     dbms name)
+  #f)
+
 (define (dbms-process-set!    dbms name pst)
   (void))
 

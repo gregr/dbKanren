@@ -1,6 +1,6 @@
 #lang racket/base
 (provide
-  env.empty env:new env-ref env-ref* env-set env-set* env-remove env-remove* env-bind env-bind* env-union
+  env.empty env:new env-ref env-ref* env-set env-set* env-remove env-remove* env-bind env-bind* env-union env-rename
   m:named m:link m:term m:relation m:assert
   f:const f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   f:any<= f:== f:=/=
@@ -10,7 +10,7 @@
   t-substitute f-substitute t-substitute* t-substitute-first-order t-substitute-first-order*
   f-relations t-relations t-relations*
   module-flatten module-ref module-add module-remove module-remove* module-wrap module-unwrap
-  program:new program:set program-module program-env program-flatten program-remove*
+  program.empty program:new program:set program-module program-env program-flatten program-remove*
   define-dbk dbk dbk-parse dbk-syntax link parameter input output
   dbk-environment dbk-environment-update with-dbk-environment-update with-fresh-names
   literal? literal simple-parser
@@ -46,6 +46,14 @@
                                                              (hash-union vocab=>v.0 vocab=>v #:combine
                                                                          (lambda (v.0 v) (if v v v.0))))))
                                              env envs))
+
+(define (env-rename env n=>n)
+  (define (v-rename vocab v)    (cons vocab               (if (procedure? v)
+                                                            v
+                                                            (hash-ref n=>n v v))))
+  (define (n-rename n vocab=>v) (cons (hash-ref n=>n n n) (make-immutable-hash
+                                                            (hash-map vocab=>v v-rename))))
+  (make-immutable-hash (hash-map env n-rename)))
 
 (define (env:new vocab . args)
   (define nvs (plist->alist args))
@@ -285,19 +293,10 @@
 
 (record program (module env) #:prefab)
 (define (program:new m env) (program (module m) (env env)))
+(define program.empty (program:new module.empty env.empty))
 
 (define (program-remove* p paths) (program:set p (module (module-remove* (program-module p) paths))))
 (define (program-flatten p)       (program:set p (module (module-flatten (program-module p)))))
-
-;; TODO: program-link defined via m:link and env-union
-;(define (program-link . ps)
-  ;;; with-fresh-names
-  ;(foldl (lambda (p p.0)
-           ;;; TODO: rename all private names for safety
-           ;;; need to know where terms and formulas live
-           ;)
-         ;program.empty
-         ;ps))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Names and parameter trees
@@ -875,7 +874,7 @@
 ;; TODO: (define-dbk name (other attributes?) (parent ...) body ...)
 (define-syntax-rule (define-dbk name body ...) (define name (dbk body ...)))
 
-;; TODO: (dbk (other attributes?) (parent ...) clauses ...) using (dbk-parse (union-of-envs-of parent ...) clauses ...)
+;; TODO: (dbk (other attributes? such as process name) (parent ...) clauses ...) using (dbk-parse (union-of-envs-of parent ...) clauses ...)
 ;; dbk-parse produces AST and residual env
 ;; semantically process result of dbk-parse to produce a process value
 (define-syntax-rule (dbk clauses ...)          (dbk-parse (dbk-syntax clauses ...)))
