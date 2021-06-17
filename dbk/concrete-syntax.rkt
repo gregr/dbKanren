@@ -22,21 +22,22 @@
 (define-relation-syntax any<= '(prim any<=))
 (define-relation-syntax any<  '(prim any<))
 
-(define (conj . fs)
-  (if (null? fs)
-    (== #t #t)
-    (foldl (lambda (f2 f1) (f:and f1 f2)) (car fs) (cdr fs))))
+(define-syntax conj*
+  (syntax-rules ()
+    ((_)          (== #t #t))
+    ((_ f)        f)
+    ((_ fs ... f) (f:and (conj* fs ...) f))))
 
-(define (disj . fs)
-  (if (null? fs)
-    (== #t #f)
-    (let loop ((f (car fs)) (fs (cdr fs)))
-      (if (null? fs)
-        f
-        (f:or f (loop (car fs) (cdr fs)))))))
+(define-syntax disj*
+  (syntax-rules ()
+    ((_)          (== #t #f))
+    ((_ f)        f)
+    ((_ f fs ...) (f:or f (disj* fs ...)))))
 
-(define (imply  f.h f.c) (f:implies f.h f.c))
-(define (negate f)       (f:not     f))
+(define-syntax-rule (conj   fs ...)  (with-formula-vocabulary (conj*     fs ...)))
+(define-syntax-rule (disj   fs ...)  (with-formula-vocabulary (disj*     fs ...)))
+(define-syntax-rule (imply  f.h f.c) (with-formula-vocabulary (f:implies f.h f.c)))
+(define-syntax-rule (negate f)       (with-formula-vocabulary (f:not     f)))
 
 (define-syntax-rule (define-quantifier-syntax name f:quantifier)
   (... (define-syntax (name stx)
@@ -52,8 +53,10 @@
 
 (define-syntax-rule (fresh (x ...) body ...) (exist (x ...) body ...))
 
-(define-syntax-rule (conde (f.0 fs.0 ...) (f fs ...) ...)
-  (disj (conj f.0 fs.0 ...) (conj f fs ...) ...))
+(define-syntax-rule (conde (f.0 fs.0 ...)
+                           (f   fs   ...) ...)
+  (disj (conj f.0 fs.0 ...)
+        (conj f   fs   ...) ...))
 
 (define-syntax query
   (syntax-rules ()
@@ -63,8 +66,7 @@
     ((_ x       body ...) (with-fresh-names
                             (let ((name.x (fresh-name 'x)))
                               (let ((x (t:var name.x)))
-                                (t:query name.x (with-formula-vocabulary
-                                                  (conj body ...)))))))))
+                                (t:query name.x (conj body ...))))))))
 
 (define (dbk:term x)          (scm->term x))
 (define (dbk:app  p . args)   (t:app  (scm->term p) (map scm->term args)))
