@@ -1,8 +1,12 @@
 #lang racket/base
 (provide (all-from-out "concrete-syntax.rkt")
-         not and or if when unless cond begin let let* lambda quasiquote)
+         not and or if when unless cond begin let let* lambda quasiquote
+         apply append map/merge map/append map filter filter-not)
 (require "concrete-syntax.rkt"
          (for-syntax racket/base) racket/stxparam
+         (rename-in "misc.rkt"
+                    (map/merge  rkt:map/merge)
+                    (map/append rkt:map/append))
          (rename-in racket/base
                     (not        rkt:not)
                     (and        rkt:and)
@@ -15,7 +19,13 @@
                     (when       rkt:when)
                     (unless     rkt:unless)
                     (cond       rkt:cond)
-                    (quasiquote rkt:quasiquote)))
+                    (quasiquote rkt:quasiquote)
+                    (apply      rkt:apply)
+                    (append     rkt:append)
+                    (map        rkt:map)
+                    (filter     rkt:filter))
+         (rename-in racket/list
+                    (filter-not rkt:filter-not)))
 
 (define-syntax-rule (define-alias/term name name.term name.else)
   (define-syntax (name stx)
@@ -53,6 +63,14 @@
 (define-alias/term unless     dbk:unless     rkt:unless)
 (define-alias/term cond       dbk:cond       rkt:cond)
 (define-alias/term quasiquote dbk:quasiquote rkt:quasiquote)
+
+(define-alias/term apply      dbk:apply      rkt:apply)
+(define-alias/term append     dbk:append     rkt:append)
+(define-alias/term map/merge  dbk:map/merge  rkt:map/merge)
+(define-alias/term map/append dbk:map/append rkt:map/append)
+(define-alias/term map        dbk:map        rkt:map)
+(define-alias/term filter     dbk:filter     rkt:filter)
+(define-alias/term filter-not dbk:filter-not rkt:filter-not)
 
 (define-syntax (dbk:quasiquote/level stx)
   (syntax-case stx (quasiquote unquote unquote-splicing)

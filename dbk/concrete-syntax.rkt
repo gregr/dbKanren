@@ -3,7 +3,8 @@
   current-vocabulary with-no-vocabulary with-formula-vocabulary with-term-vocabulary
   conj disj imply negate all exist fresh conde query
   == =/= any<= any<
-  dbk:term dbk:app dbk:cons dbk:list->vector dbk:append dbk:not
+  dbk:term dbk:app dbk:apply dbk:cons dbk:list->vector dbk:append dbk:not
+  dbk:map/merge dbk:map/append dbk:map dbk:filter dbk:filter-not
   dbk:begin dbk:let dbk:let* dbk:lambda dbk:if dbk:when dbk:unless dbk:cond dbk:and dbk:or)
 (require "abstract-syntax.rkt"
          (for-syntax racket/base) racket/stxparam)
@@ -69,11 +70,28 @@
                                 (t:query name.x (conj body ...))))))))
 
 (define (dbk:term x)          (scm->term x))
-(define (dbk:app  p . args)   (t:app  (scm->term p) (map scm->term args)))
+(define (dbk:app  p . args)   (t:app (scm->term p) (map scm->term args)))
 (define (dbk:cons a d)        (t:cons (scm->term a) (scm->term d)))
 (define (dbk:list->vector xs) (t:list->vector (scm->term xs)))
-(define (dbk:append xs ys)    (t:append (scm->term xs) (scm->term ys)))
-(define (dbk:not x)           (t:not (scm->term x)))
+
+(define-syntax (dbk:apply stx)
+  (syntax-case stx ()
+    ((_ . args) #'(t:app (t:prim 'apply) (map scm->term (list args))))
+    (_          #'(t:prim 'apply))))
+
+(define-syntax-rule (define-lambda (name params ...) body)
+  (define-syntax (name stx)
+    (syntax-case stx ()
+      ((_ . args) #'(dbk:app (dbk:lambda (params ...) body) . args))
+      (_          #'(dbk:lambda (params ...) body)))))
+
+(define-lambda (dbk:not        x)                  (dbk:if x #f #t))
+(define-lambda (dbk:append     xs ys)              (t:append (scm->term xs) (scm->term ys)))
+(define-lambda (dbk:map/merge  f merge default xs) (apply t:map/merge (map scm->term (list f merge default xs))))
+(define-lambda (dbk:map/append f               xs) (dbk:map/merge  f (dbk:lambda (a b) (dbk:append a b)) '()            xs))
+(define-lambda (dbk:map        f               xs) (dbk:map/append (dbk:lambda (x) (list (dbk:app f x)))                xs))
+(define-lambda (dbk:filter     p               xs) (dbk:map/append (dbk:lambda (x) (dbk:if (dbk:app p x) (list x) '())) xs))
+(define-lambda (dbk:filter-not p               xs) (dbk:filter     (dbk:lambda (x) (dbk:not (dbk:app p x)))             xs))
 
 (define-syntax dbk:begin
   (syntax-rules ()
@@ -133,4 +151,3 @@
     ((_)          (dbk:term #f))
     ((_ e)        (dbk:term e))
     ((_ e es ...) (dbk:let ((temp.or e)) (dbk:if temp.or temp.or (dbk:or es ...))))))
-
