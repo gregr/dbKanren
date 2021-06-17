@@ -5,8 +5,8 @@
          plist->alist alist-ref alist-remove alist-update alist-set
          hash-remove*
          call/files let/files
-         map/merge)
-(require (for-syntax racket/base) racket/match racket/set)
+         map/merge map/append)
+(require (for-syntax racket/base) racket/list racket/match racket/set)
 
 (define-syntax simple-match-lambda
   (syntax-rules ()
@@ -217,3 +217,5 @@
   (if (null? ys)
     default
     (foldl merge (car ys) (cdr ys))))
+
+(define (map/append f xs) (append* (map f xs)))
