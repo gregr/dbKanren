@@ -3,8 +3,8 @@
   current-vocabulary with-no-vocabulary with-formula-vocabulary with-term-vocabulary
   conj disj imply negate all exist fresh conde query
   == =/= any<= any<
-  dbk:term dbk:app dbk:cons dbk:list->vector dbk:not
-  dbk:begin dbk:let dbk:let* dbk:lambda dbk:if dbk:when dbk:unless dbk:cond dbk:and dbk:or dbk:quasiquote)
+  dbk:term dbk:app dbk:cons dbk:list->vector dbk:append dbk:not
+  dbk:begin dbk:let dbk:let* dbk:lambda dbk:if dbk:when dbk:unless dbk:cond dbk:and dbk:or)
 (require "abstract-syntax.rkt"
          (for-syntax racket/base) racket/stxparam)
 
@@ -72,6 +72,7 @@
 (define (dbk:app  p . args)   (t:app  (scm->term p) (map scm->term args)))
 (define (dbk:cons a d)        (t:cons (scm->term a) (scm->term d)))
 (define (dbk:list->vector xs) (t:list->vector (scm->term xs)))
+(define (dbk:append xs ys)    (t:append (scm->term xs) (scm->term ys)))
 (define (dbk:not x)           (t:not (scm->term x)))
 
 (define-syntax dbk:begin
@@ -133,18 +134,3 @@
     ((_ e)        (dbk:term e))
     ((_ e es ...) (dbk:let ((temp.or e)) (dbk:if temp.or temp.or (dbk:or es ...))))))
 
-(define-syntax (dbk:quasiquote/level stx)
-  (syntax-case stx (quasiquote unquote unquote-splicing)
-    ;; TODO: relational unquote-splicing
-    ((_ level   (quasiquote q))   #'(dbk:term (list 'quasiquote (dbk:quasiquote/level (level) q))))
-    ((_ ()      (unquote    e))   #'(dbk:term e))
-    ((_ (level) (unquote    q))   #'(dbk:term (list 'unquote    (dbk:quasiquote/level level   q))))
-    ((_ level   (q.a . q.d))      #'(dbk:cons                   (dbk:quasiquote/level level   q.a)
-                                                                (dbk:quasiquote/level level   q.d)))
-    ((_ level   #(q ...))         #'(dbk:list->vector           (dbk:quasiquote/level level   (q ...))))
-    ((_ level   quasiquote)       (raise-syntax-error #f "misplaced quasiquote"       stx))
-    ((_ level   unquote)          (raise-syntax-error #f "misplaced unquote"          stx))
-    ((_ level   unquote-splicing) (raise-syntax-error #f "misplaced unquote-splicing" stx))
-    ((_ level   q)                #'(dbk:term (quote q)))))
-
-(define-syntax-rule (dbk:quasiquote q) (dbk:quasiquote/level () q))
