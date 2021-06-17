@@ -3,8 +3,8 @@
   current-vocabulary with-no-vocabulary with-formula-vocabulary with-term-vocabulary
   conj disj imply negate all exist fresh conde query
   == =/= any<= any<
-  dbk:term dbk:app dbk:cons dbk:list->vector
-  dbk:if dbk:when dbk:unless dbk:cond dbk:begin dbk:let dbk:let* dbk:lambda dbk:quasiquote)
+  dbk:term dbk:app dbk:cons dbk:list->vector dbk:not
+  dbk:begin dbk:let dbk:let* dbk:lambda dbk:if dbk:when dbk:unless dbk:cond dbk:and dbk:or dbk:quasiquote)
 (require "abstract-syntax.rkt"
          (for-syntax racket/base) racket/stxparam)
 
@@ -70,6 +70,13 @@
 (define (dbk:app  p . args)   (t:app  (scm->term p) (map scm->term args)))
 (define (dbk:cons a d)        (t:cons (scm->term a) (scm->term d)))
 (define (dbk:list->vector xs) (t:list->vector (scm->term xs)))
+(define (dbk:not x)           (t:not (scm->term x)))
+
+(define-syntax dbk:begin
+  (syntax-rules ()
+    ((_)          (dbk:term (void)))
+    ((_ e)        (dbk:term e))
+    ((_ e es ...) (dbk:let ((temp.begin (dbk:term e))) es ...))))
 
 (define-syntax dbk:let
   (syntax-rules ()
@@ -79,11 +86,10 @@
                                     (t:let (list (cons name.x (dbk:term e)) ...)
                                            (dbk:begin body ...))))))))
 
-(define-syntax dbk:begin
+(define-syntax dbk:let*
   (syntax-rules ()
-    ((_)          (dbk:term (void)))
-    ((_ e)        (dbk:term e))
-    ((_ e es ...) (dbk:let ((temp.begin (dbk:term e))) es ...))))
+    ((_ ()                  body ...) (dbk:let ()                              body ...))
+    ((_ ((x e) (xs es) ...) body ...) (dbk:let ((x e)) (dbk:let* ((xs es) ...) body ...)))))
 
 (define-syntax (dbk:lambda stx)
   (syntax-case stx ()
@@ -113,10 +119,17 @@
     ((_ (c e ...) cs ...)     #'(                 dbk:if c (dbk:begin e ...) (dbk:cond cs ...)))
     ((_ c cs ...)             #'(dbk:let ((x c)) (dbk:if x x                 (dbk:cond cs ...))))))
 
-(define-syntax dbk:let*
+(define-syntax dbk:and
   (syntax-rules ()
-    ((_ ()                  body ...) (dbk:let ()                              body ...))
-    ((_ ((x e) (xs es) ...) body ...) (dbk:let ((x e)) (dbk:let* ((xs es) ...) body ...)))))
+    ((_)          (dbk:term #t))
+    ((_ e)        (dbk:term e))
+    ((_ e es ...) (dbk:if e (dbk:and es ...) (dbk:term #f)))))
+
+(define-syntax dbk:or
+  (syntax-rules ()
+    ((_)          (dbk:term #f))
+    ((_ e)        (dbk:term e))
+    ((_ e es ...) (dbk:let ((temp.or e)) (dbk:if temp.or temp.or (dbk:or es ...))))))
 
 (define-syntax (dbk:quasiquote/level stx)
   (syntax-case stx (quasiquote unquote unquote-splicing)
