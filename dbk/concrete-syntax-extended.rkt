@@ -29,7 +29,7 @@
 
 (define-syntax-rule (define-alias/term name name.term name.else)
   (define-syntax (name stx)
-    (case (syntax-parameter-value #'current-vocabulary)
+    (case (current-vocabulary)
       ((term) (syntax-case stx ()
                 ((_ . args) #'(name.term . args))
                 (_          #'name.term)))
@@ -39,7 +39,7 @@
 
 (define-syntax-rule (define-alias/formula&term name name.formula name.term name.else)
   (define-syntax (name stx)
-    (case (syntax-parameter-value #'current-vocabulary)
+    (case (current-vocabulary)
       ((formula) (syntax-case stx ()
                    ((_ . args) #'(name.formula . args))
                    (_          #'name.formula)))

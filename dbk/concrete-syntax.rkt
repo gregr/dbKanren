@@ -1,6 +1,7 @@
 #lang racket/base
 (provide
-  current-vocabulary with-no-vocabulary with-formula-vocabulary with-term-vocabulary
+  (for-syntax current-vocabulary)
+  with-no-vocabulary with-formula-vocabulary with-term-vocabulary
   conj disj imply negate all exist fresh conde query
   == =/= any<= any<
   dbk:term dbk:app dbk:apply dbk:cons dbk:list->vector dbk:append dbk:not
@@ -9,10 +10,13 @@
 (require "abstract-syntax.rkt"
          (for-syntax racket/base) racket/stxparam)
 
-(define-syntax-parameter current-vocabulary #f)
-(define-syntax-rule (with-no-vocabulary      body ...) (syntax-parameterize ((current-vocabulary #f))       body ...))
-(define-syntax-rule (with-formula-vocabulary body ...) (syntax-parameterize ((current-vocabulary 'formula)) body ...))
-(define-syntax-rule (with-term-vocabulary    body ...) (syntax-parameterize ((current-vocabulary 'term))    body ...))
+(define-syntax-parameter stxparam.vocabulary #f)
+(begin-for-syntax (define-syntax-rule (current-vocabulary)
+                    (syntax-parameter-value #'stxparam.vocabulary)))
+
+(define-syntax-rule (with-no-vocabulary      body ...) (syntax-parameterize ((stxparam.vocabulary #f))       body ...))
+(define-syntax-rule (with-formula-vocabulary body ...) (syntax-parameterize ((stxparam.vocabulary 'formula)) body ...))
+(define-syntax-rule (with-term-vocabulary    body ...) (syntax-parameterize ((stxparam.vocabulary 'term))    body ...))
 
 (define-syntax-rule (define-relation-syntax name relation)
   (... (define-syntax-rule (name arg ...) (f:relate relation (with-term-vocabulary
