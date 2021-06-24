@@ -18,14 +18,28 @@
 (define-syntax-rule (with-formula-vocabulary body ...) (syntax-parameterize ((stxparam.vocabulary 'formula)) body ...))
 (define-syntax-rule (with-term-vocabulary    body ...) (syntax-parameterize ((stxparam.vocabulary 'term))    body ...))
 
-(define-syntax-rule (define-relation-syntax name relation)
-  (... (define-syntax-rule (name arg ...) (f:relate relation (with-term-vocabulary
-                                                               (list (scm->term arg) ...))))))
+(define-syntax-rule (define-alias/relation name arity r.formula r.else)
+  (... (define-syntax (name stx)
+         (case (current-vocabulary)
+           ((formula) (syntax-case stx ()
+                        ((_ arg ...) (unless (= arity (length (syntax->list #'(arg ...))))
+                                       (raise-syntax-error #f "relation called with invalid number of arguments" stx))
+                                     #'(with-term-vocabulary (f:relate r.formula (list (scm->term arg) ...))))))
+           (else      (syntax-case stx ()
+                        ((_ . args) #'(r.else . args))
+                        (_          #'r.else)))))))
 
-(define-relation-syntax ==    '(prim ==))
-(define-relation-syntax =/=   '(prim =/=))
-(define-relation-syntax any<= '(prim any<=))
-(define-relation-syntax any<  '(prim any<))
+(define-syntax-rule (define-primitive-relation name arity)
+  (begin (define-syntax (retry stx)
+           (syntax-case stx ()
+             ((_ . args) #'(with-formula-vocabulary (name . args)))
+             (_          #''(primitive name))))
+         (define-alias/relation name arity 'name retry)))
+
+(define-primitive-relation ==    2)
+(define-primitive-relation =/=   2)
+(define-primitive-relation any<= 2)
+(define-primitive-relation any<  2)
 
 (define-syntax conj*
   (syntax-rules ()
