@@ -7,8 +7,8 @@
   dbk:term dbk:app dbk:apply dbk:cons dbk:list->vector dbk:append dbk:not
   dbk:map/merge dbk:map/append dbk:map dbk:filter dbk:filter-not
   dbk:begin dbk:let dbk:let* dbk:lambda dbk:if dbk:when dbk:unless dbk:cond dbk:and dbk:or
-  define-relation define-relation/table define-relation/input)
-(require "abstract-syntax.rkt" "relation.rkt"
+  )
+(require "abstract-syntax.rkt"
          (for-syntax racket/base) racket/stxparam)
 
 (define-syntax-parameter stxparam.vocabulary #f)
@@ -170,25 +170,5 @@
     ((_)          (dbk:term #f))
     ((_ e)        (dbk:term e))
     ((_ e es ...) (dbk:let ((temp.or e)) (dbk:if temp.or temp.or (dbk:or es ...))))))
-
-(define-syntax-rule (define-relation-syntax relation-name params r)
-  (... (begin
-         (define-alias/relation relation-name (length 'params) r r)
-         (relation-properties-set! r 'name       'relation-name)
-         (relation-properties-set! r 'attributes 'params))))
-
-(define-syntax-rule (define-relation (name param ...) f ...)
-  (begin (define name:relation (relation/rule (length '(param ...))
-                                              (lambda (param ...) (with-formula-vocabulary (conj f ...)))))
-         (define-relation-syntax name (param ...) name:relation)
-         (relation-properties-set! name:relation 'rule '((name param ...) :- f ...))))
-
-(define-syntax-rule (define-relation/table (name param ...) path)
-  (begin (define name:relation (relation/table (length '(param ...)) path))
-         (define-relation-syntax name (param ...) name:relation)))
-
-(define-syntax-rule (define-relation/input (name param ...) produce)
-  (begin (define name:relation (relation/input (length '(param ...)) produce))
-         (define-relation-syntax name (param ...) name:relation)))
 
 ;; TODO: define-term
