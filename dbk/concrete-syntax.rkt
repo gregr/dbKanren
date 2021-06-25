@@ -182,7 +182,7 @@
         (lambda (r . args)
           (unless (= (relation-arity r) (length args))
             (error "relation called with invalid number of arguments" args r))
-          (with-term-vocabulary (f:relate r (map scm->term args)))))
+          (f:relate r (map scm->term args))))
 
 (define (make-relation kind arity parent->self)
   (define properties (hash))
@@ -243,21 +243,26 @@
         ((produce) (s-enumerate 0 (produce)))
         (else      parent)))))
 
-(define-syntax-rule (define-relation (r param ...) f ...)
+(define-syntax-rule (define-relation-syntax name.r attrs r)
+  (begin (define-syntax (name.r stx)
+           (syntax-case stx ()
+             ((_ . args) #'(let ((x r)) (with-term-vocabulary (x . args))))
+             (_          #'r)))
+         (relation-properties-set! r 'name       'name.r)
+         (relation-properties-set! r 'attributes 'attrs)))
+
+(define-syntax-rule (define-relation (name param ...) f ...)
   (begin (define r (relation/rule (length '(param ...))
                                   (lambda (param ...) (with-formula-vocabulary (conj f ...)))))
-         (relation-properties-set! r 'name       'r)
-         (relation-properties-set! r 'attributes '(param ...))
-         (relation-properties-set! r 'rule       '((r param ...) :- f ...))))
+         (define-relation-syntax name (param ...) r)
+         (relation-properties-set! r 'rule       '((name param ...) :- f ...))))
 
-(define-syntax-rule (define-relation/table (r param ...) path)
+(define-syntax-rule (define-relation/table (name param ...) path)
   (begin (define r (relation/table (length '(param ...)) path))
-         (relation-properties-set! r 'name       'r)
-         (relation-properties-set! r 'attributes '(param ...))))
+         (define-relation-syntax name (param ...) r)))
 
-(define-syntax-rule (define-relation/input (r param ...) produce)
+(define-syntax-rule (define-relation/input (name param ...) produce)
   (begin (define r (relation/input (length '(param ...)) produce))
-         (relation-properties-set! r 'name       'r)
-         (relation-properties-set! r 'attributes '(param ...))))
+         (define-relation-syntax name (param ...) r)))
 
 ;; TODO: define-term
