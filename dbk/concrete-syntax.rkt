@@ -1,6 +1,6 @@
 #lang racket/base
 (provide
-  fresh-name with-fresh-names
+  fresh-name with-fresh-names ??
   (for-syntax current-vocabulary)
   with-no-vocabulary with-formula-vocabulary with-term-vocabulary
   conj disj imply negate all exist fresh conde query
@@ -37,6 +37,29 @@
   (cons uid.next (if (pair? name) (cdr name) name)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Anonymous variables
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define anonymous-vars (make-parameter #f))
+
+(define-syntax formula/anonymous-vars
+  (syntax-rules ()
+    ((_ body ...) (parameterize ((anonymous-vars '()))
+                    (define f (let () body ...))
+                    (if (null? (anonymous-vars))
+                      f
+                      (f:exist (anonymous-vars) f))))))
+
+(define-syntax (?? stx)
+  (syntax-case stx ()
+    ((_ . args) (raise-syntax-error #f "cannot apply anonymous variable" stx))
+    (_          #'(let ()
+                    (unless (anonymous-vars) (error "misplaced anonymous variable:" stx))
+                    (define name (fresh-name '_))
+                    (anonymous-vars (cons name (anonymous-vars)))
+                    (t:var name)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Vocabularies
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -52,11 +75,18 @@
 ;; Basic syntax for formulas and terms
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define-syntax-rule (define-primitive-relation r arity)
-  (define (r . args)
-    (unless (= arity (length args))
-      (error "primitive relation called with invalid number of arguments" (cons 'r args)))
-    (with-term-vocabulary (f:relate 'r (map scm->term args)))))
+(define-syntax-rule (define-primitive-relation name arity)
+  (begin (define-syntax (name stx)
+           (syntax-case stx ()
+             ((_ . args) #'(formula/anonymous-vars (with-term-vocabulary (r . args))))
+             (_          #'r)))
+         (define r (let ()
+                     (define (name . args)
+                       (unless (= arity (length args))
+                         (error "primitive relation called with invalid number of arguments"
+                                (cons 'name args)))
+                       (f:relate 'name (map scm->term args)))
+                     name))))
 
 (define-primitive-relation ==    2)
 (define-primitive-relation =/=   2)
@@ -280,7 +310,7 @@
      (with-syntax (((r ...) (generate-temporaries #'(name.r ...))))
        #'(begin (define-syntax (name.r stx)
                   (syntax-case stx ()
-                    ((_ . args) #'(with-term-vocabulary (r . args)))
+                    ((_ . args) #'(formula/anonymous-vars (with-term-vocabulary (r . args))))
                     (_          #'r))) ...
                 (define-values (r ...)
                   (values (defined-relation-value (kind (name.r param ...) body ...)) ...))
