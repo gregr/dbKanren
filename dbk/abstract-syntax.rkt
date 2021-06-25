@@ -2,9 +2,7 @@
 (provide
   fresh-name with-fresh-names
   f:relate f:implies f:iff f:or f:and f:not f:exist f:all
-  f:== f:=/= f:any<= f:any<
   t:query t:quote t:var t:prim t:app t:lambda t:if t:let
-  t:map/merge t:cons t:car t:cdr t:vector t:list->vector t:vector-ref t:vector-length t:append
   scm->term)
 (require "misc.rkt"
          (except-in racket/match ==) racket/set)
@@ -44,11 +42,6 @@
   (f:exist   params body)
   (f:all     params body))
 
-(define (f:==    u v) (f:relate '(prim ==)    (list u v)))
-(define (f:=/=   u v) (f:relate '(prim =/=)   (list u v)))
-(define (f:any<= u v) (f:relate '(prim any<=) (list u v)))
-(define (f:any<  u v) (f:relate '(prim any<)  (list u v)))
-
 (define-variant term?
   (t:query  name formula)
   (t:quote  value)
@@ -59,15 +52,8 @@
   (t:if     c t f)
   (t:let    bpairs body))
 
-(define (t:map/merge f merge default xs) (t:app (t:prim 'map/merge)     (list f merge default xs)))
 (define (t:cons a d)                     (t:app (t:prim 'cons)          (list a d)))
-(define (t:car p)                        (t:app (t:prim 'car)           (list p)))
-(define (t:cdr p)                        (t:app (t:prim 'cdr)           (list p)))
-(define (t:vector . args)                (t:app (t:prim 'vector)        args))
 (define (t:list->vector xs)              (t:app (t:prim 'list->vector)  (list xs)))
-(define (t:vector-ref v i)               (t:app (t:prim 'vector-ref)    (list v i)))
-(define (t:vector-length v)              (t:app (t:prim 'vector-length) (list v)))
-(define (t:append xs ys)                 (t:app (t:prim 'append)        (list xs ys)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Values and term conversion
