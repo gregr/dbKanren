@@ -1,32 +1,9 @@
 #lang racket/base
 (provide
-  fresh-name with-fresh-names
   f:relate f:implies f:iff f:or f:and f:not f:exist f:all
   t:query t:quote t:var t:prim t:app t:lambda t:if t:let
   scm->term)
-(require "misc.rkt"
-         (except-in racket/match ==) racket/set)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Names
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define fresh-name-count (make-parameter #f))
-
-(define (call-with-fresh-names thunk)
-  (if (fresh-name-count)
-    (thunk)
-    (parameterize ((fresh-name-count 0))
-      (thunk))))
-
-(define-syntax-rule (with-fresh-names body ...)
-  (call-with-fresh-names (lambda () body ...)))
-
-(define (fresh-name name)
-  (define uid.next (fresh-name-count))
-  (unless uid.next (error "fresh name not available:" name))
-  (fresh-name-count (+ uid.next 1))
-  (cons uid.next (if (pair? name) (cdr name) name)))
+(require "misc.rkt" (except-in racket/match ==) racket/set)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Abstract syntax
@@ -52,8 +29,8 @@
   (t:if     c t f)
   (t:let    bpairs body))
 
-(define (t:cons a d)                     (t:app (t:prim 'cons)          (list a d)))
-(define (t:list->vector xs)              (t:app (t:prim 'list->vector)  (list xs)))
+(define (t:cons         a d) (t:app (t:prim 'cons)          (list a d)))
+(define (t:list->vector xs)  (t:app (t:prim 'list->vector)  (list xs)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Values and term conversion

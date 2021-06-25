@@ -1,5 +1,6 @@
 #lang racket/base
 (provide
+  fresh-name with-fresh-names
   (for-syntax current-vocabulary)
   with-no-vocabulary with-formula-vocabulary with-term-vocabulary
   conj disj imply negate all exist fresh conde query
@@ -14,6 +15,31 @@
 (require "abstract-syntax.rkt" "misc.rkt" "stream.rkt"
          (for-syntax racket/base) racket/struct racket/stxparam)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Names
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define fresh-name-count (make-parameter #f))
+
+(define (call-with-fresh-names thunk)
+  (if (fresh-name-count)
+    (thunk)
+    (parameterize ((fresh-name-count 0))
+      (thunk))))
+
+(define-syntax-rule (with-fresh-names body ...)
+  (call-with-fresh-names (lambda () body ...)))
+
+(define (fresh-name name)
+  (define uid.next (fresh-name-count))
+  (unless uid.next (error "fresh name not available:" name))
+  (fresh-name-count (+ uid.next 1))
+  (cons uid.next (if (pair? name) (cdr name) name)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Vocabularies
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (define-syntax-parameter stxparam.vocabulary #f)
 (begin-for-syntax (define-syntax-rule (current-vocabulary)
                     (syntax-parameter-value #'stxparam.vocabulary)))
@@ -21,6 +47,10 @@
 (define-syntax-rule (with-no-vocabulary      body ...) (syntax-parameterize ((stxparam.vocabulary #f))       body ...))
 (define-syntax-rule (with-formula-vocabulary body ...) (syntax-parameterize ((stxparam.vocabulary 'formula)) body ...))
 (define-syntax-rule (with-term-vocabulary    body ...) (syntax-parameterize ((stxparam.vocabulary 'term))    body ...))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Basic syntax for formulas and terms
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-syntax-rule (define-primitive-relation r arity)
   (define (r . args)
