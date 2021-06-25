@@ -9,7 +9,8 @@
   dbk:begin dbk:let dbk:let* dbk:lambda dbk:if dbk:when dbk:unless dbk:cond dbk:and dbk:or
   relation-kind relation-arity relation-properties relation-properties-set!
   relation-method relation-dirty! relation-clean!
-  define-relation define-relation/table define-relation/input)
+  define-relation define-relation/table define-relation/input
+  define-relations)
 (require "abstract-syntax.rkt" "misc.rkt" "stream.rkt"
          (for-syntax racket/base) racket/struct racket/stxparam)
 
@@ -243,26 +244,32 @@
         ((produce) (s-enumerate 0 (produce)))
         (else      parent)))))
 
-(define-syntax-rule (define-relation-syntax name.r attrs r)
-  (begin (define-syntax (name.r stx)
-           (syntax-case stx ()
-             ((_ . args) #'(let ((x r)) (with-term-vocabulary (x . args))))
-             (_          #'r)))
-         (relation-properties-set! r 'name       'name.r)
-         (relation-properties-set! r 'attributes 'attrs)))
+(define-syntax (define-relations stx)
+  (syntax-case stx ()
+    ((_ (kind (name.r param ...) body ...) ...)
+     (with-syntax (((r ...) (generate-temporaries #'(name.r ...))))
+       #'(begin (define-syntax (name.r stx)
+                  (syntax-case stx ()
+                    ((_ . args) #'(with-term-vocabulary (r . args)))
+                    (_          #'r))) ...
+                (define-values (r ...)
+                  (values (defined-relation-value (kind (name.r param ...) body ...)) ...))
+                (begin (relation-properties-set! r 'name       'name.r)
+                       (relation-properties-set! r 'attributes '(param ...))) ...)))))
 
-(define-syntax-rule (define-relation (name param ...) f ...)
-  (begin (define r (relation/rule (length '(param ...))
-                                  (lambda (param ...) (with-formula-vocabulary (conj f ...)))))
-         (define-relation-syntax name (param ...) r)
-         (relation-properties-set! r 'rule       '((name param ...) :- f ...))))
+(define-syntax defined-relation-value
+  (syntax-rules (rule table input)
+    ((_ (rule  (name param ...) f ...))    (let ((r (relation/rule (length '(param ...))
+                                                                   (lambda (param ...)
+                                                                     (with-formula-vocabulary
+                                                                       (conj f ...))))))
+                                             (relation-properties-set! r 'rule '((name param ...) :- f ...))
+                                             r))
+    ((_ (table (name param ...) body ...)) (relation/table (length '(param ...)) body ...))
+    ((_ (input (name param ...) body ...)) (relation/input (length '(param ...)) body ...))))
 
-(define-syntax-rule (define-relation/table (name param ...) path)
-  (begin (define r (relation/table (length '(param ...)) path))
-         (define-relation-syntax name (param ...) r)))
-
-(define-syntax-rule (define-relation/input (name param ...) produce)
-  (begin (define r (relation/input (length '(param ...)) produce))
-         (define-relation-syntax name (param ...) r)))
+(define-syntax-rule (define-relation       body ...) (define-relations (rule  body ...)))
+(define-syntax-rule (define-relation/table body ...) (define-relations (table body ...)))
+(define-syntax-rule (define-relation/input body ...) (define-relations (input body ...)))
 
 ;; TODO: define-term
