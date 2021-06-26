@@ -8,12 +8,13 @@
   dbk:term dbk:app dbk:apply dbk:cons dbk:list->vector dbk:append dbk:not
   dbk:map/merge dbk:map/append dbk:map dbk:filter dbk:filter-not
   dbk:begin dbk:let dbk:let* dbk:lambda dbk:if dbk:when dbk:unless dbk:cond dbk:and dbk:or
+  apply-relation
   relation-kind relation-arity relation-properties relation-properties-set!
   relation-method relation-dirty! relation-clean!
   define-relation define-relation/table define-relation/input
   define-relations)
 (require "abstract-syntax.rkt" "misc.rkt" "stream.rkt"
-         (for-syntax racket/base) racket/struct racket/stxparam)
+         (for-syntax racket/base) racket/list racket/struct racket/stxparam)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Names
@@ -42,6 +43,12 @@
 
 (define anonymous-vars (make-parameter #f))
 
+(define (anonymous-var (sym '_))
+  (unless (anonymous-vars) (error "misplaced anonymous variable"))
+  (define name (fresh-name sym))
+  (anonymous-vars (cons name (anonymous-vars)))
+  (t:var name))
+
 (define-syntax formula/anonymous-vars
   (syntax-rules ()
     ((_ body ...) (parameterize ((anonymous-vars '()))
@@ -53,11 +60,7 @@
 (define-syntax (?? stx)
   (syntax-case stx ()
     ((_ . args) (raise-syntax-error #f "cannot apply anonymous variable" stx))
-    (_          #'(let ()
-                    (unless (anonymous-vars) (error "misplaced anonymous variable:" stx))
-                    (define name (fresh-name '_))
-                    (anonymous-vars (cons name (anonymous-vars)))
-                    (t:var name)))))
+    (_          #'(anonymous-var '??))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Vocabularies
@@ -224,6 +227,22 @@
     ((_ e)        (dbk:term e))
     ((_ e es ...) (dbk:let ((temp.or e)) (dbk:if temp.or temp.or (dbk:or es ...))))))
 
+(define (relation-apply r . args)
+  (define l.args  (length args))
+  (define l.extra (- (relation-arity r) (- l.args 1)))
+  (when (= l.args 0)
+    (error "relation-apply requires at least one argument besides the relation:" r args))
+  (when (< l.extra 0)
+    (error "relation-apply number of arguments exceeds relation arity:" r args))
+  (define rargs      (reverse args))
+  (define arg.last   (car rargs))
+  (define rargs.init (cdr rargs))
+  (formula/anonymous-vars
+    (let* ((vars.last (map (lambda (_) (anonymous-var)) (range l.extra)))
+           (args.new  (foldl cons vars.last rargs.init)))
+      (conj (== arg.last vars.last)
+            (apply r args.new)))))
+
 (define (relation-kind            r)     ((relation-method r) 'kind))
 (define (relation-arity           r)     ((relation-method r) 'arity))
 (define (relation-properties      r)     ((relation-method r) 'properties))
@@ -303,6 +322,10 @@
       (method-lambda
         ((produce) (s-enumerate 0 (produce)))
         (else      parent)))))
+
+(define-syntax apply-relation
+  (syntax-rules ()
+    ((_ r . args) (formula/anonymous-vars (with-term-vocabulary (relation-apply r . args))))))
 
 (define-syntax (define-relations stx)
   (syntax-case stx ()

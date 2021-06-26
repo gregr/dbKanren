@@ -50,9 +50,10 @@
                    ((_ . args) #'(name.else . args))
                    (_          #'name.else))))))
 
-(define-alias/formula&term not negate dbk:not rkt:not)
-(define-alias/formula&term and conj   dbk:and rkt:and)
-(define-alias/formula&term or  disj   dbk:or  rkt:or)
+(define-alias/formula&term not   negate         dbk:not   rkt:not)
+(define-alias/formula&term and   conj           dbk:and   rkt:and)
+(define-alias/formula&term or    disj           dbk:or    rkt:or)
+(define-alias/formula&term apply apply-relation dbk:apply rkt:apply)
 
 (define-alias/term begin      dbk:begin      rkt:begin)
 (define-alias/term let        dbk:let        rkt:let)
@@ -64,7 +65,6 @@
 (define-alias/term cond       dbk:cond       rkt:cond)
 (define-alias/term quasiquote dbk:quasiquote rkt:quasiquote)
 
-(define-alias/term apply      dbk:apply      rkt:apply)
 (define-alias/term append     dbk:append     rkt:append)
 (define-alias/term map/merge  dbk:map/merge  rkt:map/merge)
 (define-alias/term map/append dbk:map/append rkt:map/append)
