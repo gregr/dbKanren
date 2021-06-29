@@ -243,7 +243,9 @@
       (conj (== arg.last vars.last)
             (apply r args.new)))))
 
-(define (relation-kind            r)     ((relation-method r) 'kind))
+(define (relation-kind            r)     (if (relation? r)
+                                           ((relation-method r) 'kind)
+                                           `(primitive ,r)))
 (define (relation-arity           r)     ((relation-method r) 'arity))
 (define (relation-properties      r)     ((relation-method r) 'properties))
 (define (relation-properties-set! r k v) ((relation-method r) 'properties-set! k v))
@@ -279,6 +281,11 @@
         ((properties-remove! k)   (set! properties (hash-remove properties k)))
         ((dirty!)                 (void))
         ((clean!)                 (void))))))
+
+(define (relation/primitive arity name)
+  (make-relation
+    `(primitive ,name) arity
+    (lambda (parent) parent)))
 
 (define (relation/rule arity rule)
   (make-relation
@@ -341,19 +348,21 @@
                        (relation-properties-set! r 'attributes '(param ...))) ...)))))
 
 (define-syntax defined-relation-value
-  (syntax-rules (rule table input)
-    ((_ (rule  (name param ...) f ...))    (let ((r (relation/rule (length '(param ...))
-                                                                   (lambda (param ...)
-                                                                     (with-fresh-names
-                                                                       (with-formula-vocabulary
-                                                                         (conj f ...)))))))
-                                             (relation-properties-set! r 'rule '((name param ...) :- f ...))
-                                             r))
-    ((_ (table (name param ...) body ...)) (relation/table (length '(param ...)) body ...))
-    ((_ (input (name param ...) body ...)) (relation/input (length '(param ...)) body ...))))
+  (syntax-rules (primitive rule table input)
+    ((_ (rule      (name param ...) f ...))    (let ((r (relation/rule (length '(param ...))
+                                                                       (lambda (param ...)
+                                                                         (with-fresh-names
+                                                                           (with-formula-vocabulary
+                                                                             (conj f ...)))))))
+                                                 (relation-properties-set! r 'rule '((name param ...) :- f ...))
+                                                 r))
+    ((_ (table     (name param ...) body ...)) (relation/table     (length '(param ...)) body ...))
+    ((_ (input     (name param ...) body ...)) (relation/input     (length '(param ...)) body ...))
+    ((_ (primitive (name param ...)))          (relation/primitive (length '(param ...)) 'name))))
 
-(define-syntax-rule (define-relation       body ...) (define-relations (rule  body ...)))
-(define-syntax-rule (define-relation/table body ...) (define-relations (table body ...)))
-(define-syntax-rule (define-relation/input body ...) (define-relations (input body ...)))
+(define-syntax-rule (define-relation           body ...) (define-relations (rule      body ...)))
+(define-syntax-rule (define-relation/table     body ...) (define-relations (table     body ...)))
+(define-syntax-rule (define-relation/input     body ...) (define-relations (input     body ...)))
+(define-syntax-rule (define-relation/primitive body ...) (define-relations (primitive body ...)))
 
 ;; TODO: define-term
