@@ -88,8 +88,10 @@
   (define rargs      (reverse args))
   (define arg.last   (car rargs))
   (define rargs.init (cdr rargs))
+  (define attrs      (hash-ref (relation-properties r) 'attributes (range (relation-arity r))))
+  (define names      (s-drop (- l.args 1) attrs))
   (formula/anonymous-vars
-    (let* ((vars.last (map (lambda (_) (anonymous-var)) (range l.extra)))
+    (let* ((vars.last (map (lambda (n) (anonymous-var (vector 'apply n))) names))
            (args.new  (foldl cons vars.last rargs.init)))
       (conj (== arg.last vars.last)
             (apply r args.new)))))
