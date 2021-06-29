@@ -241,10 +241,10 @@
     ((_ f)        f)
     ((_ f fs ...) (f:or f (disj* fs ...)))))
 
-(define-syntax-rule (conj   fs ...)  (with-formula-vocabulary (conj*     fs ...)))
-(define-syntax-rule (disj   fs ...)  (with-formula-vocabulary (disj*     fs ...)))
-(define-syntax-rule (imply  f.h f.c) (with-formula-vocabulary (f:implies f.h f.c)))
-(define-syntax-rule (negate f)       (with-formula-vocabulary (f:not     f)))
+(define-syntax-rule (conj   fs ...)  (with-formula-vocabulary (conj*   fs ...)))
+(define-syntax-rule (disj   fs ...)  (with-formula-vocabulary (disj*   fs ...)))
+(define-syntax-rule (imply  f.h f.c) (with-formula-vocabulary (f:imply f.h f.c)))
+(define-syntax-rule (negate f)       (with-formula-vocabulary (f:not   f)))
 
 (define-syntax-rule (define-quantifier-syntax name f:quantifier)
   (... (define-syntax (name stx)
