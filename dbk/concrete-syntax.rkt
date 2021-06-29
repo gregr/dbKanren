@@ -141,14 +141,20 @@
     (lambda (parent) parent)))
 
 (define (relation/rule arity rule)
-  (make-relation
-    'rule arity
-    (lambda (parent)
-      (method-lambda
-        ((apply . args) (define len (length args))
-                        (unless (= len arity) (error "invalid number of arguments:" arity args))
-                        (apply rule args))
-        (else           parent)))))
+  (define r
+    (make-relation
+      'rule arity
+      (lambda (parent)
+        (method-lambda
+          ((apply . args) (define len (length args))
+                          (unless (= len arity) (error "invalid number of arguments:" arity args))
+                          (apply rule args))
+          ((formula)      (define attrs  (hash-ref (relation-properties r) 'attributes (range arity)))
+                          (define params (map fresh-name attrs))
+                          (define vars   (map t:var      params))
+                          (f:all params (f:imply (apply rule vars) (apply r vars))))
+          (else           parent)))))
+  r)
 
 (define (relation/table arity path)
   ;; TODO: if path is #f, use temporary storage
@@ -204,9 +210,8 @@
   (syntax-rules (primitive rule table input)
     ((_ (rule      (name param ...) f ...))    (let ((r (relation/rule (length '(param ...))
                                                                        (lambda (param ...)
-                                                                         (with-fresh-names
-                                                                           (with-formula-vocabulary
-                                                                             (conj f ...)))))))
+                                                                         (with-formula-vocabulary
+                                                                           (conj f ...))))))
                                                  (relation-properties-set! r 'rule '((name param ...) :- f ...))
                                                  r))
     ((_ (table     (name param ...) body ...)) (relation/table     (length '(param ...)) body ...))
