@@ -344,8 +344,9 @@
   (syntax-rules (rule table input)
     ((_ (rule  (name param ...) f ...))    (let ((r (relation/rule (length '(param ...))
                                                                    (lambda (param ...)
-                                                                     (with-formula-vocabulary
-                                                                       (conj f ...))))))
+                                                                     (with-fresh-names
+                                                                       (with-formula-vocabulary
+                                                                         (conj f ...)))))))
                                              (relation-properties-set! r 'rule '((name param ...) :- f ...))
                                              r))
     ((_ (table (name param ...) body ...)) (relation/table (length '(param ...)) body ...))
