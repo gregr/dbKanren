@@ -1,6 +1,6 @@
 #lang racket/base
 (provide (all-from-out "concrete-syntax.rkt")
-         not and or if when unless cond begin let let* lambda quasiquote
+         _ not and or if when unless cond begin let let* lambda quasiquote
          apply append map/merge map/append map filter filter-not)
 (require "concrete-syntax.rkt"
          (for-syntax racket/base) racket/stxparam
@@ -8,6 +8,7 @@
                     (map/merge  rkt:map/merge)
                     (map/append rkt:map/append))
          (rename-in racket/base
+                    (_          rkt:_)
                     (not        rkt:not)
                     (and        rkt:and)
                     (or         rkt:or)
@@ -64,6 +65,7 @@
 (define-alias/term unless     dbk:unless     rkt:unless)
 (define-alias/term cond       dbk:cond       rkt:cond)
 (define-alias/term quasiquote dbk:quasiquote rkt:quasiquote)
+(define-alias/term _          ??             rkt:_)
 
 (define-alias/term append     dbk:append     rkt:append)
 (define-alias/term map/merge  dbk:map/merge  rkt:map/merge)
