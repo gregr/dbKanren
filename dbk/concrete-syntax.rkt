@@ -236,13 +236,13 @@
 
 (define-syntax conj*
   (syntax-rules ()
-    ((_)          (== #t #t))
+    ((_)          f:true)
     ((_ f)        f)
     ((_ fs ... f) (f:and (conj* fs ...) f))))
 
 (define-syntax disj*
   (syntax-rules ()
-    ((_)          (== #t #f))
+    ((_)          f:false)
     ((_ f)        f)
     ((_ f fs ...) (f:or f (disj* fs ...)))))
 
