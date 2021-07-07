@@ -4,7 +4,8 @@
   (for-syntax current-vocabulary)
   with-no-vocabulary with-formula-vocabulary with-term-vocabulary
   conj disj imply iff ~ all exist fresh conde query
-  == =/= any<= any<
+  == =/= any<= any< flooro +o *o
+  vector-lengtho vector-refo bytes-lengtho bytes-refo symbol==stringo string==utf8-byteso
   dbk:term dbk:app dbk:apply dbk:cons dbk:list->vector dbk:append dbk:not
   dbk:map/merge dbk:map/append dbk:map dbk:filter dbk:filter-not
   dbk:begin dbk:let dbk:let* dbk:lambda dbk:if dbk:when dbk:unless dbk:cond dbk:and dbk:or
@@ -223,12 +224,22 @@
 (define-syntax-rule (define-relation/input     body ...) (define-relations (input     body ...)))
 (define-syntax-rule (define-relation/primitive body ...) (define-relations (primitive body ...)))
 
-(define-relation/primitive (==    a b))
-(define-relation/primitive (=/=   a b))
-(define-relation/primitive (any<= a b))
-(define-relation/primitive (any<  a b))
+(define-syntax-rule (define-primitive-relations signature ...) (begin (define-relation/primitive signature) ...))
 
-;; TODO: define-term
+(define-primitive-relations
+  (==                  t1 t2)
+  (=/=                 t1 t2)
+  (any<=               t1 t2)
+  (any<                t1 t2)
+  (flooro              t1 t2)
+  (+o                  t1 t2 t3)
+  (*o                  t1 t2 t3)
+  (vector-lengtho      t  l)
+  (vector-refo         t  i  x)
+  (bytes-lengtho       t  l)
+  (bytes-refo          t  i  x)
+  (symbol==stringo     t1 t2)
+  (string==utf8-byteso t1 t2))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Basic syntax for formulas and terms
