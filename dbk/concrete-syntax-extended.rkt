@@ -51,7 +51,7 @@
                    ((_ . args) #'(name.else . args))
                    (_          #'name.else))))))
 
-(define-alias/formula&term not   negate         dbk:not   rkt:not)
+(define-alias/formula&term not   ~              dbk:not   rkt:not)
 (define-alias/formula&term and   conj           dbk:and   rkt:and)
 (define-alias/formula&term or    disj           dbk:or    rkt:or)
 (define-alias/formula&term apply apply-relation dbk:apply rkt:apply)

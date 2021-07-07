@@ -3,7 +3,7 @@
   fresh-name with-fresh-names ??
   (for-syntax current-vocabulary)
   with-no-vocabulary with-formula-vocabulary with-term-vocabulary
-  conj disj imply iff negate all exist fresh conde query
+  conj disj imply iff ~ all exist fresh conde query
   == =/= any<= any<
   dbk:term dbk:app dbk:apply dbk:cons dbk:list->vector dbk:append dbk:not
   dbk:map/merge dbk:map/append dbk:map dbk:filter dbk:filter-not
@@ -246,11 +246,11 @@
     ((_ f)        f)
     ((_ f fs ...) (f:or f (disj* fs ...)))))
 
-(define-syntax-rule (conj   fs ...)  (with-formula-vocabulary (conj*   fs ...)))
-(define-syntax-rule (disj   fs ...)  (with-formula-vocabulary (disj*   fs ...)))
-(define-syntax-rule (imply  f.h f.c) (with-formula-vocabulary (f:imply f.h f.c)))
-(define-syntax-rule (iff    f.1 f.2) (with-formula-vocabulary (f:iff   f.1 f.2)))
-(define-syntax-rule (negate f)       (with-formula-vocabulary (f:not   f)))
+(define-syntax-rule (conj   fs ...)    (with-formula-vocabulary (conj*   fs ...)))
+(define-syntax-rule (disj   fs ...)    (with-formula-vocabulary (disj*   fs ...)))
+(define-syntax-rule (imply  f.h f.c)   (with-formula-vocabulary (f:imply f.h f.c)))
+(define-syntax-rule (iff    f.0 f ...) (with-formula-vocabulary (and (f:iff f.0 f) ...)))
+(define-syntax-rule (~      f)         (with-formula-vocabulary (f:not   f)))
 
 (define-syntax-rule (define-quantifier-syntax name f:quantifier)
   (... (define-syntax (name stx)
