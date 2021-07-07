@@ -3,7 +3,7 @@
   fresh-name with-fresh-names ??
   (for-syntax current-vocabulary)
   with-no-vocabulary with-formula-vocabulary with-term-vocabulary
-  conj disj imply iff ~ all exist fresh conde query
+  conj disj imply iff ~ all exist fresh conde query== query
   == =/= any<= any< flooro +o *o
   vector-lengtho vector-refo bytes-lengtho bytes-refo symbol==stringo string==utf8-byteso
   dbk:term dbk:app dbk:apply dbk:cons dbk:list->vector dbk:append dbk:not
@@ -282,16 +282,24 @@
   (disj (conj f.0 fs.0 ...)
         (conj f   fs   ...) ...))
 
+(define-syntax query==
+  (syntax-rules ()
+    ((_ result (x ...) body ...) (query== result x.0 (exist (x ...)
+                                                       (== x.0 (list x ...))
+                                                       body ...)))
+    ((_ result x       body ...) (let* ((name.x (fresh-name 'q))
+                                        (x      (t:var      name.x)))
+                                   (f:query result name.x (conj body ...))))))
+
 (define-syntax query
   (syntax-rules ()
     ((_ (x ...) body ...) (query x.0 (exist (x ...)
                                        (== x.0 (list x ...))
                                        body ...)))
     ((_ x       body ...) (with-fresh-names
-                            (let ((name.x (fresh-name 'x)))
-                              (let ((x (t:var name.x)))
-                                (t:query name.x (conj body ...))))))))
-
+                            (let* ((name.x (fresh-name 'q))
+                                   (x      (t:var      name.x)))
+                              (t:query name.x (conj body ...)))))))
 
 (define (dbk:term         x)        (scm->term x))
 (define (dbk:app          p . args) (t:app (scm->term p) (map scm->term args)))

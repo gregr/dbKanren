@@ -1,6 +1,6 @@
 #lang racket/base
 (provide
-  f:true f:false f:relate f:imply f:iff f:or f:and f:not f:exist f:all
+  f:query f:true f:false f:relate f:imply f:iff f:or f:and f:not f:exist f:all
   t:query t:quote t:var t:prim t:app t:lambda t:if t:let
   scm->term)
 (require "misc.rkt" (except-in racket/match ==) racket/set)
@@ -10,6 +10,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-variant formula?
+  (f:query  result param f)
   (f:true)
   (f:false)
   (f:relate relation args)
