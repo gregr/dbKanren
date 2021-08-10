@@ -46,11 +46,17 @@
                    (< (kv-r kv.a) (kv-r kv.b))))))))
 
 (define (factor-formula formula)
-  (define f (match formula
-              (`(relate                             ,r ,@ts)    `(relate (original ,r) . ,ts))
-              (`(,(and (or 'exist 'all) quantifier) ,params ,f) `(,quantifier ,params ,(factor-formula f)))
-              (`(,connective                        ,@fs)       `(,connective . ,(map factor-formula fs)))))
-  (rename-locally (formula-unrename-variables (formula->relate (formula-rename-variables f)))))
+  (define (replace f) (rename-locally
+                        (formula-unrename-variables (formula->relate (formula-rename-variables f)))))
+  (match formula
+    (`(relate                             ,r ,@ts)    (define f.new `(relate (original ,r) . ,ts))
+                                                      (if (foldl (lambda (t seen) (and seen (var? t) (not (set-member? seen (var-name t)))
+                                                                                       (set-add seen (var-name t))))
+                                                                 (set) ts)
+                                                        f.new
+                                                        (replace f.new)))
+    (`(,(and (or 'exist 'all) quantifier) ,params ,f) (replace `(,quantifier ,params ,(factor-formula f))))
+    (`(,connective                        ,@fs)       (replace `(,connective . ,(map factor-formula fs))))))
 
 (define-syntax-rule (factor-locally body ...) (parameterize ((formula=>relate (hash))) body ...))
 
