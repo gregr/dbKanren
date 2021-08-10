@@ -31,19 +31,19 @@
 
 (define (factor-program parts)
   (factor-locally
-    (append
-      (map (lambda (part)
-             (match part
-               (`(define (,r . ,params) ,@fs) `(define ((original ,r) . ,params) ,(factor-formula `(and . ,fs))))
-               (`(query ,params         ,@fs) `(query  ,params                   ,(factor-formula `(and . ,fs))))))
-           parts)
-      (map (lambda (f&r)
-             (match-define (cons f `(relate ,r . ,vs)) f&r)
-             `(define (,r . ,(map (lambda (v) (match-define `(var ,name) v) name) vs)) ,f))
-           (sort (hash->list (formula=>relate))
-                 (lambda (kv.a kv.b)
-                   (define (kv-r kv) (cadr (caddr kv)))
-                   (< (kv-r kv.a) (kv-r kv.b))))))))
+    (define factored (map (lambda (part)
+                            (match part
+                              (`(define (,r . ,params) ,f) `(define ((original ,r) . ,params) ,(factor-formula f)))
+                              (`(query  ,params        ,f) `(query  ,params                   ,(factor-formula f)))))
+                          parts))
+    (define new      (map (lambda (f&r)
+                            (match-define (cons f `(relate ,r . ,vs)) f&r)
+                            `(define (,r . ,(map (lambda (v) (match-define `(var ,name) v) name) vs)) ,f))
+                          (sort (hash->list (formula=>relate))
+                                (lambda (kv.a kv.b)
+                                  (define (kv-r kv) (cadr (caddr kv)))
+                                  (< (kv-r kv.a) (kv-r kv.b))))))
+    (append new factored)))
 
 (define (factor-formula formula)
   (define (replace f) (rename-locally
