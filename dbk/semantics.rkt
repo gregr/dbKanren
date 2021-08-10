@@ -1,5 +1,5 @@
 #lang racket/base
-(provide factor-program)
+(provide simplify-program factor-program)
 (require racket/list racket/match racket/set)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -24,6 +24,40 @@
 ;(quote C)
 ;(var   N)
 ;(app   Func Ts)
+
+(define (quote?      t) (eq? (car t) 'quote))
+(define (quote-value t) (cadr t))
+
+(define (var      n) `(var ,n))
+(define (var?     t) (eq? (car t) 'var))
+(define (var-name t) (cadr t))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Simplification
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (simplify-program parts)
+  (map (lambda (part)
+         (match part
+           (`(define (,r . ,params) ,f) `(define (,r . ,params) ,(simplify-formula f)))
+           (`(query  ,params        ,f) `(query  ,params        ,(simplify-formula f)))))
+       parts))
+
+(define (simplify-formula formula)
+  (match formula
+    (`(relate                             ,r ,@ts)    `(relate      ,r . ,(map simplify-term ts)))
+    (`(,(and (or 'exist 'all) quantifier) ,params ,f) `(,quantifier ,params ,(simplify-formula f)))
+    (`(,connective                        ,@fs)       `(,connective . ,(map simplify-formula fs)))))
+
+(define (simplify-term term)
+  (match term
+    (`(app ,func ,@ts)
+      (match (cons func (map simplify-term ts))
+        (`(cons         (quote ,a) (quote ,d))                                  `(quote ,(cons a d)))
+        (`(vector       . ,(? (lambda (ts) (andmap quote? ts)) ts))             `(quote ,(list->vector (map quote-value ts))))
+        (`(list->vector ,(? quote? (? (lambda (t) (list? (quote-value t))) t))) `(quote ,(list->vector (quote-value t))))
+        (`(,_           . ,ts) `(app ,func . ,ts))))
+    (_ term)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Program factoring via definition introduction
@@ -73,9 +107,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Variable manipulation
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define (var  n) `(var ,n))
-(define (var? t) (eq? (car t) 'var))
 
 (define (term-free-names t)
   (match t
