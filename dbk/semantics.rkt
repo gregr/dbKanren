@@ -36,6 +36,25 @@
 ;; Simplification
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; - classical transformations:
+;;   - `(not (not F))  ==> F`
+;;   - `(iff P Q)      ==> (or (and P Q) (and (not P) (not Q)))`
+;;   - `(imply P Q)    ==> (not (and P (not Q)))`
+;;   - `(all X F)      ==> (not (exist X (not F)))`
+
+;; - constructive/minimal transformations:
+;;   - `(not (not (not F))) ==> (not F)`
+;;   - `(not (or P Q))      ==> (and (not P) (not Q))`
+;;   - `(iff P Q)           ==> (and (imply P Q) (imply Q P))`
+;;   - `(imply P (not Q))   ==> (not (and P Q))`
+;;   - `(all X (not F))     ==> (not (exist X F))`
+
+;; - primitive transformations:
+;;   - `(not (==    A B)) ==> (=/=   A B)`
+;;   - `(not (=/=   A B)) ==> (==    A B)`
+;;   - `(not (any<= A B)) ==> (any<  B A)`
+;;   - `(not (any<  A B)) ==> (any<= B A)`
+
 (define (simplify-program parts)
   (map (lambda (part)
          (match part
@@ -43,11 +62,43 @@
            (`(query  ,params        ,f) `(query  ,params        ,(simplify-formula f)))))
        parts))
 
-(define (simplify-formula formula)
-  (match formula
-    (`(relate                             ,r ,@ts)    `(relate      ,r . ,(map simplify-term ts)))
-    (`(,(and (or 'exist 'all) quantifier) ,params ,f) `(,quantifier ,params ,(simplify-formula f)))
-    (`(,connective                        ,@fs)       `(,connective . ,(map simplify-formula fs)))))
+(define (simplify-formula formula)  ; currently applying classical transformations
+  (define (loop/not f)
+    (match f
+      (`(relate      ,r ,@ts)    (let ((ts (map simplify-term ts)))
+                                   (define (k r ts) `(relate ,r . ,ts))
+                                   (match r
+                                     ('==           (k '=/=            ts))
+                                     ('=/=          (k '==             ts))
+                                     ('any<=        (k 'any<  (reverse ts)))
+                                     ('any<         (k 'any<= (reverse ts)))
+                                     (_      `(not ,(k r               ts))))))
+      (`(all         ,params ,f)      `(exist ,params ,(loop/not f)))
+      (`(exist       ,params ,f) `(not (exist ,params ,(loop     f))))
+      (`(not         ,f)         (loop f))
+      (`(and         ,@fs)       `(not (and . ,(map loop fs))))
+      (`(or          ,@fs)       `(and . ,(map loop/not fs)))
+      ;; defer iff transformation until after factoring, for efficiency
+      ;(`(iff         ,@fs)       (loop/not `(or (and . ,fs)
+      ;                                          (and . ,(map (lambda (f) `(not ,f)) fs)))))
+      ;; just preserve the iff
+      (`(iff         ,@fs)       `(not (iff . ,(map loop fs))))
+      (`(imply       ,p ,q)      (loop/not `(not (and ,p (not ,q)))))))
+  (define (loop f)
+    (match f
+      (`(relate      ,r ,@ts)    `(relate ,r . ,(map simplify-term ts)))
+      (`(all         ,params ,f) `(not (exist ,params ,(loop/not f))))
+      (`(exist       ,params ,f)      `(exist ,params ,(loop     f)))
+      (`(not         ,f)         (loop/not f))
+      (`(and         ,@fs)       `(and . ,(map loop fs)))
+      (`(or          ,@fs)       `(or  . ,(map loop fs)))
+      ;; defer iff transformation until after factoring, for efficiency
+      ;(`(iff         ,@fs)       (loop `(or (and . ,fs)
+      ;                                      (and . ,(map (lambda (f) `(not ,f)) fs)))))
+      ;; just preserve the iff
+      (`(iff         ,@fs)       `(iff . ,(map loop fs)))
+      (`(imply       ,p ,q)      (loop `(not (and ,p (not ,q)))))))
+  (loop formula))
 
 (define (simplify-term term)
   (match term
