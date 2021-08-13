@@ -118,7 +118,7 @@
   (factor-locally
     (define factored (map (lambda (part)
                             (match part
-                              (`(define (,r . ,params) ,f) `(define ((original ,r) . ,params) ,(factor-formula f)))
+                              (`(define (,r . ,params) ,f) `(define (,r . ,params) ,(factor-formula f)))
                               (`(query  ,params        ,f) `(query  ,params                   ,(factor-formula f)))))
                           parts))
     (define new      (map (lambda (f&r)
@@ -134,7 +134,7 @@
   (define (replace f) (rename-locally
                         (formula-unrename-variables (formula->relate (formula-rename-variables f)))))
   (match formula
-    (`(relate                             ,r ,@ts)    (define f.new `(relate (original ,r) . ,ts))
+    (`(relate                             ,r ,@ts)    (define f.new `(relate ,r . ,ts))
                                                       (if (foldl (lambda (t seen) (and seen (var? t) (not (set-member? seen (var-name t)))
                                                                                        (set-add seen (var-name t))))
                                                                  (set) ts)
