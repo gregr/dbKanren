@@ -55,14 +55,14 @@
 ;;   - `(not (any<= A B)) ==> (any<  B A)`
 ;;   - `(not (any<  A B)) ==> (any<= B A)`
 
-(define (simplify-program parts)
+(define (simplify-program full? parts)
   (map (lambda (part)
          (match part
-           (`(define (,r . ,params) ,f) `(define (,r . ,params) ,(simplify-formula f)))
-           (`(query  ,params        ,f) `(query  ,params        ,(simplify-formula f)))))
+           (`(define (,r . ,params) ,f) `(define (,r . ,params) ,(simplify-formula full? f)))
+           (`(query  ,params        ,f) `(query  ,params        ,(simplify-formula full? f)))))
        parts))
 
-(define (simplify-formula formula)  ; currently applying classical transformations
+(define (simplify-formula full? formula)  ; currently applying classical transformations
   (define (loop/not f)
     (match f
       (`(relate      ,r ,@ts)    (let ((ts (map simplify-term ts)))
@@ -78,11 +78,10 @@
       (`(not         ,f)         (loop f))
       (`(and         ,@fs)       `(not (and . ,(map loop fs))))
       (`(or          ,@fs)       `(and . ,(map loop/not fs)))
-      ;; defer iff transformation until after factoring, for efficiency
-      ;(`(iff         ,@fs)       (loop/not `(or (and . ,fs)
-      ;                                          (and . ,(map (lambda (f) `(not ,f)) fs)))))
-      ;; just preserve the iff
-      (`(iff         ,@fs)       `(not (iff . ,(map loop fs))))
+      (`(iff         ,@fs)       (if full? ; defer iff transformation until after factoring, for efficiency
+                                   (loop/not `(or (and . ,fs)
+                                                  (and . ,(map (lambda (f) `(not ,f)) fs))))
+                                   `(not (iff . ,(map loop fs)))))
       (`(imply       ,p ,q)      (loop/not `(not (and ,p (not ,q)))))))
   (define (loop f)
     (match f
@@ -92,11 +91,10 @@
       (`(not         ,f)         (loop/not f))
       (`(and         ,@fs)       `(and . ,(map loop fs)))
       (`(or          ,@fs)       `(or  . ,(map loop fs)))
-      ;; defer iff transformation until after factoring, for efficiency
-      ;(`(iff         ,@fs)       (loop `(or (and . ,fs)
-      ;                                      (and . ,(map (lambda (f) `(not ,f)) fs)))))
-      ;; just preserve the iff
-      (`(iff         ,@fs)       `(iff . ,(map loop fs)))
+      (`(iff         ,@fs)       (if full? ; defer iff transformation until after factoring, for efficiency
+                                   (loop `(or (and . ,fs)
+                                              (and . ,(map (lambda (f) `(not ,f)) fs))))
+                                   `(iff . ,(map loop fs))))
       (`(imply       ,p ,q)      (loop `(not (and ,p (not ,q)))))))
   (loop formula))
 
