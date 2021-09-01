@@ -134,7 +134,73 @@
                      ((unsafe-vector->enumerator buf.i 0 pos.i) k!)))
             (loop (unsafe-fx+ i 1))))))))
 
-;; TODO: try lsd-radix-sort
+(define ((enumerator-lsd-radix-sort en t->key key-byte-count) k!)
+  (define size.shift           8)
+  (define mask.shift         255)
+  (define count.parts        256)
+  (define count.buffer        32)
+  (define count.parts.initial  8)
+  (define growth-factor.parts  2)
+  (unless (fixnum? key-byte-count) (error "key-byte-count must be a fixnum" key-byte-count))
+  (define shift.final (* 8 (- key-byte-count 1)))
+  ((let enumerate ((shift 0) (en en))
+     (define parts     (make-vector count.parts))
+     (define pos.parts (make-vector count.parts 0))
+     (define buf       (make-vector count.parts))
+     (define pos       (make-vector count.parts 0))
+     (let loop ((i 0))
+       (when (< i count.parts)
+         (vector-set! parts i (make-vector count.parts.initial))
+         (vector-set! buf   i (make-vector count.buffer))
+         (loop (+ i 1))))
+     (en (lambda (t)
+           (let* ((key     (unsafe-fxand mask.shift (fxrshift (t->key t) shift)))
+                  (buf.k   (vector-ref buf key))
+                  (pos.k   (vector-ref pos key))
+                  (pos.k+1 (+ pos.k 1)))
+             (vector-set! buf.k pos.k t)
+             (if (= pos.k+1 count.buffer)
+               (begin
+                 (vector-set! pos key 0)
+                 (vector-set! buf key (make-vector count.buffer))
+                 (let* ((parts.k       (vector-ref parts     key))
+                        (pos.parts.k   (vector-ref pos.parts key))
+                        (pos.parts.k+1 (+ pos.parts.k 1))
+                        (len.parts.k   (vector-length parts.k)))
+                   (vector-set! pos.parts key pos.parts.k+1)
+                   (if (= pos.parts.k+1 len.parts.k)
+                     (let ((parts.k.new (make-vector (* len.parts.k growth-factor.parts))))
+                       (vector-set!  parts key parts.k.new)
+                       (vector-copy! parts.k.new 0 parts.k)
+                       (vector-set!  parts.k.new pos.parts.k buf.k))
+                     (vector-set! parts.k pos.parts.k buf.k))))
+               (vector-set! pos key pos.k+1)))))
+     (define (partition->enumerator i)
+       (let ((parts.i     (vector-ref parts     i))
+             (pos.parts.i (vector-ref pos.parts i))
+             (buf.i       (vector-ref buf       i))
+             (pos.i       (vector-ref pos       i)))
+         (let loop ((i pos.parts.i) (en.new (unsafe-vector->enumerator buf.i 0 pos.i)))
+           (if (= i 0)
+             en.new
+             (let ((i (- i 1)))
+               (loop i (enumerator-append
+                         (unsafe-vector->enumerator (vector-ref parts.i i) 0 count.buffer)
+                         en.new)))))))
+     (define en.new
+       (let loop ((i (- count.parts 1)) (en.new (partition->enumerator (- count.parts 1))))
+         (if (= i 0)
+           en.new
+           (let ((i (- i 1)))
+             (loop i (enumerator-append
+                       (partition->enumerator i)
+                       en.new))))))
+     (if (= shift shift.final)
+       en.new
+       (enumerate (+ shift size.shift) en.new)))
+   k!))
+
+;; TODO: factor out enumerator-radix-partition ?
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Benchmark
@@ -210,7 +276,17 @@
 ;|#
 
 ;#|
-(displayln "computing node degrees while sorting edges")
+(displayln "computing node degrees while lsd-radix sorting edges")
+(time ((enumerator-lsd-radix-sort en.edges edge->key key-byte-count)
+       (lambda (edge)
+         (define key (edge->key edge))
+         ;(vector-set! nodes key (+ (vector-ref nodes key) 1))
+         (unsafe-vector*-set! nodes key (unsafe-fx+ (unsafe-vector*-ref nodes key) 1))
+         )))
+;|#
+
+#|
+(displayln "computing node degrees while msd-radix sorting edges")
 (time ((enumerator-msd-radix-sort en.edges edge->key key-byte-count)
        (lambda (edge)
          (define key (edge->key edge))
@@ -218,6 +294,13 @@
          (unsafe-vector*-set! nodes key (unsafe-fx+ (unsafe-vector*-ref nodes key) 1))
          )))
 ;|#
+
+#;(let ((previous #f))
+  ((enumerator-lsd-radix-sort en.edges edge->key key-byte-count)
+   (lambda (edge)
+     (when (and previous (< (edge->key edge) previous))
+       (error "not sorted!" previous (edge->key edge)))
+     (set! previous (edge->key edge)))))
 
 #;(let ((previous #f))
   ((enumerator-msd-radix-sort en.edges edge->key key-byte-count)
