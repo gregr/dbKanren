@@ -19,7 +19,7 @@
   (e.0 k!)
   (e.1 k!))
 
-#;(define ((enumerator-msd-radix-sort t->key key-byte-count en) k!)
+#;(define ((enumerator-msd-radix-sort en t->key key-byte-count) k!)
   (define size.shift           8)
   (define mask.shift         255)
   (define count.parts        256)
@@ -76,7 +76,7 @@
                      ((unsafe-vector->enumerator buf.i 0 pos.i) k!)))
             (loop (+ i 1))))))))
 
-(define ((enumerator-msd-radix-sort t->key key-byte-count en) k!)
+(define ((enumerator-msd-radix-sort en t->key key-byte-count) k!)
   (define size.shift           8)
   (define mask.shift         255)
   (define count.parts        256)
@@ -211,7 +211,7 @@
 
 ;#|
 (displayln "computing node degrees while sorting edges")
-(time ((enumerator-msd-radix-sort edge->key key-byte-count en.edges)
+(time ((enumerator-msd-radix-sort en.edges edge->key key-byte-count)
        (lambda (edge)
          (define key (edge->key edge))
          ;(vector-set! nodes key (+ (vector-ref nodes key) 1))
@@ -220,7 +220,7 @@
 ;|#
 
 #;(let ((previous #f))
-  ((enumerator-msd-radix-sort edge->key key-byte-count en.edges)
+  ((enumerator-msd-radix-sort en.edges edge->key key-byte-count)
    (lambda (edge)
      (when (and previous (< (edge->key edge) previous))
        (error "not sorted!" previous (edge->key edge)))
