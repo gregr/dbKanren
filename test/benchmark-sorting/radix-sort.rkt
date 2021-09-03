@@ -307,12 +307,12 @@
 ;; Benchmark
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-#|
+;#|
 (define key-byte-count 4)
 (define count.node (arithmetic-shift 1 25))
 ;|#
 
-;#|
+#|
 (define key-byte-count 3)
 ;(define count.node (arithmetic-shift 1 24))
 (define count.node (arithmetic-shift 1 22))
@@ -379,7 +379,13 @@
 ;#|
 (displayln "computing node degrees inlined after lsd-radix sorting edges in-place")
 ;(time (unsafe-vector-radix-sort! edges edge->key key-byte-count))
-(time (counting-radix-sort! edges edge->key key-byte-count))
+;(time (counting-radix-sort! edges edge->key key-byte-count))
+(let ((v.workspace (time (make-vector count.edge))))
+  (time (collect-garbage))
+  (time (counting-radix-sort-helper edges 0 count.edge v.workspace 0 edges 0 edge->key key-byte-count))
+  (when (odd? key-byte-count)
+    (time (vector-copy! edges 0 v.workspace 0 count.edge))))
+
 (time (let loop ((i 0))
         (when (unsafe-fx< i count.edge)
           (let ((key (unsafe-vector*-ref edges i)))
