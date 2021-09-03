@@ -81,8 +81,6 @@
   (define len (min end (vector-length v)))
   (unsafe-vector-radix-sort! v t->key key-byte-count (min start len) len))
 
-;; TODO: try a 2-pass counting-based approach?
-
 (define (unsafe-vector-radix-sort! v t->key key-byte-count (start 0) (end (unsafe-vector*-length v)))
   (define size.shift               8)
   (define mask.shift             255)
@@ -168,6 +166,61 @@
                          (loop (unsafe-fx+ i 1))))))))))
     (when (unsafe-fx< shift shift.final)
       (loop (unsafe-fx+ shift size.shift)))))
+
+(define (counting-radix-sort-helper v.src start.src end.src v.0 start.0 v.1 start.1 t->key key-byte-count)
+  (define size.shift    8)
+  (define mask.shift  255)
+  (define count.parts 256)
+  (unless (fixnum? key-byte-count) (error "key-byte-count must be a fixnum" key-byte-count))
+  (define len         (- end.src start.src))
+  (define shift.final (unsafe-fx* 8 (unsafe-fx- key-byte-count 1)))
+  (define offset      (make-vector count.parts))
+  (let loop.shift ((shift      0)
+                   (v.src      v.src) (start          start.src) (end          end.src)
+                   (v.tgt      v.0)   (start.tgt      start.0)   (end.tgt      (+ start.0 len))
+                   (v.tgt.next v.1)   (start.tgt.next start.1)   (end.tgt.next (+ start.1 len)))
+    (vector-fill! offset 0)
+    (let loop.count ((i start))
+      (when (< i end)
+        ;; TODO: we can use unsafe-fxrshift if t->key is guaranteed to produce a fixnum
+        (let ((key (unsafe-fxand mask.shift (fxrshift (t->key (vector-ref v.src i)) shift))))
+          (vector-set! offset key (+ (vector-ref offset key) 1)))
+        (loop.count (+ i 1))))
+    (let loop.offset ((k 0) (current start.tgt))
+      (when (< k count.parts)
+        (let ((cardinality (vector-ref offset k)))
+          (vector-set! offset k current)
+          (loop.offset (+ k 1) (+ current cardinality)))))
+    (let loop.copy ((i start))
+      (when (< i end)
+        ;; TODO: we can use unsafe-fxrshift if t->key is guaranteed to produce a fixnum
+        (let* ((t     (vector-ref v.src i))
+               (key   (unsafe-fxand mask.shift (fxrshift (t->key t) shift)))
+               (off.k (vector-ref offset key)))
+          (vector-set! offset key (+ off.k 1))
+          (vector-set! v.tgt off.k t))
+        (loop.copy (+ i 1))))
+    (when (< shift shift.final)
+      (loop.shift (+ shift size.shift)
+                  v.tgt      start.tgt      end.tgt
+                  v.tgt.next start.tgt.next end.tgt.next
+                  v.tgt      start.tgt      end.tgt))))
+
+(define (counting-radix-sort! v t->key key-byte-count (start 0) (end (vector-length v)))
+  (define len         (- end start))
+  (define v.workspace (make-vector len))
+  (counting-radix-sort-helper v start end v.workspace 0 v start t->key key-byte-count)
+  (when (odd? key-byte-count)
+    (vector-copy! v start v.workspace 0 len)))
+
+(define (counting-radix-sort v t->key key-byte-count (start 0) (end (vector-length v)))
+  (define len           (- end start))
+  (define v.workspace.0 (make-vector len))
+  (define v.workspace.1 (make-vector len))
+  (counting-radix-sort-helper v start end v.workspace.0 0 v.workspace.1 0 t->key key-byte-count)
+  (if (odd? key-byte-count)
+    v.workspace.0
+    v.workspace.1))
 
 (define ((enumerator-lsd-radix-sort en t->key key-byte-count) k!)
   (define size.shift               8)
@@ -325,7 +378,8 @@
 
 ;#|
 (displayln "computing node degrees inlined after lsd-radix sorting edges in-place")
-(time (unsafe-vector-radix-sort! edges edge->key key-byte-count))
+;(time (unsafe-vector-radix-sort! edges edge->key key-byte-count))
+(time (counting-radix-sort! edges edge->key key-byte-count))
 (time (let loop ((i 0))
         (when (unsafe-fx< i count.edge)
           (let ((key (unsafe-vector*-ref edges i)))
