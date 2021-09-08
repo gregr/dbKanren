@@ -301,7 +301,66 @@
       (en.new k!)
       (enumerate (unsafe-fx+ shift size.shift) en.new))))
 
+(define (in-place-radix-sort! v t->key key-byte-count (start 0) (end (vector-length v)))
+  (define threshold 268435456)
+  ;(define threshold 67108864)
+  ;(define threshold 16777216)
+  ;(define threshold  65535)
+  ;(define threshold  8192)
+  ;(define threshold  4096)
+  ;(define threshold  1024)
+  ;(define threshold  256)
+  ;(define threshold  0)
+  (define size.shift    8)
+  (define mask.shift  255)
+  (define count.parts 256)
+  (unless (fixnum? key-byte-count) (error "key-byte-count must be a fixnum" key-byte-count))
+  (let loop.shift ((shift (unsafe-fx* 8 (unsafe-fx- key-byte-count 1))) (start start) (end end))
+    ;; TODO: we can use unsafe-fxrshift if t->key is guaranteed to produce a fixnum
+    (define (t->byte t) (unsafe-fxand mask.shift (fxrshift (t->key t) shift)))
+    (define count  (make-vector count.parts))
+    (define offset (make-vector count.parts))
+    (let loop.count ((i start))
+      (when (unsafe-fx< i end)
+        (let ((key (t->byte (unsafe-vector*-ref v i))))
+          (unsafe-vector*-set! count key (unsafe-fx+ (unsafe-vector*-ref count key) 1)))
+        (loop.count (unsafe-fx+ i 1))))
+    (let loop.offset ((k 0) (current start))
+      (when (unsafe-fx< k count.parts)
+        (let ((cardinality (unsafe-vector*-ref count k)))
+          (let loop.advance ((i current))
+            (if (and (unsafe-fx< i end) (unsafe-fx= (t->byte (unsafe-vector*-ref v i)) k))
+              (loop.advance (unsafe-fx+ i 1))
+              (let ((next (unsafe-fx+ current cardinality)))
+                (unsafe-vector*-set! offset k i)
+                (unsafe-vector*-set! count  k next)
+                (loop.offset (unsafe-fx+ k 1) next)))))))
+    (let loop.move.k ((k 0) (i.part.start start))
+      (when (unsafe-fx< k count.parts)
+        (let* ((i.start (unsafe-vector*-ref offset k))
+               (i.end   (unsafe-vector*-ref count k)))
+          (let loop.move ((i i.start))
+            (when (unsafe-fx< i i.end)
+              (let ((t (unsafe-vector*-ref v i)))
+                (let loop.swap ((t.current t)
+                                (key       (t->byte t)))
+                  (let* ((off.k (unsafe-vector*-ref offset key))
+                         (t.next (unsafe-vector*-ref v off.k)))
+                    (unsafe-vector*-set! v      off.k t.current)
+                    (unsafe-vector*-set! offset key   (unsafe-fx+ off.k 1))
+                    (let ((key (t->byte t.next)))
+                      (if (unsafe-fx= key k)
+                        (begin (unsafe-vector*-set! v i t.next)
+                               (loop.move (unsafe-fx+ i 1)))
+                        (loop.swap t.next key))))))))
+          (when (and (unsafe-fx< 0 shift) (unsafe-fx< i.part.start i.end))
+            (if (unsafe-fx<= (unsafe-fx- i.end i.part.start) threshold)
+              (counting-radix-sort! v t->key (/ shift 8) i.part.start i.end)
+              (loop.shift (unsafe-fx- shift size.shift) i.part.start i.end)))
+          (loop.move.k (unsafe-fx+ k 1) i.end))))))
+
 ;; TODO: factor out enumerator-radix-partition ?
+;; simplify t->key interface to return exactly a byte, discard key-byte-count parameter
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Benchmark
@@ -309,6 +368,8 @@
 
 ;#|
 (define key-byte-count 4)
+;(define count.node (arithmetic-shift 1 28))
+;(define count.node (arithmetic-shift 1 27))
 (define count.node (arithmetic-shift 1 25))
 ;|#
 
@@ -316,6 +377,11 @@
 (define key-byte-count 3)
 ;(define count.node (arithmetic-shift 1 24))
 (define count.node (arithmetic-shift 1 22))
+;|#
+
+#|
+(define key-byte-count 2)
+(define count.node (arithmetic-shift 1 16))
 ;|#
 
 (define count.edge (* count.node 16))
@@ -376,7 +442,7 @@
          )))
 ;|#
 
-;#|
+#|
 (displayln "computing node degrees inlined after lsd-radix sorting edges in-place")
 ;(time (unsafe-vector-radix-sort! edges edge->key key-byte-count))
 ;(time (counting-radix-sort! edges edge->key key-byte-count))
@@ -386,6 +452,16 @@
   (when (odd? key-byte-count)
     (time (vector-copy! edges 0 v.workspace 0 count.edge))))
 
+(time (let loop ((i 0))
+        (when (unsafe-fx< i count.edge)
+          (let ((key (unsafe-vector*-ref edges i)))
+            (unsafe-vector*-set! nodes key (unsafe-fx+ (unsafe-vector*-ref nodes key) 1)))
+          (loop (unsafe-fx+ i 1)))))
+;|#
+
+#|
+(displayln "computing node degrees inlined after in-place-msd-radix sorting edges")
+(time (in-place-radix-sort! edges edge->key key-byte-count))
 (time (let loop ((i 0))
         (when (unsafe-fx< i count.edge)
           (let ((key (unsafe-vector*-ref edges i)))
@@ -412,6 +488,16 @@
          (unsafe-vector*-set! nodes key (unsafe-fx+ (unsafe-vector*-ref nodes key) 1))
          )))
 ;|#
+
+;(displayln 'in-place-radix-sort!) (time (in-place-radix-sort! edges edge->key key-byte-count))
+(displayln 'counting-radix-sort!) (time (counting-radix-sort! edges edge->key key-byte-count))
+;(displayln 'unsafe-vector-radix-sort!) (time (unsafe-vector-radix-sort! edges edge->key key-byte-count))
+(time (let ((previous #f))
+        (en.edges
+          (lambda (edge)
+            (when (and previous (< (edge->key edge) previous))
+              (error "not sorted!" previous (edge->key edge)))
+            (set! previous (edge->key edge))))))
 
 #;(let ((previous #f))
   ((enumerator-lsd-radix-sort en.edges edge->key key-byte-count)
