@@ -1,8 +1,8 @@
 #lang racket/base
 (provide enumerator-append
-         list->enumerator enumerator->list
+         list->enumerator enumerator->rlist enumerator->list
          s->enumerator enumerator->s
-         vector->enumerator unsafe-vector->enumerator
+         vector->enumerator unsafe-vector->enumerator enumerator->rvector enumerator->vector
          generator->enumerator
          enumerator/2->enumerator
          enumerator->enumerator/2
@@ -15,10 +15,13 @@
 
 (define ((list->enumerator xs) yield) (for-each yield xs))
 
-(define (enumerator->list en)
+(define (enumerator->rlist en)
   (define xs '())
   (en (lambda (x) (set! xs (cons x xs))))
-  (reverse xs))
+  xs)
+
+(define (enumerator->list en)
+  (reverse (enumerator->rlist en)))
 
 (define ((s->enumerator s) yield)
   (let loop ((s s))
@@ -32,6 +35,12 @@
             (en (lambda (x)
                   (shift-at tag k (cons x (lambda () (k (void)))))))
             '()))
+
+(define (enumerator->rvector en)
+  (list->vector (enumerator->rlist en)))
+
+(define (enumerator->vector en)
+  (list->vector (enumerator->list en)))
 
 (define (vector->enumerator v (start 0) (end (vector-length v)))
   (define len (min end (vector-length v)))
