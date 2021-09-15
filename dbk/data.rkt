@@ -227,3 +227,67 @@
                                (lambda ()        (void)))))))
 
 ;; TODO: computing fixed points?
+
+(module+ test
+  (require racket/pretty)
+
+  (define (test.0 yield.0)
+    (define (yield . args)
+      (pretty-write `(yielding: . ,args))
+      (apply yield.0 args))
+    (yield 0 1)
+    (yield 0 2)
+    (yield 0 3)
+    (yield 1 1)
+    (yield 1 2)
+    (yield 5 2)
+    (yield 5 7))
+
+  (define test.1 (enumerator->enumerator/2
+                   (vector->enumerator '#((0 . 1)
+                                          (0 . 2)
+                                          (0 . 3)
+                                          (1 . 1)
+                                          (1 . 2)
+                                          (5 . 2)
+                                          (5 . 7)))))
+
+  (displayln 'group-fold.0)
+  ((group-fold test.0 0 +) (lambda (k v) (pretty-write (list k v))))
+
+  (displayln 'group-fold-ordered.0)
+  ((group-fold-ordered test.0 0 +) (lambda (k v) (pretty-write (list k v))))
+
+  (displayln 'group-fold.1)
+  ((group-fold test.1 0 +) (lambda (k v) (pretty-write (list k v))))
+
+  (displayln 'group-fold-ordered.1)
+  ((group-fold-ordered test.1 0 +) (lambda (k v) (pretty-write (list k v))))
+
+  (displayln 'hash-join)
+  ((hash-join
+     (enumerator->enumerator/2 (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3))))
+     (enumerator->enumerator/2 (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))))
+   (lambda (k a b) (pretty-write (list k a b))))
+
+  (displayln 'merge-join)
+  ((merge-join
+     (enumerator->dict:ordered:vector
+       (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
+       car)
+     (enumerator->dict:ordered:vector
+       (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
+       car))
+   (lambda (k a b) (pretty-write (list k a b))))
+
+  (displayln 'merge-union)
+  ((merge-union
+     (enumerator->dict:ordered:vector
+       (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
+       car)
+     (enumerator->dict:ordered:vector
+       (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
+       car)
+     vector)
+   (lambda (k v) (pretty-write (list k v))))
+  )
