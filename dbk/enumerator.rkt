@@ -5,6 +5,7 @@
          vector->enumerator unsafe-vector->enumerator
          generator->enumerator
          enumerator/2->enumerator
+         enumerator->enumerator/2
          hash->enumerator/2)
 (require racket/control racket/unsafe/ops)
 
@@ -52,5 +53,8 @@
 ;; An enumerator/2 expects its iteratee to take two arguments
 (define ((enumerator/2->enumerator en) yield)
   (en (lambda (a b) (yield (cons a b)))))
+
+(define ((enumerator->enumerator/2 en) yield)
+  (en (lambda (x&y) (yield (car x&y) (cdr x&y)))))
 
 (define ((hash->enumerator/2 kvs) yield) (hash-for-each kvs yield))
