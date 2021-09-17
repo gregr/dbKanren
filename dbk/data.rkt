@@ -225,7 +225,7 @@
                                            (yield t))))))
 
 (define ((enumerator-project en f) yield)
-  (en (lambda args (apply yield (apply f args)))))
+  (en (lambda args (apply f yield args))))
 
 (define ((enumerator-filter en ?) yield)
   (en (lambda (t) (when (? t) (yield t)))))
@@ -239,9 +239,9 @@
       (enumerator-project
         (group-fold-ordered
           (enumerator-project (enumerator-dedup (enumerator-sort en any<?))
-                              (lambda (t) (list (t->key t) t)))
+                              (lambda (yield t) (yield (t->key t) t)))
           '() cons)
-        (lambda (_ ts.reversed) (list (reverse ts.reversed)))))))
+        (lambda (yield _ ts.reversed) (yield (reverse ts.reversed)))))
     (lambda (ts) (t->key (car ts)))))
 
 (define ((hash-join en en.hash) yield)
