@@ -140,6 +140,30 @@
                            (< 0 (B 'count)))
                   (loop A (A 'min) B (B 'min)))))))))
 
+(define ((merge-antijoin A B) yield)
+  (if (= 0 (B 'count))
+    ((A 'enumerator/2) yield)
+    (when (< 0 (A 'count))
+      (let loop ((A   A)
+                 (k.A (A 'min))
+                 (B   B)
+                 (k.B (B 'min)))
+        (case (compare-any k.A k.B)
+          ((-1) (yield k.A (A 'top-value))
+                (let ((A (A 'pop)))
+                  (when (< 0 (A 'count))
+                    (loop A (A 'min) B k.B))))
+          (( 1) (let ((B (B '>= k.A)))
+                  (if (= 0 (B 'count))
+                    ((A 'enumerator/2) yield)
+                    (loop A k.A B (B 'min)))))
+          (else (let ((A (A 'pop))
+                      (B (B 'pop)))
+                  (if (= 0 (B 'count))
+                    ((A 'enumerator/2) yield)
+                    (when (< 0 (A 'count))
+                      (loop A (A 'min) B (B 'min)))))))))))
+
 (define ((merge-union A B unite) yield)
   (cond ((= (A 'count) 0) ((B 'enumerator/2) yield))
         ((= (B 'count) 0) ((A 'enumerator/2) yield))
@@ -226,11 +250,21 @@
      (for ((t.hash (in-list (reverse ts.hash))))  ; is this reversal necessary?
        (yield k t t.hash)))))
 
+(define ((hash-antijoin en en.hash) yield)
+  ((dict-antijoin en (dict:hash (group-fold->hash en.hash (void) (lambda _ (void)))))
+   yield))
+
 (define ((dict-join en d.index) yield)
   (when (< 0 (d.index 'count))
     (en (lambda (k v) (d.index 'ref k
                                (lambda (v.index) (yield k v v.index))
                                (lambda ()        (void)))))))
+
+(define ((dict-antijoin en d.index) yield)
+  (en (if (= 0 (d.index 'count))
+        yield
+        (lambda (k v) (unless (d.index 'has-key? k)
+                        (yield k v))))))
 
 ;; TODO: computing fixed points?
 
@@ -295,5 +329,21 @@
        (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
        car)
      vector)
+   (lambda (k v) (pretty-write (list k v))))
+
+  (displayln 'hash-antijoin)
+  ((hash-antijoin
+     (enumerator->enumerator/2 (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3))))
+     (enumerator->enumerator/2 (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))))
+   (lambda (k v) (pretty-write (list k v))))
+
+  (displayln 'merge-antijoin)
+  ((merge-antijoin
+     (enumerator->dict:ordered:vector
+       (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
+       car)
+     (enumerator->dict:ordered:vector
+       (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
+       car))
    (lambda (k v) (pretty-write (list k v))))
   )
