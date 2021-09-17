@@ -220,16 +220,16 @@
           '() cons)
         (lambda (_ ts.reversed) (list (reverse ts.reversed)))))))
 
-(define ((hash-join en.hash en) yield)
-  ((dict-join (dict:hash (group-fold->hash en.hash '() cons)) en)
-   (lambda (k ts.hash t)
+(define ((hash-join en en.hash) yield)
+  ((dict-join en (dict:hash (group-fold->hash en.hash '() cons)))
+   (lambda (k t ts.hash)
      (for ((t.hash (in-list (reverse ts.hash))))  ; is this reversal necessary?
-       (yield k t.hash t)))))
+       (yield k t t.hash)))))
 
-(define ((dict-join d.index en) yield)
+(define ((dict-join en d.index) yield)
   (when (< 0 (d.index 'count))
     (en (lambda (k v) (d.index 'ref k
-                               (lambda (v.index) (yield k v.index v))
+                               (lambda (v.index) (yield k v v.index))
                                (lambda ()        (void)))))))
 
 ;; TODO: computing fixed points?
