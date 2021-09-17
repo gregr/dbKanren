@@ -61,7 +61,7 @@
     ((ref _ k.found k.missing) (k.missing))
     ((enumerator/2)            (lambda _ (void)))))
 
-(define (dict:ordered:vector t->key rows (start 0) (end (vector-length rows)))
+(define (dict:ordered:vector rows (t->key (lambda (t) t)) (start 0) (end (vector-length rows)))
   (let loop ((start start) (end end))
     (define (key-ref i) (t->key (vector-ref rows i)))
     (define self
@@ -235,7 +235,6 @@
 
 (define (enumerator->dict:ordered:vector en t->key)
   (dict:ordered:vector
-    (lambda (ts) (t->key (car ts)))
     (enumerator->vector
       (enumerator-project
         (group-fold-ordered
@@ -243,6 +242,7 @@
                               (lambda (t) (list (t->key t) t)))
           '() cons)
         (lambda (_ ts.reversed) (list (reverse ts.reversed)))))))
+    (lambda (ts) (t->key (car ts)))))
 
 (define ((hash-join en en.hash) yield)
   ((dict-join en (dict:hash (group-fold->hash en.hash '() cons)))
