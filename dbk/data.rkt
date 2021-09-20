@@ -12,9 +12,13 @@
   group-fold
   group-fold-ordered
   merge-union
+  merge-antijoin
   merge-join
-  dict-join
-  hash-join)
+  dict-join-unordered
+  hash-join
+  dict-antijoin-unordered
+  hash-antijoin
+  )
 (require "enumerator.rkt" "misc.rkt" "order.rkt")
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
@@ -245,22 +249,22 @@
     (lambda (ts) (t->key (car ts)))))
 
 (define ((hash-join en en.hash) yield)
-  ((dict-join en (dict:hash (group-fold->hash en.hash '() cons)))
+  ((dict-join-unordered en (dict:hash (group-fold->hash en.hash '() cons)))
    (lambda (k t ts.hash)
      (for ((t.hash (in-list (reverse ts.hash))))  ; is this reversal necessary?
        (yield k t t.hash)))))
 
 (define ((hash-antijoin en en.hash) yield)
-  ((dict-antijoin en (dict:hash (group-fold->hash en.hash (void) (lambda _ (void)))))
+  ((dict-antijoin-unordered en (dict:hash (group-fold->hash en.hash (void) (lambda _ (void)))))
    yield))
 
-(define ((dict-join en d.index) yield)
+(define ((dict-join-unordered en d.index) yield)
   (when (< 0 (d.index 'count))
     (en (lambda (k v) (d.index 'ref k
                                (lambda (v.index) (yield k v v.index))
                                (lambda ()        (void)))))))
 
-(define ((dict-antijoin en d.index) yield)
+(define ((dict-antijoin-unordered en d.index) yield)
   (en (if (= 0 (d.index 'count))
         yield
         (lambda (k v) (unless (d.index 'has-key? k)
