@@ -7,7 +7,8 @@
   enumerator-filter
   enumerator-sort
   enumerator-dedup
-  enumerator->dict:ordered:vector
+  enumerator->dict:ordered:vector-flat
+  enumerator->dict:ordered:vector-group
   group-fold->hash
   group-fold
   group-fold-ordered
@@ -207,7 +208,12 @@
 (define ((enumerator-sort en <?) yield)
   ((list->enumerator (sort (enumerator->rlist en) <?)) yield))
 
-(define (enumerator->dict:ordered:vector en t->key)
+(define (enumerator->dict:ordered:vector-flat en (t->key (lambda (t) t)))
+  (dict:ordered:vector
+    (enumerator->vector (enumerator-dedup (enumerator-sort en any<?)))
+    t->key))
+
+(define (enumerator->dict:ordered:vector-group en t->key)
   (dict:ordered:vector
     (enumerator->vector
       (enumerator-project
@@ -343,10 +349,10 @@
 
   (displayln 'merge-join)
   ((merge-join
-     (enumerator->dict:ordered:vector
+     (enumerator->dict:ordered:vector-group
        (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
        car)
-     (enumerator->dict:ordered:vector
+     (enumerator->dict:ordered:vector-group
        (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
        car))
    (lambda (k a b) (pretty-write (list k a b))))
@@ -359,10 +365,10 @@
 
   (displayln 'merge-key-union)
   ((merge-key-union
-     (enumerator->dict:ordered:vector
+     (enumerator->dict:ordered:vector-group
        (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
        car)
-     (enumerator->dict:ordered:vector
+     (enumerator->dict:ordered:vector-group
        (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
        car))
    pretty-write)
@@ -375,10 +381,10 @@
 
   (displayln 'merge-antijoin)
   ((merge-antijoin
-     (enumerator->dict:ordered:vector
+     (enumerator->dict:ordered:vector-group
        (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
        car)
-     (enumerator->dict:ordered:vector
+     (enumerator->dict:ordered:vector-group
        (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
        car))
    (lambda (k v) (pretty-write (list k v))))
