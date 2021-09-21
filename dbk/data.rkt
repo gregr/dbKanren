@@ -15,9 +15,15 @@
   merge-antijoin
   merge-join
   dict-join-unordered
+  dict-join-ordered
   hash-join
   dict-antijoin-unordered
+  dict-antijoin-ordered
   hash-antijoin
+  dict-key-union-unordered
+  dict-key-union-ordered
+  dict-subtract-unordered
+  dict-subtract-ordered
   )
 (require "enumerator.rkt" "misc.rkt" "order.rkt")
 
@@ -73,7 +79,7 @@
       (if (<= end start)
         dict.empty
         (method-lambda
-          ((top-key)   (t->key (vector-ref rows start)))
+          ((top-key)   (key-ref start))
           ((top-value) (vector-ref rows start))
           ((pop)       (loop (+ start 1) end))
           ((count)     (- end start))
@@ -274,11 +280,68 @@
                                (lambda (v.index) (yield k v v.index))
                                (lambda ()        (void)))))))
 
+(define ((dict-join-ordered en.ordered d.index) yield)
+  (when (< 0 (d.index 'count))
+    (en.ordered (lambda (k v)
+                  (set! d.index (d.index '>= k))
+                  (d.index 'ref k
+                           (lambda (v.index) (yield k v v.index))
+                           (lambda ()        (void)))))))
+
 (define ((dict-antijoin-unordered en d.index) yield)
   (en (if (= 0 (d.index 'count))
         yield
         (lambda (k v) (unless (d.index 'has-key? k)
                         (yield k v))))))
+
+(define ((dict-antijoin-ordered en.ordered d.index) yield)
+  (en.ordered (if (= 0 (d.index 'count))
+                yield
+                (lambda (k v)
+                  (set! d.index (d.index '>= k))
+                  (unless (d.index 'has-key? k)
+                    (yield k v))))))
+
+(define ((dict-subtract-unordered en d.index) yield)
+  (en (if (= 0 (d.index 'count))
+        yield
+        (lambda (k) (unless (d.index 'has-key? k)
+                      (yield k))))))
+
+(define ((dict-subtract-ordered en.ordered d.index) yield)
+  (en.ordered (if (= 0 (d.index 'count))
+                yield
+                (lambda (k)
+                  (set! d.index (d.index '>= k))
+                  (unless (d.index 'has-key? k)
+                    (yield k))))))
+
+(define ((hash-key-union en en.hash) yield)
+  (define d.index (dict:hash (let ((k=> (hash)))
+                               (en.hash (lambda (k) (set! k=> (hash-set k=> k (void)))))
+                               k=>)))
+  ((dict-key-union-unordered en d.index) yield))
+
+(define ((dict-key-union-unordered en d.index) yield)
+  ((dict-subtract-unordered en d.index) yield)
+  ((d.index 'enumerator)                yield))
+
+(define ((dict-key-union-ordered en.ordered d.index) yield)
+  (en.ordered (if (= 0 (d.index 'count))
+                yield
+                (lambda (k)
+                  (let loop ()
+                    (if (= 0 (d.index 'count))
+                      (yield k)
+                      (let ((k.d (d.index 'min)))
+                        (case (compare-any k k.d)
+                          ((-1) (yield k))
+                          (( 1) (set! d.index (d.index 'pop))
+                                (yield k.d)
+                                (loop))
+                          (else (set! d.index (d.index 'pop))
+                                (yield k))))))))))
+
 
 ;; TODO: computing fixed points?
 
@@ -334,7 +397,13 @@
        car))
    (lambda (k a b) (pretty-write (list k a b))))
 
-  (displayln 'merge-union)
+  (displayln 'hash-key-union)
+  ((hash-key-union
+     (list->enumerator (map car '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3))))
+     (list->enumerator (map car '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))))
+   pretty-write)
+
+  (displayln 'merge-key-union)
   ((merge-key-union
      (enumerator->dict:ordered:vector
        (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
