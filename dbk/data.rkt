@@ -11,7 +11,7 @@
   group-fold->hash
   group-fold
   group-fold-ordered
-  merge-union
+  merge-key-union
   merge-antijoin
   merge-join
   dict-join-unordered
@@ -178,29 +178,29 @@
                     (when (< 0 (A 'count))
                       (loop A (A 'min) B (B 'min)))))))))))
 
-(define ((merge-union A B unite) yield)
-  (cond ((= (A 'count) 0) ((B 'enumerator/2) yield))
-        ((= (B 'count) 0) ((A 'enumerator/2) yield))
+(define ((merge-key-union A B) yield)
+  (cond ((= (A 'count) 0) ((B 'enumerator) yield))
+        ((= (B 'count) 0) ((A 'enumerator) yield))
         (else (let loop ((A   A)
                          (k.A (A 'min))
                          (B   B)
                          (k.B (B 'min)))
                 (case (compare-any k.A k.B)
-                  ((-1) (yield (A 'top-key) (A 'top-value))
+                  ((-1) (yield (A 'top-key))
                         (let ((A (A 'pop)))
                           (if (< 0 (A 'count))
                             (loop A (A 'min) B k.B)
-                            ((B 'enumerator/2) yield))))
-                  (( 1) (yield (B 'top-key) (B 'top-value))
+                            ((B 'enumerator) yield))))
+                  (( 1) (yield (B 'top-key))
                         (let ((B (B 'pop)))
                           (if (< 0 (B 'count))
                             (loop A k.A B (B 'min))
-                            ((A 'enumerator/2) yield))))
-                  (else (yield k.A (unite (A 'top-value) (B 'top-value)))
+                            ((A 'enumerator) yield))))
+                  (else (yield k.A)
                         (let ((A (A 'pop))
                               (B (B 'pop)))
-                          (cond ((= (A 'count) 0) ((B 'enumerator/2) yield))
-                                ((= (B 'count) 0) ((A 'enumerator/2) yield))
+                          (cond ((= (A 'count) 0) ((B 'enumerator) yield))
+                                ((= (B 'count) 0) ((A 'enumerator) yield))
                                 (else             (loop A (A 'min) B (B 'min)))))))))))
 
 (define (group-fold->hash en v.0 f)
@@ -335,15 +335,14 @@
    (lambda (k a b) (pretty-write (list k a b))))
 
   (displayln 'merge-union)
-  ((merge-union
+  ((merge-key-union
      (enumerator->dict:ordered:vector
        (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
        car)
      (enumerator->dict:ordered:vector
        (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
-       car)
-     vector)
-   (lambda (k v) (pretty-write (list k v))))
+       car))
+   pretty-write)
 
   (displayln 'hash-antijoin)
   ((hash-antijoin
