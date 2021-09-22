@@ -26,7 +26,7 @@
   dict-subtract-unordered
   dict-subtract-ordered
   )
-(require "enumerator.rkt" "misc.rkt" "order.rkt")
+(require "enumerator.rkt" "misc.rkt" "order.rkt" racket/vector)
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
 
@@ -57,6 +57,79 @@
                     (cond ((= o 0)                   i)
                           ((and (>= n start) (i> n)) (loop n o))
                           (else                      (loop i o)))))))))
+
+(define table.empty
+  (method-lambda
+    ((length)                         0)
+    ((subtable start.sub (end.sub 0)) table.empty)
+    ((columns  start.col (end.col 0)) table.empty)
+    ((copy)                           table.empty)
+    ((dedup)                          table.empty)
+    ((dedup!)                         (void))
+    ((sort)                           table.empty)
+    ((sort!)                          (void))))
+
+(define (table columns (start 0) (end (vector-length (vector-ref columns 0))))
+  (if (= 0 (vector-length columns))
+    table.empty
+    (let loop ((start start) (end end))
+      (define (self-length)         (- end start))
+      (define (self-width)          (vector-length columns))
+      (define (self-column col)     (vector-ref    columns           col))
+      (define (self-ref  col row)   (vector-ref    (self-column col) row))
+      (define (self-set! col row v) (vector-set!   (self-column col) row v))
+      (define (self-copy)           (table (vector-map (lambda (v.col) (vector-copy v.col start end))
+                                                       columns)))
+      (define (self-dedup!)
+        (define width (self-width))
+        (let dedup ((row.prev start) (row (+ start 1)))
+          (if (= row end)
+            (when (< (+ row.prev 1) end)
+              (set! end (+ row.prev 1)))
+            (if (let duplicate? ((col 0))
+                  (or (= col width)
+                      (let ((v.col (self-column col)))
+                        (and (equal? (vector-ref v.col row.prev)
+                                     (vector-ref v.col row))
+                             (duplicate? (+ col 1))))))
+              (dedup row.prev (+ row 1))
+              (let ((row.prev (+ row.prev 1)))
+                (unless (= row.prev row)
+                  (let swap! ((col 0))
+                    (when (< col width)
+                      (let ((v.col (self-column col)))
+                        (vector-set! v.col row.prev (vector-ref v.col row))
+                        (swap! (+ col 1))))))
+                (dedup row.prev (+ row 1)))))))
+      (if (<= end start)
+        table.empty
+        (method-lambda
+          ((width)                                      (self-width))
+          ((length)                                     (self-length))
+          ((ref  col row)                               (self-ref  col row))
+          ((set! col row v)                             (self-set! col row v))
+          ((subtable start.sub (end.sub (self-length))) (loop (+ start start.sub) (+ start end.sub)))
+          ((columns  start.col (end.col (self-width)))  (table (vector-copy columns start.col end.col) start end))
+          ((copy)                                       (self-copy))
+          ((dedup)                                      (let ((t (self-copy)))
+                                                          (t 'dedup!)
+                                                          t))
+          ((dedup!)                                     (self-dedup!))
+          ;; TODO:
+          ;((sort ))
+          ;((sort! ))
+          )))))
+
+(define (table-width    t)                              (t 'width))
+(define (table-length   t)                              (t 'length))
+(define (table-ref      t col row)                      (t 'ref      col row))
+(define (table-set!     t col row v)                    (t 'set!     col row v))
+(define (table-subtable t start (end (table-length t))) (t 'subtable start end))
+(define (table-columns  t start (end (table-width  t))) (t 'columns  start end))
+(define (table-dedup    t)                              (t 'dedup))
+(define (table-dedup!   t)                              (t 'dedup!))
+(define (table-sort     t)                              (t 'sort))
+(define (table-sort!    t)                              (t 'sort!))
 
 (define dict.empty
   (method-lambda
@@ -388,4 +461,21 @@
        (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
        car))
    (lambda (k v) (pretty-write (list k v))))
+
+  (displayln 'table)
+  (let ((t (table (vector (vector  0  0  0  0  1  1  1  2  2  3  3  3  3  3  4)
+                          (vector 'a 'a 'a 'b 'a 'a 'b 'a 'a 'a 'b 'b 'c 'c 'a)
+                          (vector  0  1  1  1  0  1  1  2  2  1  1  1  1  1  7)))))
+    (for ((col (in-range (table-width t))))
+      (for ((row (in-range (table-length t))))
+        (printf "~s " (table-ref t col row)))
+      (newline))
+
+    (displayln 'table-dedup!)
+    (table-dedup! t)
+
+    (for ((col (in-range (table-width t))))
+      (for ((row (in-range (table-length t))))
+        (printf "~s " (table-ref t col row)))
+      (newline)))
   )
