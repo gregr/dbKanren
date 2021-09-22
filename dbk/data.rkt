@@ -150,12 +150,11 @@
 (define (dict:ordered:vector rows (t->key (lambda (t) t)) (start 0) (end (vector-length rows)))
   (let loop ((start start) (end end))
     (define (key-ref i) (t->key (vector-ref rows i)))
-    (define (top-value) (vector-ref rows start))
     (define self
       (if (<= end start)
         dict.empty
         (method-lambda
-          ((top)       (top-value))
+          ((top)       (vector-ref rows start))
           ((pop)       (loop (+ start 1) end))
           ((count)     (- end start))
           ((max)       (key-ref (- end 1)))
@@ -170,7 +169,7 @@
                                               (equal? (self 'min) key))))
           ((ref key k.found k.missing) (let ((self (self '>= key)))
                                          (if (< 0 (self 'count))
-                                           (let ((t (top-value)))
+                                           (let ((t (self 'top)))
                                              (if (equal? (t->key t) key)
                                                (k.found t)
                                                (k.missing)))
