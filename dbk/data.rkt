@@ -26,7 +26,7 @@
   dict-subtract-unordered
   dict-subtract-ordered
   )
-(require "enumerator.rkt" "misc.rkt" "order.rkt" racket/vector)
+(require "codec.rkt" "enumerator.rkt" "misc.rkt" "order.rkt" racket/vector)
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
 
@@ -130,6 +130,23 @@
 (define (table-dedup!   t)                              (t 'dedup!))
 (define (table-sort     t)                              (t 'sort))
 (define (table-sort!    t)                              (t 'sort!))
+
+(define ((column:const     c)                      _) c)
+(define ((column:vector    rows)                   i) (vector-ref rows i))
+(define ((column:table     columns)                i) (map (lambda (col) (col i)) columns))
+(define ((column:indirect  column.pos column)      i) (column (column.pos i)))
+(define ((column:interval  column.pos interval->x) i) (interval->x (column.pos i) (column.pos (+ i 1))))
+(define ((column:bytes:nat bs size)                i) (integer-bytes->integer bs #f #t (* i size) (+ i size)))
+
+(define (column:port                     in type) (let ((size.type (sizeof type (void))))
+                                                    (lambda (i)
+                                                      (file-position in (* i size.type))
+                                                      (decode        in type))))
+(define (column:port-indirect column.pos in type)   (lambda (i)
+                                                      (file-position in (column.pos i))
+                                                      (decode        in type)))
+
+(define ((interval->dict:ordered i->key i->value) start end) (dict:ordered i->key i->value start end))
 
 (define dict.empty
   (method-lambda
