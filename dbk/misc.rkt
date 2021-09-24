@@ -2,7 +2,7 @@
 (provide simple-match simple-match-lambda record
          method-lambda method-choose method-unknown method-except method-only
          foldl/and let*/and define-variant
-         plist->alist alist-ref alist-remove alist-update alist-set
+         plist->alist plist-ref alist->plist alist-ref alist-remove alist-update alist-set
          hash-remove*
          call/files let/files
          map/merge map/append)
@@ -166,9 +166,25 @@
                 (_                        #f)))
             (struct struct-name (fields ...) #:prefab) ...))))
 
-(define (plist->alist kvs) (if (null? kvs) '()
-                             (cons (cons (car kvs) (cadr kvs))
-                                   (plist->alist (cddr kvs)))))
+(define (plist->alist plist)
+  (match plist
+    ('()                     '())
+    ((cons k (cons v plist)) (cons (cons k v) (plist->alist plist)))))
+
+(define (plist-ref plist key (default (void)))
+  (let loop ((kvs plist))
+    (match kvs
+      ('()                   (if (void? default)
+                               (error "missing key in property list:" key plist)
+                               default))
+      ((cons k (cons v kvs)) (if (equal? k key)
+                               v
+                               (loop kvs))))))
+
+(define (alist->plist alist)
+  (match alist
+    ('()                     '())
+    ((cons (cons k v) alist) (cons k (cons v (alist->plist alist))))))
 
 (define (alist-ref alist key (default (void)))
   (define kv (assoc key alist))
