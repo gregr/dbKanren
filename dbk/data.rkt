@@ -1,5 +1,14 @@
 #lang racket/base
 (provide
+  column:const
+  column:vector
+  column:table
+  column:indirect
+  column:interval
+  column:bytes:nat
+  column:port
+  column:port-indirect
+  interval->dict:ordered
   dict.empty
   dict:ordered:vector
   dict:hash
