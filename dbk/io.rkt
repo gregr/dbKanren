@@ -4,7 +4,6 @@
          out:port out:file
          in:transform in:procedure in:port in:file
          in:stream in:pop-header
-         io:pipe in:pipe out:pipe
          json->scm scm->json jsexpr->scm scm->jsexpr
          jsonl:read jsonl:write json:read json:write
          tsv:read tsv:write csv:read csv:write csv:escape)
@@ -126,30 +125,6 @@
                            ((jsonl) (lambda (x) (jsonl:write out      x)))
                            (else    (error "unsupported output format:" format)))))
               (lambda (en) (en yield))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Pipe IO
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define (io:pipe (name? #f))
-  ;; TODO: thread safety
-  (define received-streams '())
-  (define (produce)
-    (if (null? received-streams)
-      '()
-      (let ((s (foldl s-append (car received-streams) (cdr received-streams))))
-        (set! received-streams '())
-        s)))
-  (define (consume s)
-    (set! received-streams (cons s received-streams)))
-  (method-lambda
-    ;; TODO: support optional named persistence
-    ((name) name?)
-    ((in)   consume)
-    ((out)  produce)))
-
-(define (in:pipe  p) (p 'out))
-(define (out:pipe p) (p 'in))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; JSON and JSONL formats
