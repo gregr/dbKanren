@@ -8,6 +8,7 @@
   column:bytes:nat
   column:port
   column:port-indirect
+  column:port-string
   interval->dict:ordered
   dict.empty
   dict:ordered:vector
@@ -155,6 +156,11 @@
 (define (column:port-indirect column.pos in type)   (lambda (i)
                                                       (file-position in (column.pos i))
                                                       (decode        in type)))
+(define (column:port-string   column.pos in)      (column:interval
+                                                    column.pos
+                                                    (lambda (pos.0 pos.1)
+                                                      (file-position in pos.0)
+                                                      (bytes->string/utf-8 (read-bytes (- pos.1 pos.0) in)))))
 
 (define ((interval->dict:ordered i->key i->value) start end) (dict:ordered i->key i->value start end))
 
