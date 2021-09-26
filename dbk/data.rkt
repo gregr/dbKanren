@@ -34,8 +34,9 @@
   dict-key-union-ordered
   dict-subtract-unordered
   dict-subtract-ordered
+  domain
   )
-(require "codec.rkt" "enumerator.rkt" "misc.rkt" "order.rkt" racket/vector)
+(require "codec.rkt" "enumerator.rkt" "misc.rkt" "order.rkt" racket/file racket/pretty racket/vector)
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
 
@@ -402,6 +403,62 @@
 
 
 ;; TODO: computing fixed points?
+
+(define (domain path type . pargs)
+  (unless (equal? type 'string) (error "unimplemented domain type:" type))
+  (define max-byte-count (plist-ref pargs 'max-byte-count (- (expt 2 40) 1)))
+  ;; TODO: support these parameters
+  ;(define index?         (plist-ref pargs 'index?         #t))
+  ;(define unique?        (plist-ref pargs 'unique?        #t))
+  ;(define sorted?        (plist-ref pargs 'sorted?        #t))
+  (define verbose?       (plist-ref pargs 'verbose?       #t))
+  (define fn.value       "value")
+  (define fn.pos         "position")
+  (define fn.id          "id")
+  (define size.pos       (min-bytes max-byte-count))
+  (when verbose? (printf "creating path: ~s\n" path))
+  (make-directory* path)
+  (define out.metadata   (open-output-file (build-path path "metadata.scm")))
+  (define out.value      (open-output-file (build-path path fn.value)))
+  (define out.pos        (open-output-file (build-path path fn.pos)))
+  (define out.id         (open-output-file (build-path path fn.id)))
+  (define value=>id      (make-hash))
+  (define (write-pos)    (write-bytes (nat->bytes size.pos (file-position out.value)) out.pos))
+  (define (insert value) (unless (hash-has-key? value=>id value)
+                           (write-pos)
+                           (write-bytes (string->bytes/utf-8 value) out.value)
+                           (hash-set! value=>id value (hash-count value=>id))))
+  (define (close)
+    (write-pos)
+    (define size.id (min-bytes (hash-count value=>id)))
+    (define (sorted-ids) (sort (hash->list value=>id) (lambda (a b) (string<? (car a) (car b)))))
+    (define (write-ids)  (for-each (lambda (s&id) (write-bytes (nat->bytes size.id (cdr s&id)) out.id))
+                                   (sorted-ids)))
+    (when verbose? (printf "~s: sorting ~s ids\n" path (hash-count value=>id)))
+    (if   verbose? (time (sorted-ids)) (sorted-ids))
+    (when verbose? (printf "~s: writing ids\n" path))
+    (if   verbose? (time (write-ids)) (write-ids))
+    (define metadata `((type  . domain)
+                       (count . ,(hash-count value=>id))
+                       (value . ((path     . ,fn.value)
+                                 (type     . ,type)
+                                 (position . ((path . ,fn.pos)
+                                              (type . nat)
+                                              (size . ,size.pos)))))
+                       (id    . ((path . ,fn.id)
+                                 (type . nat)
+                                 (size . ,size.id)))))
+    (when verbose?
+      (printf "~s: writing metadata\n" path)
+      (pretty-write metadata))
+    (pretty-write metadata out.metadata)
+    (close-output-port out.id)
+    (close-output-port out.pos)
+    (close-output-port out.value)
+    (close-output-port out.metadata))
+  (method-lambda
+    ((close)        (close))
+    ((insert value) (insert value))))
 
 (module+ test
   (require racket/pretty)
