@@ -5,8 +5,9 @@
          plist->alist plist-ref alist->plist alist-ref alist-remove alist-update alist-set
          hash-remove*
          call/files let/files
-         map/merge map/append)
-(require (for-syntax racket/base) racket/list racket/match racket/set)
+         map/merge map/append
+         min-bits min-bytes min-bytes-power2 nat->bytes)
+(require (for-syntax racket/base) racket/fixnum racket/list racket/match racket/set)
 
 (define-syntax simple-match-lambda
   (syntax-rules ()
@@ -235,3 +236,28 @@
     (foldl merge (car ys) (cdr ys))))
 
 (define (map/append f xs) (append* (map f xs)))
+
+(define (min-bits n)
+  (if (< 0 n)
+    (+ 1 (min-bits (fxrshift n 1)))
+    0))
+
+(define (min-bytes n)
+  (let ((min-bits (min-bits n)))
+    (+ (quotient min-bits 8)
+       (if (= 0 (remainder min-bits 8)) 0 1))))
+
+(define (min-bytes-power2 n)
+  (define c (min-bytes n))
+  (cond ((<= c 1) 1)
+        ((<= c 2) 2)
+        ((<= c 4) 4)
+        (else     8)))
+
+(define (nat->bytes size n)
+  ;(integer->integer-bytes n size #f #t)
+  (define bs (make-bytes size 0))
+  (let loop ((i 0) (shift (* 8 (- size 1))))
+    (cond ((< i size) (bytes-set! bs i (bitwise-and 255 (fxrshift n shift)))
+                      (loop (+ i 1) (- shift 8)))
+          (else       bs))))
