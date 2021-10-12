@@ -147,7 +147,8 @@
 (define ((column:table     columns)                i) (map (lambda (col) (col i)) columns))
 (define ((column:indirect  column.pos column)      i) (column (column.pos i)))
 (define ((column:interval  column.pos interval->x) i) (interval->x (column.pos i) (column.pos (+ i 1))))
-(define ((column:bytes:nat bs size)                i) (integer-bytes->integer bs #f #t (* i size) (+ i size)))
+(define ((column:bytes:nat bs size)                i) (let ((i (* i size)))
+                                                        (integer-bytes->integer bs #f #t i (+ i size))))
 
 (define (column:port                     in type) (let ((size.type (sizeof type (void))))
                                                     (lambda (i)
