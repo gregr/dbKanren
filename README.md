@@ -12,40 +12,15 @@ Typical use:
 
 ## TODO
 
-* simplify/analyze/evaluate abstract syntax
-  * consolidate modules
-    * link with built-in definitions
-      * == =/= any<= any<
-      * cons car cdr + - * /
-      * etc.
-    * relation declaration property merging and consistency checking
-    * check concistency of definitions
-    * consolidate assertions as conjunction
-      * when checking assertions later, report errors per conjunct for better diagnostics
-  * start with inexpensive simplification and rewriting
-    * `(app (lambda _) _)` becomes `let`
-    * `(not (== x y))` might become `(=/= x y)` ?
-    * `(not (not (<= x y)))`  can we follow this simplification?
-      * `(not (and (=/= x y) (<= y x)))`
-      * `(or (not (=/= x y)) (not (<= y x)))`
-      * `(or (== x y) (and (=/= x y) (<= x y)))`  ;; also `(implies (=/= x y) (<= x y))`
-        * `(or (== x y) (< x y))` maybe this intermediate step
-        * `(<= x y)` leading to this
-      * `(and (or (=/= x y) (== x y)) (or (== x y) (<= x y)))`
-      * `(and #t (<= x y))`
-      * `(<= x y)`
-    * normalize/reorder conjuncts and disjuncts
-    * factor shared conjuncts out of disjunctions
-      * (OR (AND X Y) (AND X Z)) ==> (AND X (OR Y Z))
-    * constant propagation
-    * dead code elimination
-    * push quantifiers inward
-  * dependency/stratification analysis
-  * type inference/checking
-  * safety analysis
-  * mode analysis
+* local relation definitions
+  * expressing subqueries by capturing other vars
 
-* bscm codec for sets and dicts
+* a smaller extended syntax
+  * logical connectives (not, and, or)
+  * apply for relations
+  * anonymous vars
+
+* support void values? (have to stop overloading the meaning of void everywhere)
 
 * GOO join heuristic
 
@@ -457,6 +432,75 @@ Typical use:
       * multiple needles
         * `(conj (string-appendo n1 t1 hay-s) (string-appendo n2 t2 hay-s))`
       * maybe best done explicitly as aggregation via `:==`
+
+
+### Aggregation ideas
+
+* finite relations may relate their tuples to an extra position parameter
+  * `(apply-relation-position R pos tuple)`
+
+* aggregation via negation
+  * can this be done efficiently?
+  * edb: `(edge x y)`
+  * ```
+    (define-relation (1-hops x targets)
+      (=/= targets '())
+      (:== targets (query y (edge x y))))
+
+    or
+
+    (define-relation (1-hops x targets)
+      (=/= targets '())
+      (query== targets y (edge x y)))
+
+    vs.
+
+    (define-relation (1-hops-rest x prev targets)
+      (conde
+        ((== targets '())
+         (not (fresh (z)
+                (any< prev z)
+                (edge x z))))
+        ((fresh (y targets.rest)
+           (== targets (cons y targets.rest))
+           (edge x y)
+           (not (fresh (z)
+                  (any< prev z)
+                  (any< z y)
+                  (edge x z)))
+           (1-hops-rest x y targets.rest)))))
+    (define-relation (1-hops x targets)
+      (fresh (y targets.rest)
+        (== targets (cons y targets.rest))
+        (edge x y)
+        (not (fresh (z)
+               (any< z y)
+               (edge x z)))
+        (1-hops-rest x y targets.rest)))
+    ```
+
+    ```
+    (define-relation (max+o threshold x xs)
+      (conde ((== xs '()) (== x threshold))
+             ((fresh (y ys)
+                (== xs (cons y ys))
+                (conde ((any<= y threshold) (max+o threshold x ys))
+                       ((any<  threshold y) (max+o y         x ys)))))))
+    (define-relation (maxo x xs)
+      (fresh (y ys)
+        (== xs (cons y ys))
+        (max+o y x ys)))
+    (define-relation (edge-largest x largest)
+      (fresh (targets)
+        (query== targets y (edge x y))
+        (maxo largest targets)))
+
+    vs.
+
+    (define-relation (edge-largest x largest)
+      (edge x largest)
+      (not (fresh (y) (any< largest y) (edge x y))))
+    ```
 
 
 ## Naming conventions
