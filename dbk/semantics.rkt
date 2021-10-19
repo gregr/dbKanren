@@ -2,6 +2,8 @@
 (provide simplify-program factor-program)
 (require racket/list racket/match racket/set)
 
+;; TODO: lift quantifiers to top of relation definition (or query) formula
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Grammar
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -223,3 +225,126 @@
     (`(,(and (or 'exist 'all) quantifier) ,params ,f) `(,quantifier ,(map unrename params)
                                                                     ,(formula-unrename-variables f)))
     (`(,connective                        ,@fs)       `(,connective . ,(map formula-unrename-variables fs)))))
+
+
+;; TODO: before continuing, design data model with dataflow language for planning
+
+;; Implementation phases:
+;; - basic datalog
+;;   - only these features
+;;     - and (expressing joins)
+;;     - or  (expressing unions)
+;;     - ==, limited such that relations over == describe finite tables
+;;       - (== constant constant) can be simplified out
+;;         - could be a table with zero columns and either one or zero rows
+;;       - (== var constant) is a table with a single row and column
+;;       - no (== var1 var2) for now
+;;     - recursive relations defined by least fixed point
+;;   - no partial eval yet
+;;   - none of these yet
+;;     - not =/= < <= cons vector
+;; - TODO: describe subsequent phases in order of increasing complexity
+
+;; Compilation steps:
+;; - parse
+;; - simplify without serious inlining
+;; - introduce shared/factored definitions for remaining code
+;;   - one goal of factoring is to provide worker/wrapper separation for non-explosive inlining
+;; - simplify with more serious inlining
+;; - infer modes and [pre-]plan
+;; - generate mode/plan-specialized code
+
+;; Predictable simplification and inlining / partial eval
+;; - ideas from macro writer's bill of rights:
+;;   - the original list:
+;;     - introduce let & lambda
+;;     - ignore special cases involving constants
+;;     - ignore degenerate cases resulting in dead/useless code
+;; - local simplification
+;;   - a single-branch disjunction extends the context directly
+;;   - a multi-branch disjunction extends the context with the lattice-join of its branches
+;;   - disjunction branches that always fail in the given context should be pruned
+;;     - perform only one (left-to-right? or mode-specific?) pass to guarantee O(N) runtime
+;;       - well, it may make sense to perform two passes, where the first simplification makes it
+;;         easier to order constraints for an effective second pass
+;;       - do not compute the potentially non-linear pruning fixed point when the context is extended
+;;       - can have a separate optimization mode to compute the fixed point of such pruning
+;;   - limited inter-disjunction simplification
+;;     - fuse disjunctions when their branches can be joined at most one-to-one (i.e., no explosion)
+;;     - disjunctions should *NOT* be cross-joined/DNFed in general
+;;       - will quickly explode code size
+;;       - can have a separate optimization mode to attempt general cross-disjunction simplification
+;; - table-ification of table-like disjunctions
+;;   - table-like means a disjunction of uniform (same variable structure) conjunctions of equality constraints
+;; - inlining
+;;   - inline calls to non-recursive relations that are small enough
+;;   - inline calls to other relations based on analysis of how they are called
+;;     - inline calls with known arguments that can lead to significant simplification
+;;     - bottom-up analysis of how relation parameters are used
+;;       - knowing the shape of a parameter may eliminate many disjunction branches
+;;       - the relation may be structurally recursive on a subset of parameters
+;;       - a parameter may not be scrutinized at all, i.e., it may be invariant
+
+;; Factored relation definitions:
+;; - a simple-relate is a call to a user-defined relation where all arguments are distinct variables
+;; - a simple-cx is any of these:
+;;   - a simple-relate
+;;   - any call to a primitive constraint such as ==, =/=, <, <=
+;; - post-factoring relation definition types:
+;;   - single call to a relation with specialized arguments
+;;     - some arguments are either partially known (not variables), or use the same variable more than once
+;;   - conjunction of simple-cxs
+;;   - disjunction of simple-cxs
+;;   - negation of a simple-relate (not a simple-cx)
+;;   - quantification of a simple-relate (not a simple-cx)
+
+;; Notes and ideas on satisfiability:
+;; - a conjunction including at most one disjunction is satisfiable if one disjunct is satisfiable
+;; - for a conjunction including two or more disjunctions, satisfiability is only guaranteed via flattening into a single disjunction, where one disjunct is satisfiable
+;;   - possible to flatten by joining:
+;;     - disjunct-wise (always)
+;;     - or variable-wise (only for variables that are constrained in every disjunct in all disjunctions currently being combined)
+;;       - degenerate case: every disjunct applies the same constraint (however, possible to factor out this constraint due to being shared)
+;;   - this search for a single satisfiable flattened disjunct may be arbitrarily expensive (may be searching for a needle in a haystack)
+;;   - approaches that may be more tractable:
+;;     - two-watched disjunctions:
+;;       - each disjunction maintains two disjuncts that are locally satisfiable, along with a list of remaining disjuncts that haven't been tested yet
+;;       - if either of these watched disjuncts becomes unsatisfiable, find another from the untested list, pruning any that fail
+;;       - if only one satisfiable disjunct remains, it is promoted as an absolute part of the outer conjunction, used when filtering the other disjunctions
+;;     - learning absolute/shared constraints across all disjuncts in a disjunction:
+;;       - take the lattice join (analogous to an intersection across constraints) to find constraints that all disjuncts agree on
+;;       - e.g. `(disj (== x (cons A B)) (== x (cons C B))) ==> (conj (fresh (D) (== x (cons D B))) (disj (== x (cons A B)) (== x (cons C B))))`
+;;         - simplified: `(fresh (D) (conj (== x (cons D B)) (disj (== D A) (== D C))))`
+;;     - subsumption
+;;       - for each disjunct, starting with the smallest (least constrained), discard any other disjuncts that strictly include its constraints
+;;     - variable-wise factoring of an individual disjunction
+;;       - similar to variable-wise flattening, but without joining, instead building a new disjunction that looks like a decision tree
+;;       - for each variable (often starting with the most constrained) that is constrained by every disjunct, bisect on a constraint choice (recursively)
+;; - may unfold all relation calls except when doing so may lead to looping/redundancy
+;;   - disjunctions annotated with procedure history stack, to recognize recursive calls
+;;     - different history information granularities for different termination measures
+;;       - e.g.,
+;;         - no calls at all (least permissive, but no inlining achieved)
+;;         - or no recursive calls (least permissive while still performing some inlining)
+;;         - or no non-structural recursive calls (most permissive w/ guaranteed termination without programmer assistance)
+;;         - or no non-decreasing recursive calls according to programmer-defined measure (most permissive w/ guaranteed termination)
+;;         - any call is fine (most permissive, but no termination guarantees)
+
+;; How to handle the non-datalog subset of computation:
+
+;(struct store (var=>shape id=>cx) #:prefab)
+;; - each constraint in id=>cx is a CNF formula
+;;   - may include calls to user-defined relations that have not yet been unfolded
+;;   - its id is associated with the shape of all mentioned variables
+;; - a shape is either a t:quote, a t:cons, a t:vector, or a vcx
+;; - for implementation simplicity, avoid more complicated variable-specific indexing schemes for now
+;; - when a new constraint is inserted, apply simplification rules for any interacting variables
+;; - when a variable shape is updated, apply simplification rules for any interacting cxs
+;; - search for variable assignments that satisfy all cxs in id=>cx
+;;   - for constraints participating in satisfaction:
+;;     - run datalog sub-queries if possible
+;;     - otherwise, unfold any calls to relations
+
+;(struct vcx (lb ub cx-ids) #:prefab)
+;; each of lb and ub is an interval endpoint, and either may be open or closed
+;; cx-ids is a set of ids for the cxs that this variable interacts with
