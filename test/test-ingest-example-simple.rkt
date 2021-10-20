@@ -3,29 +3,25 @@
          racket/match)
 
 ;; TODO: require these
-(define-syntax-rule (run* body ...) '(TODO: run* body ...))
 (define database               #f)
 (define database-relation-add! #f)
 (define database-build!        #f)
 (define relation-index-add!    #f)
 
-(define db (database 'path "path/to/example/db"))
+(define db (database "path/to/example/db"))
 
 (define cprop (database-relation-add!
-                db
-                'name       '(example cprop)
+                db '(example cprop)
                 'attributes '(curie  key    value)
                 'type       '(string string string)
                 'source     (in:file "example/example.nodeprop.tsv" 'header '(":ID" "propname" "value"))))
 (define eprop (database-relation-add!
-                db
-                'name       '(example eprop)
+                db '(example eprop)
                 'attributes '(eid key    value)
                 'type       '(nat string string)
                 'source     (in:file "example/example.edgeprop.tsv" 'header '(":ID" "propname" "value"))))
 (define edge  (database-relation-add!
-                db
-                'name       '(example edge)
+                db '(example edge)
                 'attributes '(eid subject object)
                 'type       '(nat string  string)
                 'source     (in:file "example/example.edge.tsv"     'header '(":ID" ":START" ":END"))))
