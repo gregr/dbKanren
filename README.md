@@ -503,6 +503,140 @@ Typical use:
     ```
 
 
+### Query planning and joins
+
+We need some low-level language for transformation (not for humans or direct interpretation).  Is this the right one?
+- is there a more operational datalog-like notation? e.g., datalog + ordering hints?
+  - (and _ ...) and (or _ ...) can be used to specify specific join/union order and nesting
+  - but these seem hard, so this idea is probably not enough:
+    - what about specifying particular kinds of joins?
+    - what about projection and filtering?
+    - what about aggregation?
+    - how about sub-computation sharing and scope?
+
+Initial sketch of relational algebra language for lower-level optimization transformations:
+```
+position ::= <natural number>
+count    ::= <natural number>
+merge-op ::= + | * | min | max | set-union | (min-union count) | (max-union count)
+op       ::= cons | vector | list->vector | car | cdr | vector-ref | vector-length | merge-op
+expr     ::= (quote value) | (ref position position) | (app op expr ...)
+cmp      ::= == | any<= | any< | =/=
+cx       ::= (cmp expr expr) | (and cx ...) | (or cx ...)
+relation ::= (quote   ((value ...) ...)) ; What operator does this correspond to? Does it assume sorting/deduping? Probably no assumptions, just enumerate raw tuples.
+           | (table   rid)               ; This corresponds to a basic table scan, use a different operator for more efficient access.
+           | (rvar    name)
+           | (filter  (lambda 1 cx) relation)
+           | (project (lambda 1 (expr ...)) relation)
+           | (union   relation ...)
+           | (subtract relation relation)
+           | (cross   relation ...)      ; TODO: replace with nested [for-]loop notation.
+
+;; How do we specify n-way join shared keys?
+;; New notation for join-key specification?
+;; Operators for sorting (with direction), deduplication.
+;; Operators for skipping (dropping), and limiting (taking).
+
+           | (agg     relation (lambda 1 (expr ...)) value (lambda 1 (expr ...)) (merge-op ...))  ; rel group init map merge (map exprs and merge ops must be same length)
+           | (let     ((name relation) ...) relation)  ; Relations are materialized, nesting describes stratification.
+           | (letrec  ((name relation) ...) relation)  ; Relations computed as fixed points, relations are materialized, nesting describes stratification.
+
+;; Let-bound relations should be specific about what physical tables/indexes are formed?
+
+direction        ::= < | >
+direction-suffix ::= () | #f
+offset           ::= <natural number>
+limit            ::= <natural number> | #f
+query            ::= (query offset limit (direction ... . direction-suffix) relation)  ; Do we need this? Should we embed sorting, skipping, and limiting as operators instead?
+```
+
+Example query thought experiments:
+
+Maybe bounds feedback doesn't make sense, and should be part of the plan ordering, where bounds actually come from the bottom rather than the top?
+e.g., consider variable-centric plans for:
+```
+(run* (a b d e)
+  (exist (c)
+    (and (P a b c)
+         (Q c d e)
+         (R c d e))))
+
+- c then (c d e) then c: (P ((P Q) (P R)))  ; aka semijoins
+  - (join P [2] [1 2]
+          (join (join P [2] [] Q [0] [0 1 2]) [0 1 2] [1 2]  ; this is a semijoin
+                (join P [2] [] R [0] [0 1 2]) [0 1 2] [])    ; this is also a semijoin
+          [0] [1 2])
+
+- (c d e) then c: (P (Q R))
+  - (join P [2] [1 2]
+          (join Q [0 1 2] [1 2] R [0 1 2] [])  ; no semijoining performed
+          [0] [1 2])
+
+But neither of these gives adaptive feedback ...
+Upstream and downstream can't communicate bounds with this approach.
+Ideally we would choose an ordering like:
+- c d e
+or
+- d e c
+
+Binary joins seem too inflexible here.
+```
+
+Multi-join GOO perspective:
+```
+- (run* (a c) (exist (b) (P a b) (Q b c)))
+  - max cardinality: (* (cardinality P a) (cardinality Q c))
+- (run* (a b c) (P a b) (Q b c))
+  - max cardinality: (min (* (cardinality P a)
+                             (cardinality Q b c))
+                          (* (cardinality Q c)
+                             (cardinality P a b))
+                          (* (cardinality P a)
+                             (cardinality Q c)
+                             (min (cardinality P b)
+                                  (cardinality Q b))))
+```
+
+Naive selectivity for join cardinality estimation:
+```
+- |S join.x T| ~= (/ (* |S||T|) (max (cardinality S x) (cardinality T x)))
+- can generalize for multi-way joins:
+  - if joining k relations
+    - numerator is a product of the k relation sizes
+    - denominator is a product of the (- k 1) largest join-column cardinalities
+```
+
+Non-materializing multi-way joins may be wasteful:
+```
+- (P a b) (Q b c) (R c d) (S d e)
+- joining variables: b c d
+  - for each choice of b, we learn a set of cs and repeat some of the work of joining (R c d) (S d e) on d
+  - the repeated work has two parts:
+    - finding values of c where a satisfying (d e) exists
+    - bisection revisitation overhead in enumerating these
+  - if the result cardinality of (R c d) (S d e) is small, materializing this sub-join may be better
+- semijoins as degenerate joins
+  - (P a b) (Q b c) where P is used to reduce the size of Q based on b
+  - equivalent to (P _ b) (Q b c)
+  - Q^  = (P  _ b) (Q   b c)
+  - R^  = (Q^ _ c) (R   c d)
+  - S^  = (R^ _ d) (S   d e)
+  - R^^ = (R^ c d) (S^  d _)
+  - Q^^ = (Q^ b c) (R^^ c _)
+  - P^  = (P  a b) (Q^^ b _)
+  - arc-constrained query: (P^ a b) (Q^^ b c) (R^^ c d) (S^ d e)
+    - benefit: increased cardinality estimation accuracy
+```
+
+Multi-way joins are not wasteful when all relations share the same join attributes (assuming proper indexes):
+```
+- (P x y a) (Q x b y) (R c y x)
+- can intersect on either (x y) or (y x), and simply enumerate crosses of the non-join attributes
+```
+
+Multi-way joins may improve over binary joins whose expected result cardinality is greater than the max cardinality of either input.
+
+
 ## Naming conventions
 
 ```
