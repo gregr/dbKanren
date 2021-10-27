@@ -1,12 +1,7 @@
 #lang racket/base
 (require "../dbk/io.rkt"
+         "../dbk/data.rkt"
          racket/match)
-
-;; TODO: require these
-(define database               #f)
-(define database-relation-add! #f)
-(define database-build!        #f)
-(define relation-index-add!    #f)
 
 (define db (database "path/to/example/db"))
 
@@ -26,6 +21,8 @@
                 'type       '(nat string  string)
                 'source     (in:file "example/example.edge.tsv"     'header '(":ID" ":START" ":END"))))
 
+(database-compact! db)
+
 (relation-index-add! cprop
                      '(curie key)
                      '(key value))
@@ -36,5 +33,3 @@
                      '(eid)
                      '(subject object)
                      '(object subject))
-
-(database-build! db)
