@@ -67,13 +67,12 @@
         ;; The latter means we just need the DB metadata.scm, simplifying atomicity of state transitions.
         'domains        (hash)  ; Map names to domain directory paths
         'relations      (hash)  ; Map names to relation directory paths
-        'write-aheads   '()     ; Ordered list of unmerged write-aheads?  Is this the right item to track?
         'pending-jobs   '()))
 
 (define (database path.db . pargs)
   (define path.domains       (build-path path.db "domains"))
   (define path.relations     (build-path path.db "relations"))
-  (define path.write-aheads  (build-path path.db "write-aheads"))
+  (define path.pending       (build-path path.db "pending"))
   (define path.metadata      (build-path path.db "metadata.scm"))
   (define path.metadata.next (build-path path.db "metadata.scm.next"))
   (define log                (let ((log? (plist-ref pargs 'log #f)))
@@ -86,7 +85,7 @@
     (delete-file path.metadata)
     (log 'checkpoint-metadata metadata)
     (rename-file-or-directory path.metadata.next path.metadata))
-  (for-each make-directory* (list path.db path.domains path.relations path.write-aheads))
+  (for-each make-directory* (list path.db path.domains path.relations path.pending))
   (define metadata
     (cond ((file-exists? path.metadata)      (when (file-exists? path.metadata.next)
                                                (log 'remove-interrupted-checkpoint)
