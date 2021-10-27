@@ -49,7 +49,8 @@
   relation-index-remove!
   relation-compact!
   )
-(require "codec.rkt" "enumerator.rkt" "misc.rkt" "order.rkt" racket/file racket/pretty racket/vector)
+(require "codec.rkt" "enumerator.rkt" "misc.rkt" "order.rkt" "stream.rkt"
+         racket/file racket/list racket/match racket/pretty racket/vector)
 
 (define ((pretty-log/port out) . args)
   (define ms      (current-milliseconds))
@@ -158,6 +159,120 @@
 (define (relation-index-add!    r . signatures) (r 'index-add!    signatures))
 (define (relation-index-remove! r . signatures) (r 'index-remove! signatures))
 (define (relation-compact!      r)              (r 'compact!))
+
+
+(define (nat? x) (and (exact? x) (integer? x) (<= 0 x)))
+
+(define (ingest-relation-source path.out type s.in)
+  (define bytes=>id        (make-hash))
+  (define size.bytes       0)
+  (define count.tuples     0)
+  (define path.bytes.value (path->string (build-path path.out "bytes.value")))
+  (define path.bytes.pos   (path->string (build-path path.out "bytes.pos")))
+  (define path.tuple       (path->string (build-path path.out "tuple")))
+
+  ;; TODO: revisit this when implementing multi-phase ingestion
+  ;(let/files () ((out.bytes.value path.bytes.value.initial)
+                 ;(out.bytes.pos   path.bytes.pos.initial)
+                 ;(out.tuple       path.tuple.initial))
+
+  (define (insert-bytes! b)
+    (or (hash-ref bytes=>id b #f)
+        (let ((id (hash-count bytes=>id)))
+          (hash-set! bytes=>id b id)
+          (set! size.bytes (+ size.bytes (bytes-length b)))
+          id)))
+
+    ;; TODO: revisit this when implementing multi-phase ingestion
+    ;(define (insert-tuple! t)
+      ;)
+
+  (define row->tuple
+    (let ((col->num* (map (lambda (i t.col)
+                            (match t.col
+                              ('nat    (lambda (x)
+                                          (unless (nat?    x) (error "invalid nat"    `(column: ,i) x))
+                                          x))
+                              ('bytes  (lambda (x)
+                                          (unless (bytes?  x) (error "invalid bytes"  `(column: ,i) x))
+                                          (insert-bytes!                                      x)))
+                              ('string (lambda (x)
+                                          (unless (string? x) (error "invalid string" `(column: ,i) x))
+                                          (insert-bytes! (string->bytes/utf-8                 x))))
+                              ('symbol (lambda (x)
+                                          (unless (symbol? x) (error "invalid symbol" `(column: ,i) x))
+                                          (insert-bytes! (string->bytes/utf-8 (symbol->string x)))))
+                              (_ (error "(currently) unsupported type"                `(column: ,i) t.col))))
+                          (range (length type))
+                          type)))
+      (lambda (row)
+        (set! count.tuples (+ count.tuples 1))
+        (let loop ((col* row) (col->num* col->num*))
+          (match* (col* col->num*)
+            (((cons col col*) (cons col->num col->num*)) (cons (col->num col) (loop col* col->num*)))
+            (('()             '())                       '())
+            ((_               _)                         (error "incorrect number of columns" row type)))))))
+
+    ;; TODO: revisit this when implementing multi-phase ingestion
+    ;((s->enumerator s.in)
+     ;(lambda (row) (tuple-insert! (row->tuple row))))
+    ;)
+
+  ;; TODO: log progress
+  (define tuples.initial (s->list (s-map row->tuple s.in)))
+  (define size.pos       (min-bytes size.bytes))
+  (define count.ids      (hash-count bytes=>id))
+  (define id=>id         (make-vector count.ids))
+  ;; TODO: use database log
+  (printf "ingested ~s tuples\n" count.tuples)
+  (printf "sorting ~s strings; ~s bytes total\n" (hash-count bytes=>id) size.bytes)
+  (let ((bytes&id*.sorted (sort (hash->list bytes=>id)
+                                (lambda (a b) (bytes<? (car a) (car b))))))
+    ;; TODO: use database log
+    (printf "writing sorted strings to ~s and positions to ~s\n" path.bytes.value path.bytes.pos)
+    (let/files () ((out.bytes.value path.bytes.value)
+                   (out.bytes.pos   path.bytes.pos))
+      (define (write-pos)
+        (write-bytes (nat->bytes size.pos (file-position out.bytes.value)) out.bytes.pos))
+      (let loop ((i 0) (b&id* bytes&id*.sorted))
+        (unless (null? b&id*)
+          (let* ((b&id (car b&id*))
+                 (b    (car b&id))
+                 (id   (cdr b&id)))
+            (write-pos)
+            (write-bytes b out.bytes.value)
+            (vector-set! id=>id id i)
+            (loop (+ i 1) (cdr b&id*)))))
+      (write-pos)))
+  (define tuple->tuple
+    (let ((col->col* (map (lambda (t.col)
+                            (match t.col
+                              ('nat                        (lambda (n)  n))
+                              ((or 'bytes 'string 'symbol) (lambda (id) (vector-ref id=>id id)))))
+                          type)))
+      (lambda (tuple) (map (lambda (c->c t) (c->c t)) col->col* tuple))))
+  ;; TODO: use database log
+  (printf "sorting tuples\n")
+  ;; TODO: should we bother sorting the tuples now, or wait for indexes to be added before sorting?
+  (define tuples.sorted (sort (map tuple->tuple tuples.initial)
+                              (lambda (t.a t.b)
+                                (let loop ((t.a t.a) (t.b t.b))
+                                  (and (not (null? t.a))
+                                       (or (< (car t.a) (car t.b))
+                                           (and (= (car t.a) (car t.b))
+                                                (loop (cdr t.a) (cdr t.b)))))))))
+  ;; TODO: column-specific byte sizing
+  ;; TODO: use database log
+  (printf "writing sorted tuples to ~s\n" path.tuple)
+  (define size.col 5)
+  (let/files () ((out.tuple path.tuple))
+    (for-each (lambda (t) (for-each (lambda (col) (write-bytes (nat->bytes size.col col) out.tuple))
+                                    t))
+              tuples.sorted))
+  (list count.ids
+        size.pos
+        count.tuples
+        size.col))
 
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
