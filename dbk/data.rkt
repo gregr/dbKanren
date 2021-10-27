@@ -36,8 +36,134 @@
   dict-subtract-unordered
   dict-subtract-ordered
   domain
+
+  database
+  database-metadata
+  database-relation
+  database-relation-add!
+  database-relation-remove!
+  database-compact!
+
+  relation-metadata
+  relation-index-add!
+  relation-index-remove!
+  relation-compact!
   )
 (require "codec.rkt" "enumerator.rkt" "misc.rkt" "order.rkt" racket/file racket/pretty racket/vector)
+
+(define ((pretty-log/port out) . args)
+  (define ms      (current-milliseconds))
+  (define d       (seconds->date (/ ms 1000) #f))
+  (define d-parts (list ms 'UTC
+                        (date-year d) (date-month  d) (date-day    d)
+                        (date-hour d) (date-minute d) (date-second d)))
+  (pretty-write (cons d-parts args) out))
+
+(define metadata.empty
+  (hash 'format-version "0"
+        ;; TODO:
+        ;; Should these be mapping just to directory paths, or also list all the components of those paths?
+        ;; If the former, will need embedded metadata files, which will be annoying to manage.
+        ;; The latter means we just need the DB metadata.scm, simplifying atomicity of state transitions.
+        'domains        (hash)  ; Map names to domain directory paths
+        'relations      (hash)  ; Map names to relation directory paths
+        'write-aheads   '()     ; Ordered list of unmerged write-aheads?  Is this the right item to track?
+        'pending-jobs   '()))
+
+(define (database path.db . pargs)
+  (define path.domains       (build-path path.db "domains"))
+  (define path.relations     (build-path path.db "relations"))
+  (define path.write-aheads  (build-path path.db "write-aheads"))
+  (define path.metadata      (build-path path.db "metadata.scm"))
+  (define path.metadata.next (build-path path.db "metadata.scm.next"))
+  (define log                (let ((log? (plist-ref pargs 'log #f)))
+                               (cond ((not          log?)  (lambda _ (void)))
+                                     ((eqv? #t      log?)  (pretty-log/port (current-error-port)))
+                                     ((output-port? log?)  (pretty-log/port log?))
+                                     ((or (string?  log?)
+                                          (path?    log?)) (pretty-log/port (open-input-file log?)))
+                                     ((procedure?   log?)  log?)
+                                     ((channel?     log?)  (lambda args (channel-put log? args)))
+                                     (else                 (error "invalid log parameter" log?)))))
+  (define (checkpoint-metadata)
+    (call-with-output-file path.metadata.next (lambda (out) (pretty-write metadata out)))
+    (delete-file path.metadata)
+    (log 'checkpoint-metadata metadata)
+    (rename-file-or-directory path.metadata.next path.metadata))
+  (for-each make-directory* (list path.db path.domains path.relations path.write-aheads))
+  (define metadata
+    (cond ((file-exists? path.metadata)      (when (file-exists? path.metadata.next)
+                                               (log 'remove-interrupted-checkpoint)
+                                               (delete-file path.metadata.next))
+                                             (call-with-input-file path.metadata read))
+          ((file-exists? path.metadata.next) (log 'checkpoint-metadata/interrupted-swap)
+                                             (rename-file-or-directory path.metadata.next path.metadata)
+                                             (call-with-input-file path.metadata read))
+          (else                              (call-with-output-file path.metadata
+                                                                    (lambda (out) (pretty-write metadata.empty out)))
+                                             metadata.empty)))
+  (log 'load-metadata metadata)
+  ;; TODO: migrate metadata if format-version is old
+  ;; TODO: garbage collect dangling files/directories
+  ;; TODO: resume pending data-processing jobs
+
+  ;; TODO: For now, just load all relation descriptions up front.
+  ;; Lazy-loading with weak-box caching may be helpful later, if there are many relations.
+  (define name=>relation (hash))
+  ;; TODO: load domain descriptions, both global and local to specific relations
+
+  (method-lambda
+    ((metadata)      metadata)
+    ((relation name) (hash-ref name=>relation name (lambda () (error "unknown relation" path.db name))))
+    ((relation-add! name attrs type source)
+     (when (hash-has-key? name=>relation name)
+       (error "relation already exists" path.db name))
+     ;; TODO: ingest data stream, then insert into metadata, checkpoint
+     (define r (relation name
+                         attrs
+                         type
+                         #f ; TODO: provide data
+                         ))
+     (set! name=>relation (hash-set name=>relation name r))
+     r)
+    ((relation-remove! name)
+     (when (hash-has-key? name=>relation name)
+       (set! name=>relation (hash-remove name=>relation name))
+       ;; TODO: remove from metadata, checkpoint
+       ))
+    ((compact!)
+     ;; TODO: For now, consolidate domains across relations.  Later, also consolidate subsequent inserts/deletes.
+     (void))))
+
+(define (relation name attrs type data)
+  (method-lambda
+    ((metadata)
+     ;; TODO:
+     #f)
+    ((index-add! signatures)
+     ;; TODO:
+     (void))
+    ((index-remove! signatures)
+     ;; TODO:
+     (void))
+    ((compact!)
+     ;; TODO:
+     (void))))
+
+(define (database-metadata         db)              (db 'metadata))
+(define (database-relation         db name)         (db 'relation         name))
+(define (database-relation-add!    db name . pargs) (db 'relation-add!    name
+                                                        (plist-ref pargs 'attributes)
+                                                        (plist-ref pargs 'type)
+                                                        (plist-ref pargs 'source)))
+(define (database-relation-remove! db name)         (db 'relation-remove! name))
+(define (database-compact!         db)              (db 'compact!))
+
+(define (relation-metadata      r)              (r 'metadata))
+(define (relation-index-add!    r . signatures) (r 'index-add!    signatures))
+(define (relation-index-remove! r . signatures) (r 'index-remove! signatures))
+(define (relation-compact!      r)              (r 'compact!))
+
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
 
