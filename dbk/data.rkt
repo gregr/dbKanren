@@ -52,13 +52,26 @@
 (require "codec.rkt" "enumerator.rkt" "misc.rkt" "order.rkt" "stream.rkt"
          racket/file racket/list racket/match racket/pretty racket/vector)
 
-(define ((pretty-log/port out) . args)
+;; TODO: use these definitions to replace the logging defined in config.rkt
+(define (pretty-log/port out . args)
   (define ms      (current-milliseconds))
   (define d       (seconds->date (/ ms 1000) #f))
   (define d-parts (list ms 'UTC
                         (date-year d) (date-month  d) (date-day    d)
                         (date-hour d) (date-minute d) (date-second d)))
   (pretty-write (cons d-parts args) out))
+
+(define (pretty-logf/port out message . args) (pretty-log/port out (apply format message args)))
+
+(define current-log-port (make-parameter (current-error-port)))
+
+(define (pretty-log  . args) (apply pretty-log/port  (current-log-port) args))
+(define (pretty-logf . args) (apply pretty-logf/port (current-log-port) args))
+
+(define-syntax-rule (time/pretty-log body ...)
+  (let-values (((results time.cpu time.real time.gc) (time-apply (lambda () body ...) '())))
+    (pretty-log `(time cpu ,time.cpu real ,time.real gc ,time.gc))
+    (apply values results)))
 
 (define metadata.empty
   (hash 'format-version "0"
