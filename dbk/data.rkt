@@ -172,7 +172,6 @@
 (define (nat? x) (and (exact? x) (integer? x) (<= 0 x)))
 
 ;; TODO: should path.out be the target relation directory?
-;; TODO: return per-column min/max
 (define (ingest-relation-source path.out type s.in)
   (define bytes=>id        (make-hash))
   (define size.bytes       0)
@@ -251,22 +250,24 @@
       (lambda (tuple) (map (lambda (c->c t) (c->c t)) col->col* tuple))))
 
   (pretty-log `(remapping and writing tuples to ,path.tuple))
-  (let/files ((in.tuple.0 path.tuple.0)) ((out.tuple path.tuple))
-    (time/pretty-log
-      (let loop ((i count.tuples))
-        (when (< 0 i)
-          (encode out.tuple type.tuple (tuple->tuple (decode in.tuple.0 type.tuple)))
-          (loop (- i 1))))))
+  (match-define (cons min* max*)
+    (let/files ((in.tuple.0 path.tuple.0)) ((out.tuple path.tuple))
+      (time/pretty-log
+        (let loop ((i    count.tuples)
+                   (min* (map (lambda (_) #f) type))
+                   (max* (map (lambda (_) 0)  type)))
+          (if (< 0 i)
+            (let ((tuple (tuple->tuple (decode in.tuple.0 type.tuple))))
+              (encode out.tuple type.tuple tuple)
+              (loop (- i 1)
+                    (map (lambda (current col) (if current (min current col) col)) min* tuple)
+                    (map (lambda (current col)             (max current col))      max* tuple)))
+            (cons min* max*))))))
   (delete-file path.tuple.0)
-
-  ;; TODO: column-specific byte sizing
-  ;(define size.col 5)
-
   (list count.ids
         size.pos
         count.tuples
-        ;size.col
-        ))
+        (map cons min* max*)))
 
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
