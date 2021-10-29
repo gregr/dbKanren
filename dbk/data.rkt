@@ -171,30 +171,23 @@
 
 (define (nat? x) (and (exact? x) (integer? x) (<= 0 x)))
 
+;; TODO: should path.out be the target relation directory?
+;; TODO: return per-column min/max
 (define (ingest-relation-source path.out type s.in)
   (define bytes=>id        (make-hash))
   (define size.bytes       0)
   (define count.tuples     0)
   (define path.bytes.value (path->string (build-path path.out "bytes.value")))
   (define path.bytes.pos   (path->string (build-path path.out "bytes.pos")))
+  (define path.tuple.0     (path->string (build-path path.out "tuple.initial")))
   (define path.tuple       (path->string (build-path path.out "tuple")))
-
-  ;; TODO: revisit this when implementing multi-phase ingestion
-  ;(let/files () ((out.bytes.value path.bytes.value.initial)
-                 ;(out.bytes.pos   path.bytes.pos.initial)
-                 ;(out.tuple       path.tuple.initial))
-
+  (define type.tuple       (map (lambda (_) 'nat) type))
   (define (insert-bytes! b)
     (or (hash-ref bytes=>id b #f)
         (let ((id (hash-count bytes=>id)))
           (hash-set! bytes=>id b id)
           (set! size.bytes (+ size.bytes (bytes-length b)))
           id)))
-
-    ;; TODO: revisit this when implementing multi-phase ingestion
-    ;(define (insert-tuple! t)
-      ;)
-
   (define row->tuple
     (let ((col->num* (map (lambda (i t.col)
                             (match t.col
@@ -221,12 +214,11 @@
             (('()             '())                       '())
             ((_               _)                         (error "incorrect number of columns" row type)))))))
 
-    ;; TODO: revisit this when implementing multi-phase ingestion
-    ;((s->enumerator s.in)
-     ;(lambda (row) (tuple-insert! (row->tuple row))))
-    ;)
-
-  (define tuples.initial (time/pretty-log (s->list (s-map row->tuple s.in))))
+  (pretty-log '(ingesting rows))
+  (let/files () ((out.tuple.0 path.tuple.0))
+    (time/pretty-log
+      (s-each (lambda (row) (encode out.tuple.0 type.tuple (row->tuple row)))
+              s.in)))
   (define size.pos       (min-bytes size.bytes))
   (define count.ids      (hash-count bytes=>id))
   (define id=>id         (make-vector count.ids))
@@ -257,28 +249,24 @@
                               ((or 'bytes 'string 'symbol) (lambda (id) (vector-ref id=>id id)))))
                           type)))
       (lambda (tuple) (map (lambda (c->c t) (c->c t)) col->col* tuple))))
-  ;; TODO: should we bother sorting the tuples now, or wait for indexes to be added before sorting?
-  (pretty-log '(sorting tuples))
-  (define tuples.sorted (time/pretty-log
-                          (sort (map tuple->tuple tuples.initial)
-                                (lambda (t.a t.b)
-                                  (let loop ((t.a t.a) (t.b t.b))
-                                    (and (not (null? t.a))
-                                         (or (< (car t.a) (car t.b))
-                                             (and (= (car t.a) (car t.b))
-                                                  (loop (cdr t.a) (cdr t.b))))))))))
-  ;; TODO: column-specific byte sizing
-  (pretty-log `(writing sorted tuples to ,path.tuple))
-  (define size.col 5)
-  (let/files () ((out.tuple path.tuple))
+
+  (pretty-log `(remapping and writing tuples to ,path.tuple))
+  (let/files ((in.tuple.0 path.tuple.0)) ((out.tuple path.tuple))
     (time/pretty-log
-      (for-each (lambda (t) (for-each (lambda (col) (write-bytes (nat->bytes size.col col) out.tuple))
-                                      t))
-                tuples.sorted)))
+      (let loop ((i count.tuples))
+        (when (< 0 i)
+          (encode out.tuple type.tuple (tuple->tuple (decode in.tuple.0 type.tuple)))
+          (loop (- i 1))))))
+  (delete-file path.tuple.0)
+
+  ;; TODO: column-specific byte sizing
+  ;(define size.col 5)
+
   (list count.ids
         size.pos
         count.tuples
-        size.col))
+        ;size.col
+        ))
 
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
