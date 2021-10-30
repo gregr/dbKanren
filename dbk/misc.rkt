@@ -6,7 +6,7 @@
          hash-remove*
          call/files let/files
          map/merge map/append
-         min-bits min-bytes min-bytes-power2
+         min-bits min-bytes min-bytes-power2 nat?
          bytes-nat-ref bytes-nat-set! nat->bytes bytes->nat
          sum)
 (require (for-syntax racket/base) racket/fixnum racket/list racket/match racket/set)
@@ -255,6 +255,8 @@
         ((<= c 2) 2)
         ((<= c 4) 4)
         (else     8)))
+
+(define (nat? x) (and (exact? x) (integer? x) (<= 0 x)))
 
 (define (bytes-nat-set! bs size offset n)
   ;(integer->integer-bytes n size #f #t bs offset) (void)

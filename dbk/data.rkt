@@ -169,8 +169,6 @@
 (define (relation-compact!      r)              (r 'compact!))
 
 
-(define (nat? x) (and (exact? x) (integer? x) (<= 0 x)))
-
 ;; TODO: should path.out be the target relation directory?
 (define (ingest-relation-source path.out type s.in)
   (define bytes=>id        (make-hash))
