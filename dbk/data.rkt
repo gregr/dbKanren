@@ -168,16 +168,19 @@
 (define (relation-index-remove! r . signatures) (r 'index-remove! signatures))
 (define (relation-compact!      r)              (r 'compact!))
 
+(define fn.value "value")
+(define fn.pos   "position")
+(define fn.tuple "tuple")
 
 ;; TODO: should path.out be the target relation directory?
 (define (ingest-relation-source path.out type s.in)
   (define bytes=>id        (make-hash))
   (define size.bytes       0)
   (define count.tuples     0)
-  (define path.bytes.value (path->string (build-path path.out "bytes.value")))
-  (define path.bytes.pos   (path->string (build-path path.out "bytes.pos")))
-  (define path.tuple.0     (path->string (build-path path.out "tuple.initial")))
-  (define path.tuple       (path->string (build-path path.out "tuple")))
+  (define path.bytes.value (path->string (build-path path.out fn.value)))
+  (define path.bytes.pos   (path->string (build-path path.out fn.pos)))
+  (define path.tuple.0     (path->string (build-path path.out (string-append fn.tuple ".initial"))))
+  (define path.tuple       (path->string (build-path path.out fn.tuple)))
   (define type.tuple       (map (lambda (_) 'nat) type))
   (define (insert-bytes! b)
     (or (hash-ref bytes=>id b #f)
