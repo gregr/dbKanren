@@ -49,7 +49,7 @@
   relation-index-remove!
   relation-compact!
   )
-(require "codec.rkt" "enumerator.rkt" "misc.rkt" "order.rkt" "stream.rkt"
+(require "codec.rkt" "enumerator.rkt" "heap.rkt" "misc.rkt" "order.rkt" "stream.rkt"
          racket/file racket/list racket/match racket/pretty racket/vector)
 
 ;; TODO: use these definitions to replace the logging defined in config.rkt
