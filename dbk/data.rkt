@@ -172,6 +172,8 @@
 (define fn.pos   "position")
 (define fn.tuple "tuple")
 
+(define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
+
 ;; TODO: should path.out be the target relation directory?
 (define (ingest-relation-source path.out type s.in)
   (define bytes=>id        (make-hash))
@@ -219,7 +221,7 @@
     (time/pretty-log
       (s-each (lambda (row) (encode out.tuple.0 type.tuple (row->tuple row)))
               s.in)))
-  (define size.pos       (min-bytes size.bytes))
+  (define size.pos       (min-nat-bytes size.bytes))
   (define count.ids      (hash-count bytes=>id))
   (define id=>id         (make-vector count.ids))
   (pretty-log `(ingested ,count.tuples tuples))
@@ -679,7 +681,7 @@
   (define fn.value       "value")
   (define fn.pos         "position")
   (define fn.id          "id")
-  (define size.pos       (min-bytes max-byte-count))
+  (define size.pos       (min-nat-bytes max-byte-count))
   (when verbose? (printf "creating path: ~s\n" path))
   (make-directory* path)
   (define out.metadata   (open-output-file (build-path path "metadata.scm")))
@@ -694,7 +696,7 @@
                            (hash-set! value=>id value (hash-count value=>id))))
   (define (close)
     (write-pos)
-    (define size.id (min-bytes (hash-count value=>id)))
+    (define size.id (min-nat-bytes (hash-count value=>id)))
     (define (sorted-ids) (sort (hash->list value=>id) (lambda (a b) (string<? (car a) (car b)))))
     (define (write-ids)  (for-each (lambda (s&id) (write-bytes (nat->bytes size.id (cdr s&id)) out.id))
                                    (sorted-ids)))
