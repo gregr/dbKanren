@@ -269,6 +269,32 @@
         count.tuples
         (map cons min* max*)))
 
+(define ((multi-merge <? gens gen-empty? gen-first gen-rest) yield)
+  (define h   (list->vector gens))
+  (define end (vector-length h))
+  (heap! <? h end)
+  (define (re-insert end gen)
+    (cond ((gen-empty? gen) (heap-remove!  <? h end)
+                            (- end 1))
+          (else             (heap-replace! <? h end gen)
+                            end)))
+  (if (< 0 end)
+    (let ((g.top (heap-top h)))
+      (let loop.new ((g.top g.top)
+                     (x     (gen-first g.top))
+                     (i     0)
+                     (end   end))
+        (yield x)
+        (let loop.duplicate ((end (re-insert end (gen-rest g.top i))))
+          (if (< 0 end)
+            (let* ((g.top (heap-top h))
+                   (y     (gen-first g.top)))
+              (if (equal? x y)
+                (loop.duplicate (re-insert end (gen-rest g.top i)))
+                (loop.new       g.top y (+ i 1) end)))
+            (+ i 1)))))
+    0))
+
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
 
