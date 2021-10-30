@@ -231,17 +231,17 @@
                    (out.bytes.pos   path.bytes.pos))
       (define (write-pos)
         (write-bytes (nat->bytes size.pos (file-position out.bytes.value)) out.bytes.pos))
+      (write-pos)
       (time/pretty-log
         (let loop ((i 0) (b&id* bytes&id*.sorted))
           (unless (null? b&id*)
             (let* ((b&id (car b&id*))
                    (b    (car b&id))
                    (id   (cdr b&id)))
-              (write-pos)
               (write-bytes b out.bytes.value)
+              (write-pos)
               (vector-set! id=>id id i)
-              (loop (+ i 1) (cdr b&id*))))))
-      (write-pos)))
+              (loop (+ i 1) (cdr b&id*))))))))
   (define tuple->tuple
     (let ((col->col* (map (lambda (t.col)
                             (match t.col
