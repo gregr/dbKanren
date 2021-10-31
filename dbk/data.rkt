@@ -298,6 +298,68 @@
             (+ i 1)))))
     0))
 
+(define (compact-text-domains path.new domains)
+  (define path.value   (path->string (build-path path.new fn.value)))
+  (define path.pos     (path->string (build-path path.new fn.pos)))
+  (define size.bytes (sum
+                       (map (lambda (d)
+                              (match-define (list _     _        path.domain) d)
+                              (file-size (build-path path.domain fn.value)))
+                            domains)))
+  (define size.pos     (min-nat-bytes size.bytes))
+  (define id=>ids      (map (lambda (d)
+                              (match-define (list count _        _          ) d)
+                              (make-vector count))
+                            domains))
+  (define custodian.gs (make-custodian))
+  (define gs         (parameterize ((current-custodian custodian.gs))
+                       (map (lambda (d id=>id)
+                              (match-define (list count size.pos path.domain) d)
+                              (define path.value (build-path path.domain fn.value))
+                              (define path.pos   (build-path path.domain fn.pos))
+                              (and (< 0 count)
+                                   (let ((in.value (open-input-file path.value))
+                                         (in.pos   (open-input-file path.pos)))
+                                     (define (read-pos) (bytes-nat-ref (read-bytes size.pos in.pos)
+                                                                       size.pos
+                                                                       0))
+                                     (let loop ((id 0) (pos.current (read-pos)))
+                                       (let ((pos.next (read-pos)))
+                                         (cons (read-bytes (- pos.next pos.current) in.value)
+                                               (lambda (i)
+                                                 (vector-set! id=>id id i)
+                                                 (and (< (+ id 1) count)
+                                                      (loop (+ id 1) pos.next)))))))))
+                            domains id=>ids)))
+  (pretty-log `(merging domains ,domains)
+              `(writing merge-sorted strings to ,path.value)
+              `(writing positions to ,path.pos))
+  (define count.ids    (let/files () ((out.value path.value)
+                                      (out.pos   path.pos))
+                         (define (write-pos) (write-bytes (nat->bytes size.pos
+                                                                      (file-position out.value))
+                                                          out.pos))
+                         (write-pos)
+                         (time/pretty-log
+                           ((multi-merge (lambda (g.0 g.1) (bytes<? (car g.0) (car g.1)))
+                                         (filter-not not gs)
+                                         not
+                                         car
+                                         (lambda (g i) ((cdr g) i)))
+                            (lambda (bs)
+                              (write-bytes bs out.value)
+                              (write-pos))))))
+  (custodian-shutdown-all custodian.gs)
+  ;; replace identity mappings with #f, indicating no remapping is necessary
+  (define remappings   (map (lambda (id=>id)
+                              (let loop ((i (- (vector-length id=>id) 1)))
+                                (and (<= 0 i)
+                                     (if (= i (vector-ref id=>id i))
+                                       (loop (- i 1))
+                                       id=>id))))
+                            id=>ids))
+  (list count.ids size.pos remappings))
+
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
 
