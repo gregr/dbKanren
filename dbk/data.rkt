@@ -179,7 +179,6 @@
 
 (define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
 
-;; TODO: should path.out be the target relation directory?
 (define (ingest-relation-source path.domain path.relation type s.in)
   (define bytes=>id              (make-hash))
   (define size.bytes             0)
@@ -270,40 +269,19 @@
 
   (pretty-log '(remapping and writing columns) path*.column)
   (define size&min&max*
-    (map (lambda (i t.col path.in path.out)
+    (map (lambda (t.col path.in path.out)
            (define col->col
              (match t.col
                ('nat                        (lambda (n)  n))
                ((or 'bytes 'string 'symbol) (lambda (id) (vector-ref id=>id id)))))
-           (define vec.col (make-vector count.tuples))
-           (pretty-log `(reading and remapping ,path.in))
-           (match-define (cons min.col max.col)
-             (let/files ((in path.in)) ()
-               (time/pretty-log
-                 (let loop ((i 0) (min.col #f) (max.col 0))
-                   (cond ((< i count.tuples)
-                          (define value (col->col (decode in 'nat)))
-                          (vector-set! vec.col i value)
-                          (loop (+ i 1)
-                                (if min.col (min min.col value) value)
-                                (max max.col value)))
-                         (else (cons (or min.col 0) max.col)))))))
+           (define (read-element in) (col->col (decode in 'nat)))
+           (match-define (list vec.col min.col max.col)
+             (read-column path.in count.tuples read-element))
            (pretty-log `(deleting ,path.in))
            (delete-file path.in)
-           ;; TODO: consider offseting column values
-           ;; - if storing ints
-           ;; - if (- max.col min.col) supports a smaller nat size
-           (define size.col (min-nat-bytes max.col))
-           (pretty-log `(writing ,path.out with nat-size ,size.col)
-                       `(min: ,min.col max: ,max.col))
-           (let/files () ((out path.out))
-             (time/pretty-log
-               (let loop ((i 0))
-                 (when (< i count.tuples)
-                   (write-bytes (nat->bytes size.col (vector-ref vec.col i)) out)
-                   (loop (+ i 1))))))
+           (define size.col (write-column path.out vec.col min.col max.col))
            (list size.col min.col max.col))
-         (range (length type)) type path*.column.initial path*.column))
+         type path*.column.initial path*.column))
   (let/files () ((out.metadata path.relation.metadata))
     (pretty-write
       (hash 'format-version metadata.format.version
@@ -410,6 +388,36 @@
                                        id=>id))))
                             id=>ids))
   (list count.ids size.pos remappings))
+
+(define (read-column path.in count read-element)
+  (define vec.col (make-vector count))
+  (pretty-log `(reading ,count elements from ,path.in))
+  (let/files ((in path.in)) ()
+    (time/pretty-log
+      (let loop ((i 0) (min.col #f) (max.col 0))
+        (cond ((< i count)
+               (define value (read-element in))
+               (vector-set! vec.col i value)
+               (loop (+ i 1)
+                     (if min.col (min min.col value) value)
+                     (max max.col value)))
+              (else (list vec.col (or min.col 0) max.col)))))))
+
+(define (write-column path.out vec.col min.col max.col)
+  (define count (vector-length vec.col))
+  ;; TODO: consider offseting column values
+  ;; - if storing ints
+  ;; - if (- max.col min.col) supports a smaller nat size
+  (define size.col (min-nat-bytes max.col))
+  (pretty-log `(writing ,count elements to ,path.out)
+              `(nat-size: ,size.col min: ,min.col max: ,max.col))
+  (let/files () ((out path.out))
+    (time/pretty-log
+      (let loop ((i 0))
+        (when (< i count)
+          (write-bytes (nat->bytes size.col (vector-ref vec.col i)) out)
+          (loop (+ i 1))))))
+  size.col)
 
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
