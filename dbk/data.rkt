@@ -175,15 +175,15 @@
 (define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
 
 ;; TODO: should path.out be the target relation directory?
-(define (ingest-relation-source path.out type s.in)
-  (define bytes=>id        (make-hash))
-  (define size.bytes       0)
-  (define count.tuples     0)
-  (define path.bytes.value (path->string (build-path path.out fn.value)))
-  (define path.bytes.pos   (path->string (build-path path.out fn.pos)))
-  (define path.tuple.0     (path->string (build-path path.out (string-append fn.tuple ".initial"))))
-  (define path.tuple       (path->string (build-path path.out fn.tuple)))
-  (define type.tuple       (map (lambda (_) 'nat) type))
+(define (ingest-relation-source path.domain path.relation type s.in)
+  (define bytes=>id             (make-hash))
+  (define size.bytes            0)
+  (define count.tuples          0)
+  (define path.domain.value     (path->string (build-path path.domain   fn.value)))
+  (define path.domain.pos       (path->string (build-path path.domain   fn.pos)))
+  (define path.relation.tuple.0 (path->string (build-path path.relation (string-append fn.tuple ".initial"))))
+  (define path.relation.tuple   (path->string (build-path path.relation fn.tuple)))
+  (define type.tuple            (map (lambda (_) 'nat) type))
   (define (insert-bytes! b)
     (or (hash-ref bytes=>id b #f)
         (let ((id (hash-count bytes=>id)))
@@ -217,7 +217,7 @@
             ((_               _)                         (error "incorrect number of columns" row type)))))))
 
   (pretty-log '(ingesting rows))
-  (let/files () ((out.tuple.0 path.tuple.0))
+  (let/files () ((out.tuple.0 path.relation.tuple.0))
     (time/pretty-log
       (s-each (lambda (row) (encode out.tuple.0 type.tuple (row->tuple row)))
               s.in)))
@@ -228,9 +228,9 @@
   (pretty-log `(sorting ,(hash-count bytes=>id) strings -- ,size.bytes bytes total))
   (let ((bytes&id*.sorted (time/pretty-log (sort (hash->list bytes=>id)
                                                  (lambda (a b) (bytes<? (car a) (car b)))))))
-    (pretty-log `(writing sorted strings to ,path.bytes.value) `(writing positions to ,path.bytes.pos))
-    (let/files () ((out.bytes.value path.bytes.value)
-                   (out.bytes.pos   path.bytes.pos))
+    (pretty-log `(writing sorted strings to ,path.domain.value) `(writing positions to ,path.domain.pos))
+    (let/files () ((out.bytes.value path.domain.value)
+                   (out.bytes.pos   path.domain.pos))
       (define (write-pos)
         (write-bytes (nat->bytes size.pos (file-position out.bytes.value)) out.bytes.pos))
       (write-pos)
@@ -252,21 +252,22 @@
                           type)))
       (lambda (tuple) (map (lambda (c->c t) (c->c t)) col->col* tuple))))
 
-  (pretty-log `(remapping and writing tuples to ,path.tuple))
+  (pretty-log `(remapping and writing tuples to ,path.relation.tuple))
   (match-define (cons min* max*)
-    (let/files ((in.tuple.0 path.tuple.0)) ((out.tuple path.tuple))
+    (let/files ((in.tuple.0 path.relation.tuple.0)) ((out.tuple path.relation.tuple))
       (time/pretty-log
         (let loop ((i    count.tuples)
                    (min* (map (lambda (_) #f) type))
                    (max* (map (lambda (_) 0)  type)))
           (if (< 0 i)
             (let ((tuple (tuple->tuple (decode in.tuple.0 type.tuple))))
+              ;; TODO: store individual columns in separate files, with fixed-length nat types
               (encode out.tuple type.tuple tuple)
               (loop (- i 1)
                     (map (lambda (current col) (if current (min current col) col)) min* tuple)
                     (map (lambda (current col)             (max current col))      max* tuple)))
             (cons min* max*))))))
-  (delete-file path.tuple.0)
+  (delete-file path.relation.tuple.0)
   (list count.ids
         size.pos
         count.tuples
