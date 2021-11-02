@@ -73,8 +73,16 @@
     (pretty-log `(time cpu ,time.cpu real ,time.real gc ,time.gc))
     (apply values results)))
 
+(define fn.metadata "metadata.scm")
+(define fn.value    "value")
+(define fn.pos      "position")
+(define fn.tuple    "tuple")
+(define fn.col      "column")
+
+(define metadata.format.version "0")
+
 (define metadata.empty
-  (hash 'format-version "0"
+  (hash 'format-version metadata.format.version
         ;; TODO:
         ;; Should these be mapping just to directory paths, or also list all the components of those paths?
         ;; If the former, will need embedded metadata files, which will be annoying to manage.
@@ -168,28 +176,26 @@
 (define (relation-index-remove! r . signatures) (r 'index-remove! signatures))
 (define (relation-compact!      r)              (r 'compact!))
 
-(define fn.value "value")
-(define fn.pos   "position")
-(define fn.tuple "tuple")
-(define fn.col   "column")
 
 (define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
 
 ;; TODO: should path.out be the target relation directory?
 (define (ingest-relation-source path.domain path.relation type s.in)
-  (define bytes=>id            (make-hash))
-  (define size.bytes           0)
-  (define count.tuples         0)
-  (define path.domain.value    (path->string (build-path path.domain   fn.value)))
-  (define path.domain.pos      (path->string (build-path path.domain   fn.pos)))
-  (define path*.column         (map (lambda (i)
-                                      (path->string
-                                        (build-path path.relation
-                                                    (string-append fn.col "." (number->string i)))))
-                                    (range (length type))))
-  (define path*.column.initial (map (lambda (p.c) (string-append p.c ".initial"))
-                                    path*.column))
-  (define type.tuple           (map (lambda (_) 'nat) type))
+  (define bytes=>id              (make-hash))
+  (define size.bytes             0)
+  (define count.tuples           0)
+  (define path.domain.value      (path->string (build-path path.domain   fn.value)))
+  (define path.domain.pos        (path->string (build-path path.domain   fn.pos)))
+  (define path.domain.metadata   (path->string (build-path path.domain   fn.metadata)))
+  (define path.relation.metadata (path->string (build-path path.relation fn.metadata)))
+  (define path*.column           (map (lambda (i)
+                                        (path->string
+                                          (build-path path.relation
+                                                      (string-append fn.col "." (number->string i)))))
+                                      (range (length type))))
+  (define path*.column.initial   (map (lambda (p.c) (string-append p.c ".initial"))
+                                      path*.column))
+  (define type.tuple             (map (lambda (_) 'nat) type))
   (define (insert-bytes! b)
     (or (hash-ref bytes=>id b #f)
         (let ((id (hash-count bytes=>id)))
@@ -230,10 +236,9 @@
         (s-each (lambda (row) (map encode outs.column.initial type.tuple (row->tuple row)))
                 s.in))))
 
-  ;; TODO: handle possibility of empty relation
-  (define size.pos       (min-nat-bytes size.bytes))
-  (define count.ids      (hash-count bytes=>id))
-  (define id=>id         (make-vector count.ids))
+  (define size.pos  (min-nat-bytes size.bytes))
+  (define count.ids (hash-count bytes=>id))
+  (define id=>id    (make-vector count.ids))
   (pretty-log `(ingested ,count.tuples tuples))
   (pretty-log `(sorting ,(hash-count bytes=>id) strings -- ,size.bytes bytes total))
   (let ((bytes&id*.sorted (time/pretty-log (sort (hash->list bytes=>id)
@@ -255,6 +260,13 @@
               (write-pos)
               (vector-set! id=>id id i)
               (loop (+ i 1) (cdr b&id*))))))))
+  (let/files () ((out.metadata path.domain.metadata))
+    (pretty-write
+      (hash 'format-version   metadata.format.version
+            'type             'text
+            'count            count.ids
+            'size.position    size.pos)
+      out.metadata))
 
   (pretty-log '(remapping and writing columns) path*.column)
   (define size&min&max*
@@ -275,14 +287,13 @@
                           (loop (+ i 1)
                                 (if min.col (min min.col value) value)
                                 (max max.col value)))
-                         (else (cons min.col max.col)))))))
+                         (else (cons (or min.col 0) max.col)))))))
            (pretty-log `(deleting ,path.in))
            (delete-file path.in)
-           ;; TODO: handle possibility of empty relation elsewhere
            ;; TODO: consider offseting column values
            ;; - if storing ints
            ;; - if (- max.col min.col) supports a smaller nat size
-           (define size.col (and min.col (min-nat-bytes max.col)))
+           (define size.col (min-nat-bytes max.col))
            (pretty-log `(writing ,path.out with nat-size ,size.col)
                        `(min: ,min.col max: ,max.col))
            (let/files () ((out path.out))
@@ -293,6 +304,19 @@
                    (loop (+ i 1))))))
            (list size.col min.col max.col))
          (range (length type)) type path*.column.initial path*.column))
+  (let/files () ((out.metadata path.relation.metadata))
+    (pretty-write
+      (hash 'format-version metadata.format.version
+            'domains        (hash 'text path.domain)
+            'type           type
+            'count          count.tuples
+            'columns        (map (lambda (smm)
+                                   (match-define (list size.col min.col max.col) smm)
+                                   (hash 'type `#(nat ,size.col)
+                                         'min  min.col
+                                         'max  max.col))
+                                 size&min&max*))
+      out.metadata))
 
   (list count.ids
         size.pos
