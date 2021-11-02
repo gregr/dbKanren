@@ -171,19 +171,25 @@
 (define fn.value "value")
 (define fn.pos   "position")
 (define fn.tuple "tuple")
+(define fn.col   "column")
 
 (define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
 
 ;; TODO: should path.out be the target relation directory?
 (define (ingest-relation-source path.domain path.relation type s.in)
-  (define bytes=>id             (make-hash))
-  (define size.bytes            0)
-  (define count.tuples          0)
-  (define path.domain.value     (path->string (build-path path.domain   fn.value)))
-  (define path.domain.pos       (path->string (build-path path.domain   fn.pos)))
-  (define path.relation.tuple.0 (path->string (build-path path.relation (string-append fn.tuple ".initial"))))
-  (define path.relation.tuple   (path->string (build-path path.relation fn.tuple)))
-  (define type.tuple            (map (lambda (_) 'nat) type))
+  (define bytes=>id            (make-hash))
+  (define size.bytes           0)
+  (define count.tuples         0)
+  (define path.domain.value    (path->string (build-path path.domain   fn.value)))
+  (define path.domain.pos      (path->string (build-path path.domain   fn.pos)))
+  (define path*.column         (map (lambda (i)
+                                      (path->string
+                                        (build-path path.relation
+                                                    (string-append fn.col "." (number->string i)))))
+                                    (range (length type))))
+  (define path*.column.initial (map (lambda (p.c) (string-append p.c ".initial"))
+                                    path*.column))
+  (define type.tuple           (map (lambda (_) 'nat) type))
   (define (insert-bytes! b)
     (or (hash-ref bytes=>id b #f)
         (let ((id (hash-count bytes=>id)))
@@ -216,11 +222,15 @@
             (('()             '())                       '())
             ((_               _)                         (error "incorrect number of columns" row type)))))))
 
-  (pretty-log '(ingesting rows))
-  (let/files () ((out.tuple.0 path.relation.tuple.0))
-    (time/pretty-log
-      (s-each (lambda (row) (encode out.tuple.0 type.tuple (row->tuple row)))
-              s.in)))
+  (pretty-log '(ingesting rows and writing tuple columns) path*.column.initial)
+  (call/files
+    '() path*.column.initial
+    (lambda outs.column.initial
+      (time/pretty-log
+        (s-each (lambda (row) (map encode outs.column.initial type.tuple (row->tuple row)))
+                s.in))))
+
+  ;; TODO: handle possibility of empty relation
   (define size.pos       (min-nat-bytes size.bytes))
   (define count.ids      (hash-count bytes=>id))
   (define id=>id         (make-vector count.ids))
@@ -228,7 +238,8 @@
   (pretty-log `(sorting ,(hash-count bytes=>id) strings -- ,size.bytes bytes total))
   (let ((bytes&id*.sorted (time/pretty-log (sort (hash->list bytes=>id)
                                                  (lambda (a b) (bytes<? (car a) (car b)))))))
-    (pretty-log `(writing sorted strings to ,path.domain.value) `(writing positions to ,path.domain.pos))
+    (pretty-log `(writing sorted strings to ,path.domain.value)
+                `(writing positions to ,path.domain.pos))
     (let/files () ((out.bytes.value path.domain.value)
                    (out.bytes.pos   path.domain.pos))
       (define (write-pos)
@@ -244,34 +255,49 @@
               (write-pos)
               (vector-set! id=>id id i)
               (loop (+ i 1) (cdr b&id*))))))))
-  (define tuple->tuple
-    (let ((col->col* (map (lambda (t.col)
-                            (match t.col
-                              ('nat                        (lambda (n)  n))
-                              ((or 'bytes 'string 'symbol) (lambda (id) (vector-ref id=>id id)))))
-                          type)))
-      (lambda (tuple) (map (lambda (c->c t) (c->c t)) col->col* tuple))))
 
-  (pretty-log `(remapping and writing tuples to ,path.relation.tuple))
-  (match-define (cons min* max*)
-    (let/files ((in.tuple.0 path.relation.tuple.0)) ((out.tuple path.relation.tuple))
-      (time/pretty-log
-        (let loop ((i    count.tuples)
-                   (min* (map (lambda (_) #f) type))
-                   (max* (map (lambda (_) 0)  type)))
-          (if (< 0 i)
-            (let ((tuple (tuple->tuple (decode in.tuple.0 type.tuple))))
-              ;; TODO: store individual columns in separate files, with fixed-length nat types
-              (encode out.tuple type.tuple tuple)
-              (loop (- i 1)
-                    (map (lambda (current col) (if current (min current col) col)) min* tuple)
-                    (map (lambda (current col)             (max current col))      max* tuple)))
-            (cons min* max*))))))
-  (delete-file path.relation.tuple.0)
+  (pretty-log '(remapping and writing columns) path*.column)
+  (define size&min&max*
+    (map (lambda (i t.col path.in path.out)
+           (define col->col
+             (match t.col
+               ('nat                        (lambda (n)  n))
+               ((or 'bytes 'string 'symbol) (lambda (id) (vector-ref id=>id id)))))
+           (define vec.col (make-vector count.tuples))
+           (pretty-log `(reading and remapping ,path.in))
+           (match-define (cons min.col max.col)
+             (let/files ((in path.in)) ()
+               (time/pretty-log
+                 (let loop ((i 0) (min.col #f) (max.col 0))
+                   (cond ((< i count.tuples)
+                          (define value (col->col (decode in 'nat)))
+                          (vector-set! vec.col i value)
+                          (loop (+ i 1)
+                                (if min.col (min min.col value) value)
+                                (max max.col value)))
+                         (else (cons min.col max.col)))))))
+           (pretty-log `(deleting ,path.in))
+           (delete-file path.in)
+           ;; TODO: handle possibility of empty relation elsewhere
+           ;; TODO: consider offseting column values
+           ;; - if storing ints
+           ;; - if (- max.col min.col) supports a smaller nat size
+           (define size.col (and min.col (min-nat-bytes max.col)))
+           (pretty-log `(writing ,path.out with nat-size ,size.col)
+                       `(min: ,min.col max: ,max.col))
+           (let/files () ((out path.out))
+             (time/pretty-log
+               (let loop ((i 0))
+                 (when (< i count.tuples)
+                   (write-bytes (nat->bytes size.col (vector-ref vec.col i)) out)
+                   (loop (+ i 1))))))
+           (list size.col min.col max.col))
+         (range (length type)) type path*.column.initial path*.column))
+
   (list count.ids
         size.pos
         count.tuples
-        (map cons min* max*)))
+        size&min&max*))
 
 (define ((multi-merge <? gens gen-empty? gen-first gen-rest) yield)
   (define h   (list->vector gens))
