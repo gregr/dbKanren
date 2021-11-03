@@ -179,23 +179,29 @@
 
 (define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
 
+(define (write-metadata path.metadata metadata)
+  (let/files () ((out.metadata path.metadata))
+    (pretty-write
+      (hash-set metadata 'format-version metadata.format.version)
+      out.metadata)))
+
+(define (column-paths path.table count)
+  (map (lambda (i) (path->string
+                     (build-path path.table (string-append fn.col "." (number->string i)))))
+       (range count)))
+
 ;; TODO:
 ;; relation metadata points to used domain(s, one per type)
 ;; domain-text-TIMESTAMP-LOCALID
 ;; table-TIMESTAMP-LOCALID
 ;; index-TIMESTAMP-LOCALID
-(define (ingest-relation-source path.domain path.table type s.in)
+(define (ingest-relation-source path.root path.domain path.table type s.in)
   (define bytes=>id            (make-hash))
   (define size.bytes           0)
   (define count.tuples         0)
-  (define path.domain.value    (path->string (build-path path.domain fn.value)))
-  (define path.domain.pos      (path->string (build-path path.domain fn.pos)))
-  (define path.domain.metadata (path->string (build-path path.domain fn.metadata)))
-  (define path.table.metadata  (path->string (build-path path.table  fn.metadata)))
-  (define path*.column         (map (lambda (i)
-                                      (path->string
-                                        (build-path path.table (string-append fn.col "." (number->string i)))))
-                                    (range (length type))))
+  (define path.domain.value    (path->string (build-path path.root path.domain fn.value)))
+  (define path.domain.pos      (path->string (build-path path.root path.domain fn.pos)))
+  (define path*.column         (column-paths (build-path path.root path.table) (length type)))
   (define path*.column.initial (map (lambda (p.c) (string-append p.c ".initial"))
                                     path*.column))
   ;; TODO: can store (null)/bools/ints too, which will be physically shifted into min/max range
@@ -265,16 +271,13 @@
               (write-pos)
               (vector-set! id=>id id i)
               (loop (+ i 1) (cdr b&id*))))))))
-  (let/files () ((out.metadata path.domain.metadata))
-    (pretty-write
-      (hash 'format-version   metadata.format.version
-            'type             'text
-            'count            count.ids
-            'size.position    size.pos)
-      out.metadata))
+  (define desc.domain-text
+    (hash 'count         count.ids
+          'size.position size.pos))
+  (write-metadata (build-path path.root path.domain fn.metadata) desc.domain-text)
 
   (pretty-log '(remapping and writing columns) path*.column)
-  (define size&min&max*
+  (define columns
     (map (lambda (t.col path.in path.out)
            (define col->col
              (match t.col
@@ -286,26 +289,23 @@
            (pretty-log `(deleting ,path.in))
            (delete-file path.in)
            (define size.col (write-column path.out vec.col min.col max.col))
-           (list size.col min.col max.col))
+           ;(list size.col min.col max.col)
+           (hash 'type  (match t.col
+                          ('nat                        'nat)
+                          ((or 'bytes 'string 'symbol) 'text))
+                 'count count.tuples
+                 'size  size.col
+                 'min   min.col
+                 'max   max.col))
          type path*.column.initial path*.column))
-  (let/files () ((out.metadata path.table.metadata))
-    (pretty-write
-      (hash 'format-version metadata.format.version
-            'domains        (hash 'text path.domain)
-            'type           type
-            'count          count.tuples
-            'columns        (map (lambda (smm)
-                                   (match-define (list size.col min.col max.col) smm)
-                                   (hash 'type `#(nat ,size.col)
-                                         'min  min.col
-                                         'max  max.col))
-                                 size&min&max*))
-      out.metadata))
+  (define desc.table
+    (hash 'domain  (hash 'text path.domain)
+          'count   count.tuples
+          'columns columns))
+  (write-metadata (build-path path.root path.table fn.metadata) desc.table)
 
-  (list count.ids
-        size.pos
-        count.tuples
-        size&min&max*))
+  (hash 'domain (hash 'text desc.domain-text)
+        'table  desc.table))
 
 (define ((multi-merge <? gens gen-empty? gen-first gen-rest) yield)
   (define h   (list->vector gens))
@@ -333,40 +333,36 @@
             (+ i 1)))))
     0))
 
-(define (compact-text-domains path.new domains)
-  (define path.value   (path->string (build-path path.new fn.value)))
-  (define path.pos     (path->string (build-path path.new fn.pos)))
-  (define size.bytes (sum
-                       (map (lambda (d)
-                              (match-define (list _     _        path.domain) d)
-                              (file-size (build-path path.domain fn.value)))
-                            domains)))
+(define (compact-text-domains path.domain-text.new paths.domain-text descs.domain-text)
+  (define path.value   (path->string (build-path path.domain-text.new fn.value)))
+  (define path.pos     (path->string (build-path path.domain-text.new fn.pos)))
+  (define size.bytes   (sum (map (lambda (path.in) (file-size (build-path path.in fn.value)))
+                                 paths.domain-text)))
   (define size.pos     (min-nat-bytes size.bytes))
-  (define id=>ids      (map (lambda (d)
-                              (match-define (list count _        _          ) d)
-                              (make-vector count))
-                            domains))
+  (define id=>ids      (map (lambda (desc.in) (make-vector (hash-ref desc.in 'count)))
+                            descs.domain-text))
   (define custodian.gs (make-custodian))
-  (define gs         (parameterize ((current-custodian custodian.gs))
-                       (map (lambda (d id=>id)
-                              (match-define (list count size.pos path.domain) d)
-                              (define path.value (build-path path.domain fn.value))
-                              (define path.pos   (build-path path.domain fn.pos))
-                              (and (< 0 count)
-                                   (let ((in.value (open-input-file path.value))
-                                         (in.pos   (open-input-file path.pos)))
-                                     (define (read-pos) (bytes-nat-ref (read-bytes size.pos in.pos)
-                                                                       size.pos
-                                                                       0))
-                                     (let loop ((id 0) (pos.current (read-pos)))
-                                       (let ((pos.next (read-pos)))
-                                         (cons (read-bytes (- pos.next pos.current) in.value)
-                                               (lambda (i)
-                                                 (vector-set! id=>id id i)
-                                                 (and (< (+ id 1) count)
-                                                      (loop (+ id 1) pos.next)))))))))
-                            domains id=>ids)))
-  (pretty-log `(merging domains ,domains)
+  (define gs           (parameterize ((current-custodian custodian.gs))
+                         (map (lambda (path.in desc.in id=>id)
+                                (define count      (hash-ref desc.in 'count))
+                                (define size.pos   (hash-ref desc.in 'size.position))
+                                (define path.value (build-path path.in fn.value))
+                                (define path.pos   (build-path path.in fn.pos))
+                                (and (< 0 count)
+                                     (let ((in.value (open-input-file path.value))
+                                           (in.pos   (open-input-file path.pos)))
+                                       (define (read-pos) (bytes-nat-ref (read-bytes size.pos in.pos)
+                                                                         size.pos
+                                                                         0))
+                                       (let loop ((id 0) (pos.current (read-pos)))
+                                         (let ((pos.next (read-pos)))
+                                           (cons (read-bytes (- pos.next pos.current) in.value)
+                                                 (lambda (i)
+                                                   (vector-set! id=>id id i)
+                                                   (and (< (+ id 1) count)
+                                                        (loop (+ id 1) pos.next)))))))))
+                              paths.domain-text descs.domain-text id=>ids)))
+  (pretty-log `(merging domains ,(map cons paths.domain-text descs.domain-text))
               `(writing merge-sorted strings to ,path.value)
               `(writing positions to ,path.pos))
   (define count.ids    (let/files () ((out.value path.value)
@@ -393,7 +389,12 @@
                                        (loop (- i 1))
                                        id=>id))))
                             id=>ids))
-  (list count.ids size.pos remappings))
+  (define desc.domain-text
+    (hash 'count         count.ids
+          'size.position size.pos))
+  (write-metadata (build-path path.domain-text.new fn.metadata) desc.domain-text)
+  (hash 'domain     desc.domain-text
+        'remappings remappings))
 
 (define (read-column path.in count read-element)
   (define vec.col (make-vector count))
