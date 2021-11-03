@@ -179,22 +179,28 @@
 
 (define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
 
-(define (ingest-relation-source path.domain path.relation type s.in)
-  (define bytes=>id              (make-hash))
-  (define size.bytes             0)
-  (define count.tuples           0)
-  (define path.domain.value      (path->string (build-path path.domain   fn.value)))
-  (define path.domain.pos        (path->string (build-path path.domain   fn.pos)))
-  (define path.domain.metadata   (path->string (build-path path.domain   fn.metadata)))
-  (define path.relation.metadata (path->string (build-path path.relation fn.metadata)))
-  (define path*.column           (map (lambda (i)
-                                        (path->string
-                                          (build-path path.relation
-                                                      (string-append fn.col "." (number->string i)))))
-                                      (range (length type))))
-  (define path*.column.initial   (map (lambda (p.c) (string-append p.c ".initial"))
-                                      path*.column))
-  (define type.tuple             (map (lambda (_) 'nat) type))
+;; TODO:
+;; relation metadata points to used domain(s, one per type)
+;; domain-text-TIMESTAMP-LOCALID
+;; table-TIMESTAMP-LOCALID
+;; index-TIMESTAMP-LOCALID
+(define (ingest-relation-source path.domain path.table type s.in)
+  (define bytes=>id            (make-hash))
+  (define size.bytes           0)
+  (define count.tuples         0)
+  (define path.domain.value    (path->string (build-path path.domain fn.value)))
+  (define path.domain.pos      (path->string (build-path path.domain fn.pos)))
+  (define path.domain.metadata (path->string (build-path path.domain fn.metadata)))
+  (define path.table.metadata  (path->string (build-path path.table  fn.metadata)))
+  (define path*.column         (map (lambda (i)
+                                      (path->string
+                                        (build-path path.table (string-append fn.col "." (number->string i)))))
+                                    (range (length type))))
+  (define path*.column.initial (map (lambda (p.c) (string-append p.c ".initial"))
+                                    path*.column))
+  ;; TODO: can store (null)/bools/ints too, which will be physically shifted into min/max range
+  ;; if min/max range is singleton (guaranteed for null), nothing needs to be stored for that column
+  (define type.tuple           (map (lambda (_) 'nat) type))
   (define (insert-bytes! b)
     (or (hash-ref bytes=>id b #f)
         (let ((id (hash-count bytes=>id)))
@@ -282,7 +288,7 @@
            (define size.col (write-column path.out vec.col min.col max.col))
            (list size.col min.col max.col))
          type path*.column.initial path*.column))
-  (let/files () ((out.metadata path.relation.metadata))
+  (let/files () ((out.metadata path.table.metadata))
     (pretty-write
       (hash 'format-version metadata.format.version
             'domains        (hash 'text path.domain)
