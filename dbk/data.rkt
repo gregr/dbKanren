@@ -426,6 +426,37 @@
           (loop (+ i 1))))))
   size.col)
 
+(define (remap-column path.in path.out desc.in type=>id=>id)
+  (pretty-log `(remapping ,path.in to ,path.out) desc.in)
+  (define type    (hash-ref desc.in 'type))
+  (define count   (hash-ref desc.in 'count))
+  (define size.in (hash-ref desc.in 'size))
+  (define id=>id  (hash-ref type=>id=>id type #f))
+  (cond (id=>id (match-define (list vec.col min.col max.col)
+                  (read-column path.in count
+                               (lambda (in)
+                                 (define v.in (bytes-nat-ref (read-bytes size.in in) size.in 0))
+                                 (vector-ref id=>id v.in))))
+                (define size.col (write-column path.out vec.col min.col max.col))
+                (hash-set* desc.in 'size size.col 'min min.col 'max max.col))
+        (else (pretty-log '(copying verbatim due to identity remapping))
+              (time/pretty-log (copy-file path.in path.out))
+              desc.in)))
+
+(define (remap-table path.in path.out desc.table.in desc.domain.new type=>id=>id)
+  (pretty-log `(remapping ,path.in to ,path.out) desc.table.in)
+  (define columns.in     (hash-ref desc.table.in 'columns))
+  (define columns.out    (map (lambda (path.in.col path.out.col desc.in.col)
+                                (remap-column path.in.col path.out.col desc.in.col type=>id=>id))
+                              (column-paths path.in  (length columns.in))
+                              (column-paths path.out (length columns.in))
+                              columns.in))
+  (define desc.table.out (hash 'domain  desc.domain.new
+                               'count   (hash-ref desc.table.in 'count)
+                               'columns columns.out))
+  (write-metadata (build-path path.out fn.metadata) desc.table.out)
+  desc.table.out)
+
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
 
