@@ -205,10 +205,10 @@
       (hash-set metadata 'format-version metadata.format.version)
       out.metadata)))
 
-(define (column-paths path.table count)
+(define (column-paths path.table column-ids)
   (map (lambda (i) (path->string
                      (build-path path.table (string-append fn.col "." (number->string i)))))
-       (range count)))
+       column-ids))
 
 ;; TODO:
 ;; relation metadata points to used domain(s, one per type)
@@ -221,7 +221,7 @@
   (define count.tuples.initial 0)
   (define path.domain.value    (path->string (build-path path.root path.domain fn.value)))
   (define path.domain.pos      (path->string (build-path path.root path.domain fn.pos)))
-  (define path*.column         (column-paths (build-path path.root path.table) (length type)))
+  (define path*.column         (column-paths (build-path path.root path.table) (range (length type))))
   (define path*.column.initial (map (lambda (p.c) (string-append p.c ".initial"))
                                     path*.column))
   ;; TODO: can store (null)/bools/ints too, which will be physically shifted into min/max range
@@ -490,8 +490,8 @@
   (define columns.in     (hash-ref desc.table.in 'columns))
   (define columns.out    (map (lambda (path.in.col path.out.col desc.in.col)
                                 (remap-column path.in.col path.out.col desc.in.col type=>id=>id))
-                              (column-paths path.in  (length columns.in))
-                              (column-paths path.out (length columns.in))
+                              (column-paths path.in  (range (length columns.in)))
+                              (column-paths path.out (range (length columns.in)))
                               columns.in))
   (define desc.table.out (hash 'domain  desc.domain.new
                                'count   (hash-ref desc.table.in 'count)
