@@ -184,6 +184,19 @@
              (and (= (car a) (car b))
                   (loop (cdr a) (cdr b)))))))
 
+(define (sorted-tuples count.tuples columns)
+    (pretty-log `(building ,count.tuples tuples from ,(length columns) columns))
+    (define tuples (make-vector count.tuples))
+    (time/pretty-log
+      (let loop ((i 0))
+        (when (< i count.tuples)
+          (vector-set! tuples i (map (lambda (col) (vector-ref col i))
+                                     columns))
+          (loop (+ i 1)))))
+    (pretty-log '(sorting tuples))
+    (time/pretty-log (vector-sort! tuples nat-tuple<?))
+    tuples)
+
 (define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
 
 (define (write-metadata path.metadata metadata)
@@ -298,16 +311,9 @@
            (list vec.col min.col max.col))
          type path*.column.initial))
   (define columns (map car column-vmms))
-  (define tuples (make-vector count.tuples.initial))
-  (time/pretty-log
-    (let loop ((i 0))
-      (when (< i count.tuples.initial)
-        (vector-set! tuples i (map (lambda (col) (vector-ref col i))
-                                   columns))
-        (loop (+ i 1)))))
-  (pretty-log '(sorting columns))
-  (time/pretty-log (vector-sort! tuples nat-tuple<?))
-  (pretty-log '(deduplicating columns))
+
+  (define tuples  (sorted-tuples count.tuples.initial columns))
+  (pretty-log '(deduplicating tuples))
   (define (columns-set! j tuple) (for-each (lambda (vec.col value.col)
                                              (vector-set! vec.col j value.col))
                                            columns tuple))
