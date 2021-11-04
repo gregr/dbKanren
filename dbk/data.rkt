@@ -176,6 +176,13 @@
 (define (relation-index-remove! r . signatures) (r 'index-remove! signatures))
 (define (relation-compact!      r)              (r 'compact!))
 
+;; TODO: in-place sorting of multiple columns
+(define (nat-tuple<? a b)
+  (let loop ((a a) (b b))
+    (and (not (null? a))
+         (or (< (car a) (car b))
+             (and (= (car a) (car b))
+                  (loop (cdr a) (cdr b)))))))
 
 (define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
 
@@ -198,7 +205,7 @@
 (define (ingest-relation-source path.root path.domain path.table type s.in)
   (define bytes=>id            (make-hash))
   (define size.bytes           0)
-  (define count.tuples         0)
+  (define count.tuples.initial 0)
   (define path.domain.value    (path->string (build-path path.root path.domain fn.value)))
   (define path.domain.pos      (path->string (build-path path.root path.domain fn.pos)))
   (define path*.column         (column-paths (build-path path.root path.table) (length type)))
@@ -232,7 +239,7 @@
                           (range (length type))
                           type)))
       (lambda (row)
-        (set! count.tuples (+ count.tuples 1))
+        (set! count.tuples.initial (+ count.tuples.initial 1))
         (let loop ((col* row) (col->num* col->num*))
           (match* (col* col->num*)
             (((cons col col*) (cons col->num col->num*)) (cons (col->num col) (loop col* col->num*)))
@@ -250,7 +257,7 @@
   (define size.pos  (min-nat-bytes size.bytes))
   (define count.ids (hash-count bytes=>id))
   (define id=>id    (make-vector count.ids))
-  (pretty-log `(ingested ,count.tuples tuples))
+  (pretty-log `(ingested ,count.tuples.initial tuples))
   (pretty-log `(sorting ,(hash-count bytes=>id) strings -- ,size.bytes bytes total))
   (let ((bytes&id*.sorted (time/pretty-log (sort (hash->list bytes=>id)
                                                  (lambda (a b) (bytes<? (car a) (car b)))))))
@@ -276,32 +283,62 @@
           'size.position size.pos))
   (write-metadata (build-path path.root path.domain fn.metadata) desc.domain-text)
 
-  (pretty-log '(remapping and writing columns) path*.column)
-  (define columns
-    (map (lambda (t.col path.in path.out)
+  (pretty-log '(remapping columns))
+  (define column-vmms
+    (map (lambda (t.col path.in)
            (define col->col
              (match t.col
                ('nat                        (lambda (n)  n))
                ((or 'bytes 'string 'symbol) (lambda (id) (vector-ref id=>id id)))))
            (define (read-element in) (col->col (decode in 'nat)))
            (match-define (list vec.col min.col max.col)
-             (read-column path.in count.tuples read-element))
+             (read-column path.in count.tuples.initial read-element))
            (pretty-log `(deleting ,path.in))
            (delete-file path.in)
-           (define size.col (write-column path.out vec.col min.col max.col))
-           ;(list size.col min.col max.col)
+           (list vec.col min.col max.col))
+         type path*.column.initial))
+  (define columns (map car column-vmms))
+  (define tuples (make-vector count.tuples.initial))
+  (time/pretty-log
+    (let loop ((i 0))
+      (when (< i count.tuples.initial)
+        (vector-set! tuples i (map (lambda (col) (vector-ref col i))
+                                   columns))
+        (loop (+ i 1)))))
+  (pretty-log '(sorting columns))
+  (time/pretty-log (vector-sort! tuples nat-tuple<?))
+  (pretty-log '(deduplicating columns))
+  (define (columns-set! j tuple) (for-each (lambda (vec.col value.col)
+                                             (vector-set! vec.col j value.col))
+                                           columns tuple))
+  (define count.tuples.unique
+    (time/pretty-log
+      (when (< 0 count.tuples.initial)
+        (define t0 (vector-ref tuples 0))
+        (columns-set! 0 t0)
+        (let loop ((prev t0) (i 1) (j 1))
+          (if (< i count.tuples.initial)
+            (let ((next (vector-ref tuples i)))
+              (cond ((equal? prev next) (loop prev (+ i 1) j))
+                    (else (columns-set! j next)
+                          (loop next (+ i 1) (+ j 1)))))
+            j)))))
+
+  (define column-descriptions
+    (map (lambda (t.col vec.col min.col max.col path.out)
+           (define size.col (write-column path.out count.tuples.unique vec.col min.col max.col))
            (hash 'type  (match t.col
                           ('nat                        'nat)
                           ((or 'bytes 'string 'symbol) 'text))
-                 'count count.tuples
+                 'count count.tuples.unique
                  'size  size.col
                  'min   min.col
                  'max   max.col))
-         type path*.column.initial path*.column))
+         type columns (map cadr column-vmms) (map caddr column-vmms) path*.column))
   (define desc.table
     (hash 'domain  (hash 'text path.domain)
-          'count   count.tuples
-          'columns columns))
+          'count   count.tuples.unique
+          'columns column-descriptions))
   (write-metadata (build-path path.root path.table fn.metadata) desc.table)
 
   (hash 'domain (hash 'text desc.domain-text)
@@ -410,8 +447,7 @@
                      (max max.col value)))
               (else (list vec.col (or min.col 0) max.col)))))))
 
-(define (write-column path.out vec.col min.col max.col)
-  (define count (vector-length vec.col))
+(define (write-column path.out count vec.col min.col max.col)
   ;; TODO: consider offseting column values
   ;; - if storing ints
   ;; - if (- max.col min.col) supports a smaller nat size
@@ -437,7 +473,7 @@
                                (lambda (in)
                                  (define v.in (bytes-nat-ref (read-bytes size.in in) size.in 0))
                                  (vector-ref id=>id v.in))))
-                (define size.col (write-column path.out vec.col min.col max.col))
+                (define size.col (write-column path.out (vector-length vec.col) vec.col min.col max.col))
                 (hash-set* desc.in 'size size.col 'min min.col 'max max.col))
         (else (pretty-log '(copying verbatim due to identity remapping))
               (time/pretty-log (copy-file path.in path.out))
