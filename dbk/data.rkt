@@ -50,7 +50,7 @@
   relation-compact!
   )
 (require "codec.rkt" "enumerator.rkt" "heap.rkt" "misc.rkt" "order.rkt" "stream.rkt"
-         racket/file racket/list racket/match racket/pretty racket/vector)
+         racket/file racket/list racket/match racket/pretty racket/set racket/vector)
 
 ;; TODO: use these definitions to replace the logging defined in config.rkt
 (define (pretty-log/port out . args)
@@ -73,11 +73,13 @@
     (pretty-log `(time cpu ,time.cpu real ,time.real gc ,time.gc))
     (apply values results)))
 
-(define fn.metadata "metadata.scm")
-(define fn.value    "value")
-(define fn.pos      "position")
-(define fn.tuple    "tuple")
-(define fn.col      "column")
+(define fn.metadata       "metadata.scm")
+(define fn.value          "value")
+(define fn.pos            "position")
+(define fn.tuple          "tuple")
+(define fn.col            "column")
+(define fnsuffix.key      ".key")
+(define fnsuffix.indirect ".indirect")
 
 (define metadata.format.version "0")
 
@@ -438,6 +440,132 @@
   (write-metadata (build-path path.domain-text.new fn.metadata) desc.domain-text)
   (hash 'domain     desc.domain-text
         'remappings remappings))
+
+;; TODO: where should make-directory* occur?
+(define (build-indexes path.root path*.index path.table desc.table orderings.initial)
+  (define path.root.table  (path->string (build-path path.root path.table)))
+  (define path*.root.index (map (lambda (path.index) (path->string (build-path path.root path.index)))
+                                path*.index))
+  (define count.tuples     (hash-ref desc.table 'count))
+  (define desc*.column     (hash-ref desc.table 'columns))
+  (define count.columns    (length desc*.column))
+  (pretty-log `(building ,path.root.table indexes ,orderings.initial) desc.table path*.root.index)
+  (for-each (lambda (ordering) (unless (and (not (null? ordering))
+                                            (list? ordering)
+                                            (andmap (lambda (i) (and (nat? i) (<= 0 i) (< i count.columns)))
+                                                    ordering)
+                                            (= (length ordering) (set-count (list->set ordering))))
+                                 (error "invalid index" ordering)))
+            orderings.initial)
+  (define orderings.final (map (lambda (ordering)
+                                 (if (< (length ordering) count.columns)
+                                   (append ordering '(#t))
+                                   ordering))
+                               orderings.initial))
+  (define key-used?       (ormap (lambda (ordering) (member #t ordering))
+                                 orderings.final))
+  (define column-ids.used (set->list (foldl (lambda (ordering col-ids) (set-union col-ids (list->set ordering)))
+                                            (set) orderings.initial)))
+  (define size.pos        (min-nat-bytes (- count.tuples 1)))
+  (define i=>desc.col     (make-immutable-hash
+                            (append (if key-used?
+                                      (list (cons #t (hash 'type  'nat
+                                                           'count count.tuples
+                                                           'size  size.pos
+                                                           'min   0
+                                                           'max   (- count.tuples 1))))
+                                      '())
+                                    (map cons (range count.columns) desc*.column))))
+  (define i=>col          (make-immutable-hash
+                            (append (if key-used?
+                                      (list (cons #t (let ((column.key (make-vector count.tuples)))
+                                                       (let loop ((i 0))
+                                                         (when (< i count.tuples)
+                                                           (vector-set! column.key i i)
+                                                           (loop (+ i 1))))
+                                                       column.key)))
+                                      '())
+                                    (map (lambda (i.col path.in)
+                                           (define desc.col (hash-ref i=>desc.col i.col))
+                                           (define size.in  (hash-ref desc.col    'size))
+                                           (define (read-element in)
+                                             (bytes-nat-ref (read-bytes size.in in) size.in 0))
+                                           (define vec.col (car (read-column path.in count.tuples read-element)))
+                                           (cons i.col vec.col))
+                                         column-ids.used
+                                         (column-paths path.root.table column-ids.used)))))
+  (map (lambda (path.root.index ordering)
+         (pretty-log `(building index ,path.root.index with ordering ,ordering))
+         (define columns.used       (map (lambda (i.col) (hash-ref i=>col      i.col)) ordering))
+         (define descs.used         (map (lambda (i.col) (hash-ref i=>desc.col i.col)) ordering))
+         (define sizes.used         (map (lambda (desc)  (hash-ref desc        'size)) descs.used))
+         (define tuples             (sorted-tuples count.tuples columns.used))
+         (define path*.col.key      (map (lambda (path.col) (string-append path.col fnsuffix.key))
+                                         (column-paths path.root.index (range    (length ordering)))))
+         (define path*.col.indirect (map (lambda (path.col) (string-append path.col fnsuffix.indirect))
+                                         (column-paths path.root.index (range (- (length ordering) 1)))))
+         (pretty-log '(writing index columns))
+         (define counts
+           (call/files
+             '()
+             path*.col.key
+             (lambda out*.key
+               (call/files
+                 '()
+                 path*.col.indirect
+                 (lambda out*.indirect
+                   (time/pretty-log
+                     (when (< 0 count.tuples)
+                       (for-each (lambda (out) (write-bytes (nat->bytes size.pos 0) out))
+                                 out*.indirect)
+                       (let loop.keys ((i*.key        (range (length ordering)))
+                                       (size*.key     sizes.used)
+                                       (out*.key      out*.key)
+                                       (out*.indirect out*.indirect)
+                                       (pos*          (make-list (length out*.key) 0))
+                                       (start         0)
+                                       (end           count.tuples))
+                         (let ((i.key (car i*.key)) (i*.key (cdr i*.key)) (size.key (car size*.key)))
+                           (define (key-ref i) (list-ref (vector-ref tuples i) i.key))
+                           (let ((out.key (car out*.key)))
+                             (define (write-key key) (write-bytes (nat->bytes size.key key) out.key))
+                             (if (null? i*.key)
+                               (let loop.final ((i start))
+                                 (cond ((< i end) (write-key (key-ref i))
+                                                  (loop.final (+ i 1)))
+                                       (else      (list (+ (car pos*) (- i start))))))
+                               (let ((out.indirect (car out*.indirect)))
+                                 (let loop.key ((pos (car pos*)) (pos* (cdr pos*)) (start start) (end end))
+                                   (if (< start end)
+                                     (let ((key (key-ref start)))
+                                       (write-key key)
+                                       (let ((start.new (bisect-next start end (lambda (i) (<= (key-ref i) key)))))
+                                         (let ((pos* (loop.keys i*.key
+                                                                (cdr size*.key)
+                                                                (cdr out*.key)
+                                                                (cdr out*.indirect)
+                                                                pos*
+                                                                start
+                                                                start.new)))
+                                           (write-bytes (nat->bytes size.pos (car pos*)) out.indirect)
+                                           (loop.key (+ pos 1) pos* start.new end))))
+                                     (cons pos pos*)))))))))))))))
+         (define descs.column.key      (map (lambda (desc count) (hash-set desc 'count count))
+                                            descs.used counts))
+         (define descs.column.indirect (map (lambda (count.current count.next)
+                                              (hash 'type  'nat
+                                                    'count count.current
+                                                    'size  size.pos
+                                                    'min   0
+                                                    'max   count.next))
+                                            (reverse (cdr (reverse counts)))
+                                            (cdr counts)))
+         (hash
+           'table            path.table
+           'ordering         ordering
+           'columns.key      descs.column.key
+           'columns.indirect descs.column.indirect))
+       path*.root.index orderings.final))
 
 (define (read-column path.in count read-element)
   (define vec.col (make-vector count))
