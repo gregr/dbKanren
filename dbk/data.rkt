@@ -307,7 +307,7 @@
                ((or 'bytes 'string 'symbol) (lambda (id) (vector-ref id=>id id)))))
            (define (read-element in) (col->col (decode in 'nat)))
            (match-define (list vec.col min.col max.col)
-             (read-column path.in count.tuples.initial read-element))
+             (read-column/bounds path.in count.tuples.initial read-element))
            (pretty-log `(deleting ,path.in))
            (delete-file path.in)
            (list vec.col min.col max.col))
@@ -490,8 +490,7 @@
                                            (define size.in  (hash-ref desc.col    'size))
                                            (define (read-element in)
                                              (bytes-nat-ref (read-bytes size.in in) size.in 0))
-                                           (define vec.col (car (read-column path.in count.tuples read-element)))
-                                           (cons i.col vec.col))
+                                           (cons i.col (read-column path.in count.tuples read-element)))
                                          column-ids.used
                                          (column-paths path.root.table column-ids.used)))))
   (map (lambda (path.root.index ordering)
@@ -567,9 +566,9 @@
            'columns.indirect descs.column.indirect))
        path*.root.index orderings.final))
 
-(define (read-column path.in count read-element)
+(define (read-column/bounds path.in count read-element)
   (define vec.col (make-vector count))
-  (pretty-log `(reading ,count elements from ,path.in))
+  (pretty-log `(reading ,count elements from ,path.in and computing min/max))
   (let/files ((in path.in)) ()
     (time/pretty-log
       (let loop ((i 0) (min.col #f) (max.col 0))
@@ -580,6 +579,16 @@
                      (if min.col (min min.col value) value)
                      (max max.col value)))
               (else (list vec.col (or min.col 0) max.col)))))))
+
+(define (read-column path.in count read-element)
+  (define vec.col (make-vector count))
+  (pretty-log `(reading ,count elements from ,path.in))
+  (let/files ((in path.in)) ()
+    (time/pretty-log
+      (let loop ((i 0))
+        (cond ((< i count) (vector-set! vec.col i (read-element in))
+                           (loop (+ i 1)))
+              (else        vec.col))))))
 
 (define (write-column path.out count vec.col min.col max.col)
   ;; TODO: consider offseting column values
@@ -603,10 +612,10 @@
   (define size.in (hash-ref desc.in 'size))
   (define id=>id  (hash-ref type=>id=>id type #f))
   (cond (id=>id (match-define (list vec.col min.col max.col)
-                  (read-column path.in count
-                               (lambda (in)
-                                 (define v.in (bytes-nat-ref (read-bytes size.in in) size.in 0))
-                                 (vector-ref id=>id v.in))))
+                  (read-column/bounds path.in count
+                                      (lambda (in)
+                                        (define v.in (bytes-nat-ref (read-bytes size.in in) size.in 0))
+                                        (vector-ref id=>id v.in))))
                 (define size.col (write-column path.out (vector-length vec.col) vec.col min.col max.col))
                 (hash-set* desc.in 'size size.col 'min min.col 'max max.col))
         (else (pretty-log '(copying verbatim due to identity remapping))
