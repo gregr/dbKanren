@@ -462,7 +462,6 @@
 
 ;; TODO: where should make-directory* occur?
 (define (build-table-indexes path.root path*.index path.table desc.table orderings)
-  ;; TODO: eliminate identity indirections
   (define path.root.table  (path->string (build-path path.root path.table)))
   (define path*.root.index (map (lambda (path.index) (path->string (build-path path.root path.index)))
                                 path*.index))
@@ -561,18 +560,23 @@
                                      (cons pos pos*)))))))))))))))
          (define descs.column.key      (map (lambda (desc count) (hash-set desc 'count count))
                                             descs.used counts))
-         (define descs.column.indirect (map (lambda (count.current count.next)
-                                              (hash 'type  'nat
-                                                    'count count.current
-                                                    'size  size.pos
-                                                    'min   0
-                                                    'max   count.next))
+         (define descs.column.indirect (map (lambda (path.indirect count.current count.next)
+                                              (cond ((= count.current count.next)
+                                                     (pretty-log `(deleting identity indirection ,path.indirect))
+                                                     (delete-file path.indirect)
+                                                     #f)
+                                                    (else (hash 'type  'nat
+                                                                'count count.current
+                                                                'size  size.pos
+                                                                'min   0
+                                                                'max   count.next))))
+                                            path*.col.indirect
                                             (reverse (cdr (reverse counts)))
                                             (cdr counts)))
-         (define desc.table-index (hash 'table            path.table
-                                        'ordering         ordering
-                                        'columns.key      descs.column.key
-                                        'columns.indirect descs.column.indirect))
+         (define desc.table-index      (hash 'table            path.table
+                                             'ordering         ordering
+                                             'columns.key      descs.column.key
+                                             'columns.indirect descs.column.indirect))
          (write-metadata (build-path path.root.index fn.metadata) desc.table-index)
          desc.table-index)
        path*.root.index orderings))
