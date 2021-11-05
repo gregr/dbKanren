@@ -651,6 +651,27 @@
   (write-metadata (build-path path.out fn.metadata) desc.table.out)
   desc.table.out)
 
+(define (remap-table-index path.in path.out desc.table-index.in path.table.new type=>id=>id)
+  (pretty-log `(remapping ,path.in to ,path.out) desc.table-index.in)
+  (define (remap fnsuffix desc*.in)
+    (map (lambda (path.in.col path.out.col desc.in.col)
+           (and desc.in.col (remap-column path.in.col path.out.col desc.in.col type=>id=>id)))
+         (map (lambda (path.col) (string-append path.col fnsuffix))
+              (column-paths path.in  (range (length desc*.in))))
+         (map (lambda (path.col) (string-append path.col fnsuffix))
+              (column-paths path.out (range (length desc*.in))))
+         desc*.in))
+  (define columns.key.in       (hash-ref desc.table-index.in 'columns.key))
+  (define columns.indirect.in  (hash-ref desc.table-index.in 'columns.indirect))
+  (define columns.key.out      (remap fnsuffix.key      columns.key.in))
+  (define columns.indirect.out (remap fnsuffix.indirect columns.indirect.in))
+  (define desc.table-index.out (hash-set* desc.table-index.in
+                                          'table            path.table.new
+                                          'columns.key      columns.key.out
+                                          'columns.indirect columns.indirect.out))
+  (write-metadata (build-path path.out fn.metadata) desc.table-index.out)
+  desc.table-index.out)
+
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
 
