@@ -441,31 +441,41 @@
   (hash 'domain     desc.domain-text
         'remappings remappings))
 
-;; TODO: where should make-directory* occur?
-(define (build-indexes path.root path*.index path.table desc.table orderings.initial)
-  (define path.root.table  (path->string (build-path path.root path.table)))
-  (define path*.root.index (map (lambda (path.index) (path->string (build-path path.root path.index)))
-                                path*.index))
-  (define count.tuples     (hash-ref desc.table 'count))
-  (define desc*.column     (hash-ref desc.table 'columns))
-  (define count.columns    (length desc*.column))
-  (pretty-log `(building ,path.root.table indexes ,orderings.initial) desc.table path*.root.index)
+(define (normalize-table-index-orderings desc.table orderings)
+  (define desc*.column  (hash-ref desc.table 'columns))
+  (define count.columns (length desc*.column))
   (for-each (lambda (ordering) (unless (and (not (null? ordering))
                                             (list? ordering)
                                             (andmap (lambda (i) (and (nat? i) (<= 0 i) (< i count.columns)))
                                                     ordering)
                                             (= (length ordering) (set-count (list->set ordering))))
                                  (error "invalid index" ordering)))
-            orderings.initial)
-  (define orderings.final (map (lambda (ordering)
-                                 (if (< (length ordering) count.columns)
-                                   (append ordering '(#t))
-                                   ordering))
-                               orderings.initial))
+            orderings)
+  (remove-duplicates
+    (map (lambda (ordering)
+           (define len (length ordering))
+           (cond ((= (+ len 1) count.columns) (append ordering (set-subtract (range count.columns)
+                                                                             ordering)))
+                 ((<    len    count.columns) (append ordering '(#t)))
+                 (else                                ordering)))
+         orderings)))
+
+;; TODO: where should make-directory* occur?
+(define (build-table-indexes path.root path*.index path.table desc.table orderings)
+  ;; TODO: eliminate identity indirections
+  (define path.root.table  (path->string (build-path path.root path.table)))
+  (define path*.root.index (map (lambda (path.index) (path->string (build-path path.root path.index)))
+                                path*.index))
+  (define count.tuples     (hash-ref desc.table 'count))
+  (define desc*.column     (hash-ref desc.table 'columns))
+  (define count.columns    (length desc*.column))
+  (pretty-log `(building ,path.root.table indexes) orderings desc.table path*.root.index)
   (define key-used?       (ormap (lambda (ordering) (member #t ordering))
-                                 orderings.final))
-  (define column-ids.used (set->list (foldl (lambda (ordering col-ids) (set-union col-ids (list->set ordering)))
-                                            (set) orderings.initial)))
+                                 orderings))
+  (define column-ids.used (set->list (set-remove (foldl (lambda (ordering col-ids)
+                                                          (set-union col-ids (list->set ordering)))
+                                                        (set) orderings)
+                                                 #t)))
   (define size.pos        (min-nat-bytes (- count.tuples 1)))
   (define i=>desc.col     (make-immutable-hash
                             (append (if key-used?
@@ -559,12 +569,13 @@
                                                     'max   count.next))
                                             (reverse (cdr (reverse counts)))
                                             (cdr counts)))
-         (hash
-           'table            path.table
-           'ordering         ordering
-           'columns.key      descs.column.key
-           'columns.indirect descs.column.indirect))
-       path*.root.index orderings.final))
+         (define desc.table-index (hash 'table            path.table
+                                        'ordering         ordering
+                                        'columns.key      descs.column.key
+                                        'columns.indirect descs.column.indirect))
+         (write-metadata (build-path path.root.index fn.metadata) desc.table-index)
+         desc.table-index)
+       path*.root.index orderings))
 
 (define (read-column/bounds path.in count read-element)
   (define vec.col (make-vector count))
