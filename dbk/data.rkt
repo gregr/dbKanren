@@ -41,10 +41,13 @@
   database-metadata
   database-relation
   database-relation-add!
-  database-relation-remove!
   database-compact!
 
   relation-metadata
+  relation-copy
+  relation-rename!
+  relation-delete!
+  relation-rename-attributes!
   relation-index-add!
   relation-index-remove!
   relation-compact!
@@ -80,89 +83,137 @@
 (define fn.col            "column")
 (define fnsuffix.key      ".key")
 (define fnsuffix.indirect ".indirect")
+(define fnsuffix.next     ".next")
 
-(define metadata.format.version "0")
+(define metadata-format-version "0")
 
-(define metadata.empty
-  (hash 'format-version metadata.format.version
-        ;; TODO:
-        ;; Should these be mapping just to directory paths, or also list all the components of those paths?
-        ;; If the former, will need embedded metadata files, which will be annoying to manage.
-        ;; The latter means we just need the DB metadata.scm, simplifying atomicity of state transitions.
-        'domains        (hash)  ; Map names to domain directory paths
-        'relations      (hash)  ; Map names to relation directory paths
-        'pending-jobs   '()))
+(define (write-metadata path.metadata metadata)
+  (let/files () ((out.metadata path.metadata))
+    (pretty-write
+      (hash-set metadata 'format-version metadata-format-version)
+      out.metadata)))
 
+(define desc.database.empty
+  (hash 'relations (hash)
+        'data      (hash)
+        'jobs      '()))
+
+(define (valid-attributes?! attrs)
+  (unless (list? attrs)
+    (error "attributes must be a list" attrs))
+  (for-each (lambda (a) (unless (symbol? a) (error "attribute must be a symbol" a 'in attrs)))
+            attrs)
+  (unless (= (length attrs) (set-count (list->set attrs)))
+    (error "attributes must be unique" attrs)))
+
+;; TODO: wrap database and relation controllers with structs
 (define (database path.db . pargs)
-  (define path.domains       (build-path path.db "domains"))
-  (define path.relations     (build-path path.db "relations"))
-  (define path.pending       (build-path path.db "pending"))
-  (define path.metadata      (build-path path.db "metadata.scm"))
-  (define path.metadata.next (build-path path.db "metadata.scm.next"))
-  (define (checkpoint-metadata)
-    (call-with-output-file path.metadata.next (lambda (out) (pretty-write metadata out)))
-    (delete-file path.metadata)
-    (pretty-log 'checkpoint-metadata metadata)
-    (rename-file-or-directory path.metadata.next path.metadata))
-  (for-each make-directory* (list path.db path.domains path.relations path.pending))
+  (define (db-path name) (path->string (build-path path.db name)))
+  (define path.current       (db-path "current"))
+  (define path.previous      (db-path "previous"))
+  (define path.trash         (db-path "trash"))
+  (define path.pending       (db-path "pending"))
+  (define path.metadata      (db-path fn.metadata))
+  (define path.metadata.next (string-append path.metadata fnsuffix.next))
+  (for-each make-directory* (list path.db path.current path.previous path.trash path.pending))
   (define metadata
     (cond ((file-exists? path.metadata)      (when (file-exists? path.metadata.next)
-                                               (pretty-log 'remove-interrupted-checkpoint)
+                                               (pretty-log '(removing interrupted checkpoint))
                                                (delete-file path.metadata.next))
                                              (call-with-input-file path.metadata read))
-          ((file-exists? path.metadata.next) (pretty-log 'checkpoint-metadata/interrupted-swap)
+          ((file-exists? path.metadata.next) (pretty-log '(checkpointing metadata after interrupted swap))
                                              (rename-file-or-directory path.metadata.next path.metadata)
                                              (call-with-input-file path.metadata read))
-          (else                              (call-with-output-file path.metadata
-                                                                    (lambda (out) (pretty-write metadata.empty out)))
-                                             metadata.empty)))
-  (pretty-log 'load-metadata metadata)
+          (else                              (call-with-output-file
+                                               path.metadata
+                                               (lambda (out) (pretty-write desc.database.empty out)))
+                                             desc.database.empty)))
+  (define (relations-update! f) (set! metadata (hash-update metadata 'relations f)))
+  (define (checkpoint!)
+    ;; TODO: add garbage collection job for newly-unreachable data
+    (call-with-output-file path.metadata.next (lambda (out) (pretty-write metadata out)))
+    ;; TODO: move to a new subdirectory of "previous" instead of deleting outright
+    (delete-file path.metadata)
+    (pretty-log '(checkpointing metadata) metadata)
+    (rename-file-or-directory path.metadata.next path.metadata))
+  ;; TODO: For now, consolidate domains across relations.  Later, also consolidate subsequent inserts/deletes.
+  (define (compact!) (error "TODO"))
+
+  (pretty-log '(loading metadata) metadata)
   ;; TODO: migrate metadata if format-version is old
-  ;; TODO: garbage collect dangling files/directories
   ;; TODO: resume pending data-processing jobs
+  ;(hash-ref metadata 'jobs)
 
-  ;; TODO: For now, just load all relation descriptions up front.
-  ;; Lazy-loading with weak-box caching may be helpful later, if there are many relations.
-  (define name=>relation (hash))
-  ;; TODO: load domain descriptions, both global and local to specific relations
+  (define (make-relation name)
+    (define (description) (hash-ref (hash-ref metadata 'relations) name))
+    (define self
+      (method-lambda
+        ((metadata)                 (description))
+
+        ((copy    name.new)         (set! name=>relation
+                                      (hash-set name=>relation name.new (hash-ref name=>relation name)))
+                                    (relations-update! (lambda (rs) (hash-set rs name.new (hash-ref rs name))))
+                                    (checkpoint!))
+        ((rename! name.new)         (set! name           name.new)
+                                    (set! name=>relation (let ((r    (hash-ref    name=>relation name))
+                                                               (n=>r (hash-remove name=>relation name)))
+                                                           (hash-set n=>r name.new r)))
+                                    (relations-update! (lambda (rs) (let* ((r  (hash-ref    rs name))
+                                                                           (rs (hash-remove rs name)))
+                                                                      (hash-set rs name.new r))))
+                                    (checkpoint!))
+        ((delete!)                  (set! self           #f)
+                                    (set! name=>relation (hash-remove name=>relation name))
+                                    (relations-update! (lambda (rs) (hash-remove rs name)))
+                                    (checkpoint!))
+        ((rename-attributes! attrs) (valid-attributes?! attrs)
+                                    (let ((attrs.old (hash-ref (description) 'attributes)))
+                                      (unless (= (length attrs) (length attrs.old))
+                                        (error "cannot change the number of attributes"
+                                               name 'new attrs 'old attrs.old)))
+                                    (relations-update! (lambda (rs) (let* ((r (hash-ref rs name))
+                                                                           (r (hash-set r 'attributes attrs)))
+                                                                      (hash-set rs name r))))
+                                    (checkpoint!))
+        ((index-add!    signatures) (error "TODO"))
+        ((index-remove! signatures) (error "TODO"))
+        ;; TODO: only spend effort compacting this relation
+        ((compact!)                 (compact!))))
+    (lambda args
+      (unless self (error "cannot use deleted relation" name))
+      (apply self args)))
+
+  (define name=>relation (make-immutable-hash
+                           (hash-map (hash-ref metadata 'relations)
+                                     (lambda (name desc.relation)
+                                       (pretty-log `(loading relation) desc.relation)
+                                       (cons name (make-relation name))))))
 
   (method-lambda
-    ((metadata)      metadata)
-    ((relation name) (hash-ref name=>relation name (lambda () (error "unknown relation" path.db name))))
-    ((relation-add! name attrs type source)
-     (when (hash-has-key? name=>relation name)
-       (error "relation already exists" path.db name))
-     ;; TODO: ingest data stream, then insert into metadata, checkpoint
-     (define r (relation name
-                         attrs
-                         type
-                         #f ; TODO: provide data
-                         ))
-     (set! name=>relation (hash-set name=>relation name r))
-     r)
-    ((relation-remove! name)
-     (when (hash-has-key? name=>relation name)
-       (set! name=>relation (hash-remove name=>relation name))
-       ;; TODO: remove from metadata, checkpoint
-       ))
-    ((compact!)
-     ;; TODO: For now, consolidate domains across relations.  Later, also consolidate subsequent inserts/deletes.
-     (void))))
-
-(define (relation name attrs type data)
-  (method-lambda
-    ((metadata)
-     ;; TODO:
-     #f)
-    ((index-add! signatures)
-     ;; TODO:
-     (void))
-    ((index-remove! signatures)
-     ;; TODO:
-     (void))
-    ((compact!)
-     ;; TODO:
-     (void))))
+    ((metadata)                          metadata)
+    ((relation name)                     (hash-ref name=>relation name
+                                                   (lambda () (error "unknown relation" path.db name))))
+    ((relation-add! name attrs type src) (when (hash-has-key? name=>relation name)
+                                           (error "relation already exists" path.db name))
+                                         (valid-attributes?! attrs)
+                                         (for-each (lambda (t) (unless (member t '(nat bytes string symbol))
+                                                                 (error "invalid attribute type" t 'in type)))
+                                                   type)
+                                         (unless (= (length attrs) (length type))
+                                           (error "number of attributes must match the relation type arity"
+                                                  name attrs type))
+                                         ;; TODO: ingest src
+                                         (define desc.relation (hash 'attributes attrs
+                                                                     'type       type
+                                                                     ;; TODO: include table built from initial data source
+                                                                     'tables     (list)
+                                                                     'indexes    '()))
+                                         (relations-update! (lambda (rs) (hash-set rs name desc.relation)))
+                                         (checkpoint!)
+                                         (define r (make-relation name))
+                                         (set! name=>relation (hash-set name=>relation name r))
+                                         r)
+    ((compact!)                          (compact!))))
 
 (define (database-metadata         db)              (db 'metadata))
 (define (database-relation         db name)         (db 'relation         name))
@@ -170,13 +221,18 @@
                                                         (plist-ref pargs 'attributes)
                                                         (plist-ref pargs 'type)
                                                         (plist-ref pargs 'source)))
-(define (database-relation-remove! db name)         (db 'relation-remove! name))
 (define (database-compact!         db)              (db 'compact!))
 
-(define (relation-metadata      r)              (r 'metadata))
-(define (relation-index-add!    r . signatures) (r 'index-add!    signatures))
-(define (relation-index-remove! r . signatures) (r 'index-remove! signatures))
-(define (relation-compact!      r)              (r 'compact!))
+;; TODO: support importing another database entirely
+
+(define (relation-metadata            r)              (r 'metadata))
+(define (relation-copy                r name.new)     (r 'copy               name.new))
+(define (relation-rename!             r name.new)     (r 'rename!            name.new))
+(define (relation-delete!             r)              (r 'delete!))
+(define (relation-rename-attributes!  r attrs.new)    (r 'rename-attributes! attrs.new))
+(define (relation-index-add!          r . signatures) (r 'index-add!         signatures))
+(define (relation-index-remove!       r . signatures) (r 'index-remove!      signatures))
+(define (relation-compact!            r)              (r 'compact!))
 
 ;; TODO: in-place sorting of multiple columns
 (define (nat-tuple<? a b)
@@ -200,12 +256,6 @@
     tuples)
 
 (define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
-
-(define (write-metadata path.metadata metadata)
-  (let/files () ((out.metadata path.metadata))
-    (pretty-write
-      (hash-set metadata 'format-version metadata.format.version)
-      out.metadata)))
 
 (define (column-paths path.table column-ids)
   (map (lambda (i) (path->string
