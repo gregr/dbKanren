@@ -130,6 +130,7 @@
                                                (lambda (out) (pretty-write desc.database.empty out)))
                                              desc.database.empty)))
   (define (relations-update! f) (set! metadata (hash-update metadata 'relations f)))
+  (define (data-update! f)      (set! metadata (hash-update metadata 'data      f)))
   (define (checkpoint!)
     ;; TODO: add garbage collection job for newly-unreachable data
     (call-with-output-file path.metadata.next (lambda (out) (pretty-write metadata out)))
@@ -214,13 +215,20 @@
                                          (unless (= (length attrs) (length type))
                                            (error "number of attributes must match the relation type arity"
                                                   name attrs type))
-                                         ;; TODO: ingest src
-                                         (define desc.relation (hash 'attributes attrs
-                                                                     'type       type
-                                                                     ;; TODO: include table built from initial data source
-                                                                     'tables     (list)
-                                                                     'indexes    '()))
-                                         (relations-update! (lambda (rs) (hash-set rs name desc.relation)))
+                                         (define path.domain-text (unique-path "domain-text"))
+                                         (define path.table       (unique-path "table"))
+                                         (define desc.ingest      (ingest-relation-source
+                                                                    path.current path.domain-text path.table type src))
+                                         (define desc.domain-text (hash-ref (hash-ref desc.ingest 'domain) 'text))
+                                         (define desc.table       (hash-ref desc.ingest 'table))
+                                         (define desc.relation    (hash 'attributes attrs
+                                                                        'type       type
+                                                                        'tables     (list path.table)
+                                                                        'indexes    '()))
+                                         (data-update!      (lambda (data) (hash-set* data
+                                                                                      path.domain-text desc.domain-text
+                                                                                      path.table       desc.table)))
+                                         (relations-update! (lambda (rs)   (hash-set  rs name desc.relation)))
                                          (checkpoint!)
                                          (define r (make-relation name))
                                          (set! name=>relation (hash-set name=>relation name r))
