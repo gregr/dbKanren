@@ -124,7 +124,8 @@
           ((file-exists? path.metadata.next) (pretty-log '(checkpointing metadata after interrupted swap))
                                              (rename-file-or-directory path.metadata.next path.metadata)
                                              (call-with-input-file path.metadata read))
-          (else                              (call-with-output-file
+          (else                              (pretty-log `(creating new database ,path.db))
+                                             (call-with-output-file
                                                path.metadata
                                                (lambda (out) (pretty-write desc.database.empty out)))
                                              desc.database.empty)))
@@ -137,9 +138,9 @@
     (pretty-log '(checkpointing metadata) metadata)
     (rename-file-or-directory path.metadata.next path.metadata))
   ;; TODO: For now, consolidate domains across relations.  Later, also consolidate subsequent inserts/deletes.
-  (define (compact!) (error "TODO"))
+  (define (compact!) (error "TODO: database compact!"))
 
-  (pretty-log '(loading metadata) metadata)
+  (pretty-log `(loaded metadata for ,path.db) metadata)
   ;; TODO: migrate metadata if format-version is old
   ;; TODO: resume pending data-processing jobs
   ;(hash-ref metadata 'jobs)
@@ -184,8 +185,8 @@
                                                                            (r (hash-set r 'attributes attrs)))
                                                                       (hash-set rs name r))))
                                     (checkpoint!))
-        ((index-add!    signatures) (error "TODO"))
-        ((index-remove! signatures) (error "TODO"))
+        ((index-add!    signatures) (error "TODO: relation index-add!"))
+        ((index-remove! signatures) (error "TODO: relation index-remove!"))
         ;; TODO: only spend effort compacting this relation
         ((compact!)                 (compact!))))
     (lambda args
@@ -201,9 +202,11 @@
   (method-lambda
     ((metadata)                          metadata)
     ((relation name)                     (hash-ref name=>relation name
-                                                   (lambda () (error "unknown relation" path.db name))))
-    ((relation-add! name attrs type src) (when (hash-has-key? name=>relation name)
-                                           (error "relation already exists" path.db name))
+                                                   (lambda () (error "unknown relation" name path.db))))
+    ((relation-add! name attrs type src) (apply pretty-log `(creating relation ,name)
+                                                (map (lambda (a t) `(,a : ,t)) attrs type))
+                                         (when (hash-has-key? name=>relation name)
+                                           (error "relation already exists" name path.db))
                                          (valid-attributes?! attrs)
                                          (for-each (lambda (t) (unless (member t '(nat bytes string symbol))
                                                                  (error "invalid attribute type" t 'in type)))
