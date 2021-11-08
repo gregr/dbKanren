@@ -279,12 +279,12 @@
 ;; domain-text-TIMESTAMP-LOCALID
 ;; table-TIMESTAMP-LOCALID
 ;; index-TIMESTAMP-LOCALID
-(define (ingest-relation-source path.root path.domain path.table type s.in)
+(define (ingest-relation-source path.root path.domain-text path.table type s.in)
   (define bytes=>id            (make-hash))
   (define size.bytes           0)
   (define count.tuples.initial 0)
-  (define path.domain.value    (path->string (build-path path.root path.domain fn.value)))
-  (define path.domain.pos      (path->string (build-path path.root path.domain fn.pos)))
+  (define path.domain.value    (path->string (build-path path.root path.domain-text fn.value)))
+  (define path.domain.pos      (path->string (build-path path.root path.domain-text fn.pos)))
   (define path*.column         (column-paths (build-path path.root path.table) (range (length type))))
   (define path*.column.initial (map (lambda (p.c) (string-append p.c ".initial"))
                                     path*.column))
@@ -358,7 +358,7 @@
   (define desc.domain-text
     (hash 'count         count.ids
           'size.position size.pos))
-  (write-metadata (build-path path.root path.domain fn.metadata) desc.domain-text)
+  (write-metadata (build-path path.root path.domain-text fn.metadata) desc.domain-text)
 
   (pretty-log '(remapping columns))
   (define column-vmms
@@ -406,7 +406,7 @@
                  'max   max.col))
          type columns (map cadr column-vmms) (map caddr column-vmms) path*.column))
   (define desc.table
-    (hash 'domain  (hash 'text path.domain)
+    (hash 'domain  (hash 'text path.domain-text)
           'count   count.tuples.unique
           'columns column-descriptions))
   (write-metadata (build-path path.root path.table fn.metadata) desc.table)
