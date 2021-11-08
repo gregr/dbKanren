@@ -57,9 +57,9 @@
 
 ;; TODO: use these definitions to replace the logging defined in config.rkt
 (define (pretty-log/port out . args)
-  (define ms      (current-milliseconds))
-  (define d       (seconds->date (/ ms 1000) #f))
-  (define d-parts (list ms 'UTC
+  (define seconds (current-seconds))
+  (define d       (seconds->date seconds #f))
+  (define d-parts (list seconds 'UTC
                         (date-year d) (date-month  d) (date-day    d)
                         (date-hour d) (date-minute d) (date-second d)))
   (pretty-write (cons d-parts args) out))
