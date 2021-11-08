@@ -144,6 +144,15 @@
   ;; TODO: resume pending data-processing jobs
   ;(hash-ref metadata 'jobs)
 
+  (define (unique-path str.type)
+    (define data    (hash-ref metadata 'data))
+    (define seconds (number->string (current-seconds)))
+    (let loop ((id.local 0))
+      (define candidate (string-append str.type "-" seconds "-" (number->string id.local)))
+      (cond ((hash-has-key? data candidate) (loop (+ id.local 1)))
+            (else                           (make-directory* (build-path path.current candidate))
+                                            candidate))))
+
   (define (make-relation name)
     (define (description) (hash-ref (hash-ref metadata 'relations) name))
     (define self
