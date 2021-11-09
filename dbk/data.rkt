@@ -364,15 +364,15 @@
                      (build-path path.table (string-append fn.col "." (number->string i)))))
        column-ids))
 
-(define (ingest-relation-source path.root path.domain-text path.table type s.in)
-  (define bytes=>id            (make-hash))
-  (define size.bytes           0)
-  (define count.tuples.initial 0)
-  (define path.domain.value    (path->string (build-path path.root path.domain-text fn.value)))
-  (define path.domain.pos      (path->string (build-path path.root path.domain-text fn.pos)))
-  (define path*.column         (column-paths (build-path path.root path.table) (range (length type))))
-  (define path*.column.initial (map (lambda (p.c) (string-append p.c ".initial"))
-                                    path*.column))
+(define (ingest-relation-source apath.root lpath.domain-text lpath.table type s.in)
+  (define bytes=>id             (make-hash))
+  (define size.bytes            0)
+  (define count.tuples.initial  0)
+  (define apath.domain.value    (path->string (build-path apath.root lpath.domain-text fn.value)))
+  (define apath.domain.pos      (path->string (build-path apath.root lpath.domain-text fn.pos)))
+  (define apath*.column         (column-paths (build-path apath.root lpath.table) (range (length type))))
+  (define apath*.column.initial (map (lambda (p.c) (string-append p.c ".initial"))
+                                     apath*.column))
   ;; TODO: can store (null)/bools/ints too, which will be physically shifted into min/max range
   ;; if min/max range is singleton (guaranteed for null), nothing needs to be stored for that column
   (define type.tuple           (map (lambda (_) 'nat) type))
@@ -386,17 +386,17 @@
     (let ((col->num* (map (lambda (i t.col)
                             (match t.col
                               ('nat    (lambda (x)
-                                          (unless (nat?    x) (error "invalid nat"    `(column: ,i) x))
-                                          x))
+                                         (unless (nat?    x) (error "invalid nat"    `(column: ,i) x))
+                                         x))
                               ('bytes  (lambda (x)
-                                          (unless (bytes?  x) (error "invalid bytes"  `(column: ,i) x))
-                                          (insert-bytes!                                      x)))
+                                         (unless (bytes?  x) (error "invalid bytes"  `(column: ,i) x))
+                                         (insert-bytes!                                      x)))
                               ('string (lambda (x)
-                                          (unless (string? x) (error "invalid string" `(column: ,i) x))
-                                          (insert-bytes! (string->bytes/utf-8                 x))))
+                                         (unless (string? x) (error "invalid string" `(column: ,i) x))
+                                         (insert-bytes! (string->bytes/utf-8                 x))))
                               ('symbol (lambda (x)
-                                          (unless (symbol? x) (error "invalid symbol" `(column: ,i) x))
-                                          (insert-bytes! (string->bytes/utf-8 (symbol->string x)))))
+                                         (unless (symbol? x) (error "invalid symbol" `(column: ,i) x))
+                                         (insert-bytes! (string->bytes/utf-8 (symbol->string x)))))
                               (_ (error "(currently) unsupported type"                `(column: ,i) t.col))))
                           (range (length type))
                           type)))
@@ -408,9 +408,9 @@
             (('()             '())                       '())
             ((_               _)                         (error "incorrect number of columns" row type)))))))
 
-  (pretty-log '(ingesting rows and writing tuple columns) path*.column.initial)
+  (pretty-log '(ingesting rows and writing tuple columns) apath*.column.initial)
   (call/files
-    '() path*.column.initial
+    '() apath*.column.initial
     (lambda outs.column.initial
       (time/pretty-log
         (s-each (lambda (row) (map encode outs.column.initial type.tuple (row->tuple row)))
@@ -423,10 +423,10 @@
   (pretty-log `(sorting ,(hash-count bytes=>id) strings -- ,size.bytes bytes total))
   (let ((bytes&id*.sorted (time/pretty-log (sort (hash->list bytes=>id)
                                                  (lambda (a b) (bytes<? (car a) (car b)))))))
-    (pretty-log `(writing sorted strings to ,path.domain.value)
-                `(writing positions to ,path.domain.pos))
-    (let/files () ((out.bytes.value path.domain.value)
-                   (out.bytes.pos   path.domain.pos))
+    (pretty-log `(writing sorted strings to ,apath.domain.value)
+                `(writing positions to ,apath.domain.pos))
+    (let/files () ((out.bytes.value apath.domain.value)
+                   (out.bytes.pos   apath.domain.pos))
       (define (write-pos)
         (write-bytes (nat->bytes size.pos (file-position out.bytes.value)) out.bytes.pos))
       (write-pos)
@@ -443,22 +443,22 @@
   (define desc.domain-text
     (hash 'count         count.ids
           'size.position size.pos))
-  (write-metadata (build-path path.root path.domain-text fn.metadata) desc.domain-text)
+  (write-metadata (build-path apath.root lpath.domain-text fn.metadata) desc.domain-text)
 
   (pretty-log '(remapping columns))
   (define column-vmms
-    (map (lambda (t.col path.in)
+    (map (lambda (t.col apath.in)
            (define col->col
              (match t.col
                ('nat                        (lambda (n)  n))
                ((or 'bytes 'string 'symbol) (lambda (id) (vector-ref id=>id id)))))
            (define (read-element in) (col->col (decode in 'nat)))
            (match-define (list vec.col min.col max.col)
-             (read-column/bounds path.in count.tuples.initial read-element))
-           (pretty-log `(deleting ,path.in))
-           (delete-file path.in)
+             (read-column/bounds apath.in count.tuples.initial read-element))
+           (pretty-log `(deleting ,apath.in))
+           (delete-file apath.in)
            (list vec.col min.col max.col))
-         type path*.column.initial))
+         type apath*.column.initial))
   (define columns (map car column-vmms))
 
   (define tuples  (sorted-tuples count.tuples.initial columns))
@@ -480,8 +480,8 @@
             j)))))
 
   (define column-descriptions
-    (map (lambda (t.col vec.col min.col max.col path.out)
-           (define size.col (write-column path.out count.tuples.unique vec.col min.col max.col))
+    (map (lambda (t.col vec.col min.col max.col apath.out)
+           (define size.col (write-column apath.out count.tuples.unique vec.col min.col max.col))
            (hash 'type  (match t.col
                           ('nat                        'nat)
                           ((or 'bytes 'string 'symbol) 'text))
@@ -489,12 +489,12 @@
                  'size  size.col
                  'min   min.col
                  'max   max.col))
-         type columns (map cadr column-vmms) (map caddr column-vmms) path*.column))
+         type columns (map cadr column-vmms) (map caddr column-vmms) apath*.column))
   (define desc.table
-    (hash 'domain  (hash 'text path.domain-text)
+    (hash 'domain  (hash 'text lpath.domain-text)
           'count   count.tuples.unique
           'columns column-descriptions))
-  (write-metadata (build-path path.root path.table fn.metadata) desc.table)
+  (write-metadata (build-path apath.root lpath.table fn.metadata) desc.table)
 
   (hash 'domain (hash 'text desc.domain-text)
         'table  desc.table))
@@ -525,24 +525,24 @@
             (+ i 1)))))
     0))
 
-(define (compact-text-domains path.domain-text.new paths.domain-text descs.domain-text)
-  (define path.value   (path->string (build-path path.domain-text.new fn.value)))
-  (define path.pos     (path->string (build-path path.domain-text.new fn.pos)))
-  (define size.bytes   (sum (map (lambda (path.in) (file-size (build-path path.in fn.value)))
-                                 paths.domain-text)))
+(define (compact-text-domains apath.domain-text.new apaths.domain-text descs.domain-text)
+  (define apath.value  (path->string (build-path apath.domain-text.new fn.value)))
+  (define apath.pos    (path->string (build-path apath.domain-text.new fn.pos)))
+  (define size.bytes   (sum (map (lambda (apath.in) (file-size (build-path apath.in fn.value)))
+                                 apaths.domain-text)))
   (define size.pos     (min-nat-bytes size.bytes))
   (define id=>ids      (map (lambda (desc.in) (make-vector (hash-ref desc.in 'count)))
                             descs.domain-text))
   (define custodian.gs (make-custodian))
   (define gs           (parameterize ((current-custodian custodian.gs))
-                         (map (lambda (path.in desc.in id=>id)
-                                (define count      (hash-ref desc.in 'count))
-                                (define size.pos   (hash-ref desc.in 'size.position))
-                                (define path.value (build-path path.in fn.value))
-                                (define path.pos   (build-path path.in fn.pos))
+                         (map (lambda (apath.in desc.in id=>id)
+                                (define count       (hash-ref desc.in 'count))
+                                (define size.pos    (hash-ref desc.in 'size.position))
+                                (define apath.value (build-path apath.in fn.value))
+                                (define apath.pos   (build-path apath.in fn.pos))
                                 (and (< 0 count)
-                                     (let ((in.value (open-input-file path.value))
-                                           (in.pos   (open-input-file path.pos)))
+                                     (let ((in.value (open-input-file apath.value))
+                                           (in.pos   (open-input-file apath.pos)))
                                        (define (read-pos) (bytes-nat-ref (read-bytes size.pos in.pos)
                                                                          size.pos
                                                                          0))
@@ -553,12 +553,12 @@
                                                    (vector-set! id=>id id i)
                                                    (and (< (+ id 1) count)
                                                         (loop (+ id 1) pos.next)))))))))
-                              paths.domain-text descs.domain-text id=>ids)))
-  (pretty-log `(merging domains ,(map cons paths.domain-text descs.domain-text))
-              `(writing merge-sorted strings to ,path.value)
-              `(writing positions to ,path.pos))
-  (define count.ids    (let/files () ((out.value path.value)
-                                      (out.pos   path.pos))
+                              apaths.domain-text descs.domain-text id=>ids)))
+  (pretty-log `(merging domains ,(map cons apaths.domain-text descs.domain-text))
+              `(writing merge-sorted strings to ,apath.value)
+              `(writing positions to ,apath.pos))
+  (define count.ids    (let/files () ((out.value apath.value)
+                                      (out.pos   apath.pos))
                          (define (write-pos) (write-bytes (nat->bytes size.pos
                                                                       (file-position out.value))
                                                           out.pos))
@@ -584,7 +584,7 @@
   (define desc.domain-text
     (hash 'count         count.ids
           'size.position size.pos))
-  (write-metadata (build-path path.domain-text.new fn.metadata) desc.domain-text)
+  (write-metadata (build-path apath.domain-text.new fn.metadata) desc.domain-text)
   (hash 'domain-text desc.domain-text
         'remappings  remappings))
 
@@ -607,14 +607,14 @@
                  (else                                ordering)))
          orderings)))
 
-(define (build-table-indexes path.root path*.index path.table desc.table orderings)
-  (define path.root.table  (path->string (build-path path.root path.table)))
-  (define path*.root.index (map (lambda (path.index) (path->string (build-path path.root path.index)))
-                                path*.index))
-  (define count.tuples     (hash-ref desc.table 'count))
-  (define desc*.column     (hash-ref desc.table 'columns))
-  (define count.columns    (length desc*.column))
-  (pretty-log `(building ,path.root.table indexes) orderings desc.table path*.root.index)
+(define (build-table-indexes apath.root lpath*.index lpath.table desc.table orderings)
+  (define apath.root.table  (path->string (build-path apath.root lpath.table)))
+  (define apath*.root.index (map (lambda (lpath.index) (path->string (build-path apath.root lpath.index)))
+                                 lpath*.index))
+  (define count.tuples      (hash-ref desc.table 'count))
+  (define desc*.column      (hash-ref desc.table 'columns))
+  (define count.columns     (length desc*.column))
+  (pretty-log `(building ,apath.root.table indexes) orderings desc.table apath*.root.index)
   (define key-used?       (ormap (lambda (ordering) (member #t ordering))
                                  orderings))
   (define column-ids.used (set->list (set-remove (foldl (lambda (ordering col-ids)
@@ -640,33 +640,33 @@
                                                            (loop (+ i 1))))
                                                        column.key)))
                                       '())
-                                    (map (lambda (i.col path.in)
+                                    (map (lambda (i.col apath.in)
                                            (define desc.col (hash-ref i=>desc.col i.col))
                                            (define size.in  (hash-ref desc.col    'size))
                                            (define (read-element in)
                                              (bytes-nat-ref (read-bytes size.in in) size.in 0))
-                                           (cons i.col (read-column path.in count.tuples read-element)))
+                                           (cons i.col (read-column apath.in count.tuples read-element)))
                                          column-ids.used
-                                         (column-paths path.root.table column-ids.used)))))
-  (map (lambda (path.root.index ordering)
-         (pretty-log `(building index ,path.root.index with ordering ,ordering))
-         (define columns.used       (map (lambda (i.col) (hash-ref i=>col      i.col)) ordering))
-         (define descs.used         (map (lambda (i.col) (hash-ref i=>desc.col i.col)) ordering))
-         (define sizes.used         (map (lambda (desc)  (hash-ref desc        'size)) descs.used))
-         (define tuples             (sorted-tuples count.tuples columns.used))
-         (define path*.col.key      (map (lambda (path.col) (string-append path.col fnsuffix.key))
-                                         (column-paths path.root.index (range    (length ordering)))))
-         (define path*.col.indirect (map (lambda (path.col) (string-append path.col fnsuffix.indirect))
-                                         (column-paths path.root.index (range (- (length ordering) 1)))))
+                                         (column-paths apath.root.table column-ids.used)))))
+  (map (lambda (apath.root.index ordering)
+         (pretty-log `(building index ,apath.root.index with ordering ,ordering))
+         (define columns.used        (map (lambda (i.col) (hash-ref i=>col      i.col)) ordering))
+         (define descs.used          (map (lambda (i.col) (hash-ref i=>desc.col i.col)) ordering))
+         (define sizes.used          (map (lambda (desc)  (hash-ref desc        'size)) descs.used))
+         (define tuples              (sorted-tuples count.tuples columns.used))
+         (define apath*.col.key      (map (lambda (apath.col) (string-append apath.col fnsuffix.key))
+                                          (column-paths apath.root.index (range    (length ordering)))))
+         (define apath*.col.indirect (map (lambda (apath.col) (string-append apath.col fnsuffix.indirect))
+                                          (column-paths apath.root.index (range (- (length ordering) 1)))))
          (pretty-log '(writing index columns))
          (define counts
            (call/files
              '()
-             path*.col.key
+             apath*.col.key
              (lambda out*.key
                (call/files
                  '()
-                 path*.col.indirect
+                 apath*.col.indirect
                  (lambda out*.indirect
                    (time/pretty-log
                      (when (< 0 count.tuples)
@@ -706,31 +706,31 @@
                                      (cons pos pos*)))))))))))))))
          (define descs.column.key      (map (lambda (desc count) (hash-set desc 'count count))
                                             descs.used counts))
-         (define descs.column.indirect (map (lambda (path.indirect count.current count.next)
+         (define descs.column.indirect (map (lambda (apath.indirect count.current count.next)
                                               (cond ((= count.current count.next)
-                                                     (pretty-log `(deleting identity indirection ,path.indirect))
-                                                     (delete-file path.indirect)
+                                                     (pretty-log `(deleting identity indirection ,apath.indirect))
+                                                     (delete-file apath.indirect)
                                                      #f)
                                                     (else (hash 'type  'nat
                                                                 'count count.current
                                                                 'size  size.pos
                                                                 'min   0
                                                                 'max   count.next))))
-                                            path*.col.indirect
+                                            apath*.col.indirect
                                             (reverse (cdr (reverse counts)))
                                             (cdr counts)))
-         (define desc.table-index      (hash 'table            path.table
+         (define desc.table-index      (hash 'table            lpath.table
                                              'ordering         ordering
                                              'columns.key      descs.column.key
                                              'columns.indirect descs.column.indirect))
-         (write-metadata (build-path path.root.index fn.metadata) desc.table-index)
+         (write-metadata (build-path apath.root.index fn.metadata) desc.table-index)
          desc.table-index)
-       path*.root.index orderings))
+       apath*.root.index orderings))
 
-(define (read-column/bounds path.in count read-element)
+(define (read-column/bounds apath.in count read-element)
   (define vec.col (make-vector count))
-  (pretty-log `(reading ,count elements from ,path.in and computing min/max))
-  (let/files ((in path.in)) ()
+  (pretty-log `(reading ,count elements from ,apath.in and computing min/max))
+  (let/files ((in apath.in)) ()
     (time/pretty-log
       (let loop ((i 0) (min.col #f) (max.col 0))
         (cond ((< i count)
@@ -741,24 +741,24 @@
                      (max max.col value)))
               (else (list vec.col (or min.col 0) max.col)))))))
 
-(define (read-column path.in count read-element)
+(define (read-column apath.in count read-element)
   (define vec.col (make-vector count))
-  (pretty-log `(reading ,count elements from ,path.in))
-  (let/files ((in path.in)) ()
+  (pretty-log `(reading ,count elements from ,apath.in))
+  (let/files ((in apath.in)) ()
     (time/pretty-log
       (let loop ((i 0))
         (cond ((< i count) (vector-set! vec.col i (read-element in))
                            (loop (+ i 1)))
               (else        vec.col))))))
 
-(define (write-column path.out count vec.col min.col max.col)
+(define (write-column apath.out count vec.col min.col max.col)
   ;; TODO: consider offseting column values
   ;; - if storing ints
   ;; - if (- max.col min.col) supports a smaller nat size
   (define size.col (min-nat-bytes max.col))
-  (pretty-log `(writing ,count elements to ,path.out)
+  (pretty-log `(writing ,count elements to ,apath.out)
               `(nat-size: ,size.col min: ,min.col max: ,max.col))
-  (let/files () ((out path.out))
+  (let/files () ((out apath.out))
     (time/pretty-log
       (let loop ((i 0))
         (when (< i count)
@@ -766,56 +766,56 @@
           (loop (+ i 1))))))
   size.col)
 
-(define (remap-column path.in path.out desc.in type=>id=>id)
-  (pretty-log `(remapping ,path.in to ,path.out) desc.in)
+(define (remap-column apath.in apath.out desc.in type=>id=>id)
+  (pretty-log `(remapping ,apath.in to ,apath.out) desc.in)
   (define type    (hash-ref desc.in 'type))
   (define count   (hash-ref desc.in 'count))
   (define size.in (hash-ref desc.in 'size))
   (define id=>id  (hash-ref type=>id=>id type #f))
   (cond (id=>id (match-define (list vec.col min.col max.col)
-                  (read-column/bounds path.in count
+                  (read-column/bounds apath.in count
                                       (lambda (in)
                                         (define v.in (bytes-nat-ref (read-bytes size.in in) size.in 0))
                                         (vector-ref id=>id v.in))))
-                (define size.col (write-column path.out (vector-length vec.col) vec.col min.col max.col))
+                (define size.col (write-column apath.out (vector-length vec.col) vec.col min.col max.col))
                 (hash-set* desc.in 'size size.col 'min min.col 'max max.col))
         (else (pretty-log '(copying verbatim due to identity remapping))
-              (time/pretty-log (copy-file path.in path.out))
+              (time/pretty-log (copy-file apath.in apath.out))
               desc.in)))
 
-(define (remap-table path.in path.out desc.table.in desc.domain.new type=>id=>id)
-  (pretty-log `(remapping ,path.in to ,path.out) desc.table.in)
+(define (remap-table apath.in apath.out desc.table.in desc.domain.new type=>id=>id)
+  (pretty-log `(remapping ,apath.in to ,apath.out) desc.table.in)
   (define columns.in     (hash-ref desc.table.in 'columns))
-  (define columns.out    (map (lambda (path.in.col path.out.col desc.in.col)
-                                (remap-column path.in.col path.out.col desc.in.col type=>id=>id))
-                              (column-paths path.in  (range (length columns.in)))
-                              (column-paths path.out (range (length columns.in)))
+  (define columns.out    (map (lambda (apath.in.col apath.out.col desc.in.col)
+                                (remap-column apath.in.col apath.out.col desc.in.col type=>id=>id))
+                              (column-paths apath.in  (range (length columns.in)))
+                              (column-paths apath.out (range (length columns.in)))
                               columns.in))
   (define desc.table.out (hash 'domain  desc.domain.new
                                'count   (hash-ref desc.table.in 'count)
                                'columns columns.out))
-  (write-metadata (build-path path.out fn.metadata) desc.table.out)
+  (write-metadata (build-path apath.out fn.metadata) desc.table.out)
   desc.table.out)
 
-(define (remap-table-index path.in path.out desc.table-index.in path.table.new type=>id=>id)
-  (pretty-log `(remapping ,path.in to ,path.out) desc.table-index.in)
+(define (remap-table-index apath.in apath.out desc.table-index.in lpath.table.new type=>id=>id)
+  (pretty-log `(remapping ,apath.in to ,apath.out) desc.table-index.in)
   (define (remap fnsuffix desc*.in)
-    (map (lambda (path.in.col path.out.col desc.in.col)
-           (and desc.in.col (remap-column path.in.col path.out.col desc.in.col type=>id=>id)))
-         (map (lambda (path.col) (string-append path.col fnsuffix))
-              (column-paths path.in  (range (length desc*.in))))
-         (map (lambda (path.col) (string-append path.col fnsuffix))
-              (column-paths path.out (range (length desc*.in))))
+    (map (lambda (apath.in.col apath.out.col desc.in.col)
+           (and desc.in.col (remap-column apath.in.col apath.out.col desc.in.col type=>id=>id)))
+         (map (lambda (apath.col) (string-append apath.col fnsuffix))
+              (column-paths apath.in  (range (length desc*.in))))
+         (map (lambda (apath.col) (string-append apath.col fnsuffix))
+              (column-paths apath.out (range (length desc*.in))))
          desc*.in))
   (define columns.key.in       (hash-ref desc.table-index.in 'columns.key))
   (define columns.indirect.in  (hash-ref desc.table-index.in 'columns.indirect))
   (define columns.key.out      (remap fnsuffix.key      columns.key.in))
   (define columns.indirect.out (remap fnsuffix.indirect columns.indirect.in))
   (define desc.table-index.out (hash-set* desc.table-index.in
-                                          'table            path.table.new
+                                          'table            lpath.table.new
                                           'columns.key      columns.key.out
                                           'columns.indirect columns.indirect.out))
-  (write-metadata (build-path path.out fn.metadata) desc.table-index.out)
+  (write-metadata (build-path apath.out fn.metadata) desc.table-index.out)
   desc.table-index.out)
 
 
