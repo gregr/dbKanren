@@ -238,11 +238,11 @@
                                             candidate))))
 
   (define (make-relation name)
-    (define (description) (hash-ref (hash-ref metadata 'relations) name))
+    (define (description)           (hash-ref (hash-ref metadata 'relations) name))
+    (define (description-update! f) (relations-update! (lambda (rs) (hash-update rs name f))))
     (define self
       (method-lambda
         ((metadata)                 (description))
-
         ((copy    name.new)         (set! name=>relation
                                       (hash-set name=>relation name.new (hash-ref name=>relation name)))
                                     (relations-update! (lambda (rs) (hash-set rs name.new (hash-ref rs name))))
@@ -268,7 +268,52 @@
                                                                            (r (hash-set r 'attributes attrs)))
                                                                       (hash-set rs name r))))
                                     (checkpoint!))
-        ((index-add!    signatures) (error "TODO: relation index-add!"))
+        ((index-add!    signatures) (apply pretty-log `(adding indexes for ,name) signatures)
+                                    (let* ((desc         (description))
+                                           (data         (hash-ref metadata 'data))
+                                           (attrs        (hash-ref desc     'attributes))
+                                           (lpaths.table (hash-ref desc     'tables))
+                                           (lpaths.ti    (hash-ref desc     'indexes))
+                                           (lpath.table  (if (= 1 (length lpaths.table))
+                                                           (car lpaths.table)
+                                                           (error "multi-table relations are not supported"
+                                                                  name lpaths.table)))
+                                           (desc.table   (hash-ref data lpath.table))
+                                           (descs.index  (map (lambda (lp) (hash-ref data lp)) lpaths.ti))
+                                           (orderings    (map (lambda (signature)
+                                                                (map (lambda (attr)
+                                                                       (let ((i (index-of attrs attr)))
+                                                                         (if i i (error "invalid signature attribute"
+                                                                                        attr signature))))
+                                                                     signature))
+                                                              signatures))
+                                           (orderings    (normalize-table-index-orderings desc.table orderings))
+                                           (ords.current (foldl (lambda (desc.i ords)
+                                                                  (set-add ords (hash-ref desc.i 'ordering)))
+                                                                (set) descs.index))
+                                           (ords.skipped (set->list (set-intersect (list->set orderings) ords.current)))
+                                           (ords.new     (set->list (set-subtract  (list->set orderings) ords.current)))
+                                           (lpaths.ti (map (lambda (_) (unique-path "table-index")) ords.new)))
+                                      (define (ords->sigs ords)
+                                        (map (lambda (ordering) (map (lambda (i) (list-ref attrs i))
+                                                                     (filter-not (lambda (i) (eq? #t i))
+                                                                                 ordering)))
+                                             ords))
+                                      (apply pretty-log '(normalizing table index signatures) (ords->sigs orderings))
+                                      (unless (null? ords.skipped)
+                                        (apply pretty-log '(skipping existing table indexes)
+                                               (ords->sigs ords.skipped)))
+                                      (when   (null? ords.new) (pretty-log '(no table indexes to build)))
+                                      (unless (null? ords.new)
+                                        (define descs.ti (build-table-indexes
+                                                           path.current lpaths.ti lpath.table desc.table ords.new))
+                                        (data-update!
+                                          (lambda (data) (apply hash-set* data
+                                                                (append* (map list lpaths.ti descs.ti)))))
+                                        (description-update!
+                                          (lambda (desc) (hash-update desc 'indexes
+                                                                      (lambda (lps) (append lpaths.ti lps)))))
+                                        (checkpoint!))))
         ((index-remove! signatures) (error "TODO: relation index-remove!"))
         ;; TODO: only spend effort compacting this relation
         ((compact!)                 (compact!))))
