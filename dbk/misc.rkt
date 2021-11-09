@@ -256,7 +256,7 @@
         ((<= c 4) 4)
         (else     8)))
 
-(define (nat? x) (and (exact? x) (integer? x) (<= 0 x)))
+(define (nat? x) (and (number? x) (exact? x) (integer? x) (<= 0 x)))
 
 (define (bytes-nat-set! bs size offset n)
   ;(integer->integer-bytes n size #f #t bs offset) (void)
