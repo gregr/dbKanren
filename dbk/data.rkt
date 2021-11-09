@@ -108,7 +108,8 @@
 
 ;; TODO: wrap database and relation controllers with structs
 (define (database path.db . pargs)
-  (define (db-path name) (path->string (build-path path.db name)))
+  (define (db-path   name) (path->string (build-path path.db      name)))
+  (define (data-path name) (path->string (build-path path.current name)))
   (define path.current       (db-path "current"))
   (define path.previous      (db-path "previous"))
   (define path.trash         (db-path "trash"))
@@ -130,7 +131,8 @@
                                                (lambda (out) (pretty-write desc.database.empty out)))
                                              desc.database.empty)))
   (define (relations-update! f) (set! metadata (hash-update metadata 'relations f)))
-  (define (data-update! f)      (set! metadata (hash-update metadata 'data      f)))
+  (define (data-update!      f) (set! metadata (hash-update metadata 'data      f)))
+
   (define (checkpoint!)
     ;; TODO: add garbage collection job for newly-unreachable data
     (call-with-output-file path.metadata.next (lambda (out) (pretty-write metadata out)))
@@ -152,7 +154,8 @@
     (let loop ((id.local 0))
       (define candidate (string-append str.type "-" seconds "-" (number->string id.local)))
       (cond ((hash-has-key? data candidate) (loop (+ id.local 1)))
-            (else                           (make-directory* (build-path path.current candidate))
+            (else                           (make-directory* (data-path candidate))
+                                            (data-update! (lambda (data) (hash-set data candidate #f)))
                                             candidate))))
 
   (define (make-relation name)
