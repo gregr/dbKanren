@@ -141,7 +141,7 @@
     (pretty-log '(checkpointing metadata) metadata)
     (rename-file-or-directory path.metadata.next path.metadata))
 
-  ;; TODO: For now, consolidate domains across relations.  Later, also consolidate subsequent inserts/deletes.
+  ;; TODO: later, consolidate subsequent inserts/deletes
   (define (compact!)
     (pretty-log `(compacting ,path.db))
     (define data           (hash-ref metadata 'data))
@@ -279,7 +279,7 @@
   (define name=>relation (make-immutable-hash
                            (hash-map (hash-ref metadata 'relations)
                                      (lambda (name desc.relation)
-                                       (pretty-log `(loading relation) desc.relation)
+                                       (pretty-log `(loading relation ,name) desc.relation)
                                        (cons name (make-relation name))))))
 
   (method-lambda
@@ -364,11 +364,6 @@
                      (build-path path.table (string-append fn.col "." (number->string i)))))
        column-ids))
 
-;; TODO:
-;; relation metadata points to used domain(s, one per type)
-;; domain-text-TIMESTAMP-LOCALID
-;; table-TIMESTAMP-LOCALID
-;; index-TIMESTAMP-LOCALID
 (define (ingest-relation-source path.root path.domain-text path.table type s.in)
   (define bytes=>id            (make-hash))
   (define size.bytes           0)
