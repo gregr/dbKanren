@@ -508,8 +508,8 @@
     (hash 'count         count.ids
           'size.position size.pos))
   (write-metadata (build-path path.domain-text.new fn.metadata) desc.domain-text)
-  (hash 'domain     desc.domain-text
-        'remappings remappings))
+  (hash 'domain-text desc.domain-text
+        'remappings  remappings))
 
 (define (normalize-table-index-orderings desc.table orderings)
   (define desc*.column  (hash-ref desc.table 'columns))
@@ -530,7 +530,6 @@
                  (else                                ordering)))
          orderings)))
 
-;; TODO: where should make-directory* occur?
 (define (build-table-indexes path.root path*.index path.table desc.table orderings)
   (define path.root.table  (path->string (build-path path.root path.table)))
   (define path*.root.index (map (lambda (path.index) (path->string (build-path path.root path.index)))
