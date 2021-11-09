@@ -140,8 +140,87 @@
     (delete-file path.metadata)
     (pretty-log '(checkpointing metadata) metadata)
     (rename-file-or-directory path.metadata.next path.metadata))
+
   ;; TODO: For now, consolidate domains across relations.  Later, also consolidate subsequent inserts/deletes.
-  (define (compact!) (error "TODO: database compact!"))
+  (define (compact!)
+    (pretty-log `(compacting ,path.db))
+    (define data           (hash-ref metadata 'data))
+    (define descs.relation (hash-values (hash-ref metadata 'relations)))
+    (match-define (list paths.table descs.table paths.domain-text/duplicates)
+      (let* ((paths.table       (append* (map (lambda (desc.relation) (hash-ref desc.relation 'tables))
+                                              descs.relation)))
+             (descs.table       (map (lambda (path.table) (hash-ref data path.table)) paths.table))
+             (paths.domain-text (map (lambda (d) (hash-ref (hash-ref d 'domain) 'text))
+                                     descs.table))
+             (pdps              (map (lambda (path.table desc.table path.domain-text)
+                                       (and path.domain-text (list path.table desc.table path.domain-text)))
+                                     paths.table descs.table paths.domain-text)))
+        (apply map list (filter-not not pdps))))
+    (define paths.domain-text (set->list (list->set paths.domain-text/duplicates)))
+    (unless (< 1 (length paths.domain-text)) (pretty-log '(no compaction necessary)))
+    (when (< 1 (length paths.domain-text))
+      (define path.domain-text.new     (unique-path "domain-text"))
+      (define descs.domain-text        (map (lambda (p) (hash-ref data p)) paths.domain-text))
+      (define compaction               (compact-text-domains
+                                         (data-path path.domain-text.new)
+                                         (map data-path paths.domain-text)
+                                         descs.domain-text))
+      (define desc.domain-text.new     (hash-ref compaction 'domain-text))
+      (define path.domain-text=>id=>id (make-immutable-hash
+                                         (map cons paths.domain-text (hash-ref compaction 'remappings))))
+      (define paths.table.new          (map (lambda (_) (unique-path "table")) paths.table))
+      (define path.t=>path.t.new       (make-immutable-hash (map cons paths.table paths.table.new)))
+      (define descs.table.new
+        (map (lambda (path.table path.table.new desc.table path.domain-text)
+               (remap-table (data-path path.table)
+                            (data-path path.table.new)
+                            desc.table
+                            (hash 'text path.domain-text.new)
+                            (hash 'text (hash-ref path.domain-text=>id=>id path.domain-text))))
+             paths.table paths.table.new descs.table paths.domain-text/duplicates))
+      (define paths.table-index
+        (append* (map (lambda (desc.relation)
+                        (filter (lambda (path.table-index)
+                                  (define desc.table-index (hash-ref data path.table-index))
+                                  (member (hash-ref desc.table-index 'table) paths.table))
+                                (hash-ref desc.relation 'indexes)))
+                      descs.relation)))
+      (define paths.table-index.new (map (lambda (_) (unique-path "table-index")) paths.table-index))
+      (define path.ti=>path.ti.new  (make-immutable-hash (map cons paths.table-index paths.table-index.new)))
+      (define descs.table-index.new
+        (map (lambda (path.table-index path.table-index.new)
+               (define desc.table-index (hash-ref data               path.table-index))
+               (define path.table       (hash-ref desc.table-index   'table))
+               (define path.table.new   (hash-ref path.t=>path.t.new path.table))
+               (define path.domain-text (hash-ref (hash-ref (hash-ref data path.table) 'domain) 'text))
+               (remap-table-index (data-path path.table-index)
+                                  (data-path path.table-index.new)
+                                  desc.table-index
+                                  path.table.new
+                                  (hash 'text (hash-ref path.domain-text=>id=>id path.domain-text))))
+             paths.table-index paths.table-index.new))
+      (pretty-log '(installing remapped data))
+      (data-update!
+        (lambda (data)
+          (apply hash-set* data
+                 path.domain-text.new desc.domain-text.new
+                 (append (append* (map list paths.table.new       descs.table.new))
+                         (append* (map list paths.table-index.new descs.table-index.new))))))
+      (pretty-log '(updating relations with remapped data))
+      (relations-update!
+        (lambda (rs)
+          (make-immutable-hash
+            (hash-map rs (lambda (name.r desc.r)
+                           (let* ((desc.r (hash-update desc.r 'tables
+                                                       (lambda (paths.table)
+                                                         (map (lambda (p) (hash-ref path.t=>path.t.new   p p))
+                                                              paths.table))))
+                                  (desc.r (hash-update desc.r 'indexes
+                                                       (lambda (paths.table-index)
+                                                         (map (lambda (p) (hash-ref path.ti=>path.ti.new p p))
+                                                              paths.table-index)))))
+                             (cons name.r desc.r)))))))
+      (checkpoint!)))
 
   (pretty-log `(loaded metadata for ,path.db) metadata)
   ;; TODO: migrate metadata if format-version is old
