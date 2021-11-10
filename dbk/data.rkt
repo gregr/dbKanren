@@ -393,7 +393,49 @@
                                           (lambda (desc) (hash-update desc 'indexes
                                                                       (lambda (lps) (append lpaths.ti lps)))))
                                         (checkpoint!))))
-        ((index-remove! signatures) (error "TODO: relation index-remove!"))
+        ((index-remove! signatures) (apply pretty-log `(removing indexes for ,name) signatures)
+                                    (let* ((desc         (description))
+                                           (data         (hash-ref metadata 'data))
+                                           (attrs        (hash-ref desc     'attributes))
+                                           (lpaths.table (hash-ref desc     'tables))
+                                           (lpaths.ti    (hash-ref desc     'indexes))
+                                           (lpath.table  (if (= 1 (length lpaths.table))
+                                                           (car lpaths.table)
+                                                           (error "multi-table relations are not supported"
+                                                                  name lpaths.table)))
+                                           (desc.table   (hash-ref data lpath.table))
+                                           (descs.index  (map (lambda (lp) (hash-ref data lp)) lpaths.ti))
+                                           (orderings    (map (lambda (signature)
+                                                                (map (lambda (attr)
+                                                                       (let ((i (index-of attrs attr)))
+                                                                         (if i i (error "invalid signature attribute"
+                                                                                        attr signature))))
+                                                                     signature))
+                                                              signatures))
+                                           (orderings    (normalize-table-index-orderings desc.table orderings))
+                                           (ords.current (foldl (lambda (desc.i ords)
+                                                                  (set-add ords (hash-ref desc.i 'ordering)))
+                                                                (set) descs.index))
+                                           (ords.missing (set->list (set-subtract  (list->set orderings) ords.current)))
+                                           (ords.found   (set-intersect (list->set orderings) ords.current)))
+                                      (define (ords->sigs ords)
+                                        (map (lambda (ordering) (map (lambda (i) (list-ref attrs i))
+                                                                     (filter-not (lambda (i) (eq? #t i))
+                                                                                 ordering)))
+                                             ords))
+
+                                      (apply pretty-log '(normalizing table index signatures) (ords->sigs orderings))
+                                      (unless (null? ords.missing)
+                                        (apply pretty-log '(skipping table indexes that do not exist)
+                                               (ords->sigs ords.missing)))
+                                      (when   (set-empty? ords.found) (pretty-log '(no table indexes to remove)))
+                                      (unless (set-empty? ords.found)
+                                        (define (remove? lp) (set-member? ords.found
+                                                                          (hash-ref (hash-ref data lp) 'ordering)))
+                                        (description-update!
+                                          (lambda (desc) (hash-update desc 'indexes
+                                                                      (lambda (lps) (filter-not remove? lps)))))
+                                        (checkpoint!))))
         ;; TODO: only spend effort compacting this relation
         ((compact!)                 (compact!))))
     (lambda args
