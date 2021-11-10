@@ -125,8 +125,8 @@
     (set-union lpaths.table lpaths.table-index lpaths.domain-text))
 
   (define (clean!)
-    (define pending-previous   (build-path path.db          "pending-previous"))
-    (define metadata.previous  (build-path pending-previous fn.metadata))
+    (define pending-previous   (path->string (build-path path.db          "pending-previous")))
+    (define metadata.previous  (path->string (build-path pending-previous fn.metadata)))
     (define lpaths.old         (if (and (directory-exists? pending-previous)
                                         (file-exists?      metadata.previous))
                                  (list->set (hash-keys (hash-ref (call-with-input-file metadata.previous read)
@@ -149,7 +149,7 @@
       (define upath (unique-previous-path))
       (pretty-log `(moving ,pending-previous to ,upath))
       (rename-file-or-directory pending-previous upath))
-    (define pending-trash (build-path path.db "pending-trash"))
+    (define pending-trash (path->string (build-path path.db "pending-trash")))
     (when (file-exists? path.metadata.next)
       (pretty-log '(moving interrupted checkpoint to trash) path.metadata.next)
       (make-directory* pending-trash)
@@ -275,7 +275,7 @@
     (define seconds (number->string (current-seconds)))
     (let loop ((id.local 0))
       (define candidate (string-append str.type "-" seconds "-" (number->string id.local)))
-      (define apath (build-path path.root candidate))
+      (define apath (path->string (build-path path.root candidate)))
       (cond ((directory-exists? apath) (loop (+ id.local 1)))
             (else                      apath))))
   (define (unique-previous-path) (unique-directory path.previous "previous"))
@@ -377,12 +377,12 @@
           ((file-exists? path.metadata.next) (pretty-log '(checkpointing metadata after interrupted swap))
                                              (rename-file-or-directory path.metadata.next path.metadata)
                                              (call-with-input-file path.metadata read))
-          (else                              (pretty-log `(creating new database ,path.db))
+          (else                              (pretty-log '(creating new database) path.db)
                                              (call-with-output-file
                                                path.metadata
                                                (lambda (out) (pretty-write desc.database.empty out)))
                                              desc.database.empty)))
-  (pretty-log `(loaded metadata for ,path.db) metadata)
+  (pretty-log '(loaded metadata for) path.db metadata)
   ;; TODO: migrate metadata if format-version is old
   (clean!)
   ;; TODO: resume pending data-processing jobs
@@ -520,7 +520,7 @@
             (('()             '())                       '())
             ((_               _)                         (error "incorrect number of columns" row type)))))))
 
-  (pretty-log '(ingesting rows and writing tuple columns) apath*.column.initial)
+  (apply pretty-log '(ingesting rows and writing initial tuple columns) apath*.column.initial)
   (call/files
     '() apath*.column.initial
     (lambda outs.column.initial
@@ -535,8 +535,8 @@
   (pretty-log `(sorting ,(hash-count bytes=>id) strings -- ,size.bytes bytes total))
   (let ((bytes&id*.sorted (time/pretty-log (sort (hash->list bytes=>id)
                                                  (lambda (a b) (bytes<? (car a) (car b)))))))
-    (pretty-log `(writing sorted strings to ,apath.domain.value)
-                `(writing positions to ,apath.domain.pos))
+    (pretty-log '(writing sorted strings to) apath.domain.value
+                '(writing positions to) apath.domain.pos)
     (let/files () ((out.bytes.value apath.domain.value)
                    (out.bytes.pos   apath.domain.pos))
       (define (write-pos)
@@ -666,9 +666,9 @@
                                                    (and (< (+ id 1) count)
                                                         (loop (+ id 1) pos.next)))))))))
                               apaths.domain-text descs.domain-text id=>ids)))
-  (pretty-log `(merging domains ,(map cons apaths.domain-text descs.domain-text))
-              `(writing merge-sorted strings to ,apath.value)
-              `(writing positions to ,apath.pos))
+  (pretty-log '(merging domains) (map cons apaths.domain-text descs.domain-text)
+              '(writing merge-sorted strings to) apath.value
+              '(writing positions to) apath.pos)
   (define count.ids    (let/files () ((out.value apath.value)
                                       (out.pos   apath.pos))
                          (define (write-pos) (write-bytes (nat->bytes size.pos
@@ -726,7 +726,7 @@
   (define count.tuples      (hash-ref desc.table 'count))
   (define desc*.column      (hash-ref desc.table 'columns))
   (define count.columns     (length desc*.column))
-  (pretty-log `(building ,apath.root.table indexes) orderings desc.table apath*.root.index)
+  (pretty-log '(building indexes for) apath.root.table orderings desc.table apath*.root.index)
   (define key-used?       (ormap (lambda (ordering) (member #t ordering))
                                  orderings))
   (define column-ids.used (set->list (set-remove (foldl (lambda (ordering col-ids)
@@ -761,7 +761,7 @@
                                          column-ids.used
                                          (column-paths apath.root.table column-ids.used)))))
   (map (lambda (apath.root.index ordering)
-         (pretty-log `(building index ,apath.root.index with ordering ,ordering))
+         (pretty-log '(building index) apath.root.index '(with ordering) ordering)
          (define columns.used        (map (lambda (i.col) (hash-ref i=>col      i.col)) ordering))
          (define descs.used          (map (lambda (i.col) (hash-ref i=>desc.col i.col)) ordering))
          (define sizes.used          (map (lambda (desc)  (hash-ref desc        'size)) descs.used))
@@ -820,7 +820,7 @@
                                             descs.used counts))
          (define descs.column.indirect (map (lambda (apath.indirect count.current count.next)
                                               (cond ((= count.current count.next)
-                                                     (pretty-log `(deleting identity indirection ,apath.indirect))
+                                                     (pretty-log '(deleting identity indirection) apath.indirect)
                                                      (delete-file apath.indirect)
                                                      #f)
                                                     (else (hash 'type  'nat
@@ -841,7 +841,7 @@
 
 (define (read-column/bounds apath.in count read-element)
   (define vec.col (make-vector count))
-  (pretty-log `(reading ,count elements from ,apath.in and computing min/max))
+  (pretty-log `(reading ,count elements and computing min/max from) apath.in)
   (let/files ((in apath.in)) ()
     (time/pretty-log
       (let loop ((i 0) (min.col #f) (max.col 0))
@@ -855,7 +855,7 @@
 
 (define (read-column apath.in count read-element)
   (define vec.col (make-vector count))
-  (pretty-log `(reading ,count elements from ,apath.in))
+  (pretty-log `(reading ,count elements from) apath.in)
   (let/files ((in apath.in)) ()
     (time/pretty-log
       (let loop ((i 0))
@@ -868,7 +868,7 @@
   ;; - if storing ints
   ;; - if (- max.col min.col) supports a smaller nat size
   (define size.col (min-nat-bytes max.col))
-  (pretty-log `(writing ,count elements to ,apath.out)
+  (pretty-log `(writing ,count elements to) apath.out
               `(nat-size: ,size.col min: ,min.col max: ,max.col))
   (let/files () ((out apath.out))
     (time/pretty-log
