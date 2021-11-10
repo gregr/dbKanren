@@ -41,10 +41,11 @@
   database-metadata
   database-relation
   database-relation-add!
+  database-relation-remove!
   database-compact!
 
   relation-metadata
-  relation-copy
+  relation-copy!
   relation-rename!
   relation-delete!
   relation-rename-attributes!
@@ -281,29 +282,40 @@
   (define (unique-previous-path) (unique-directory path.previous "previous"))
   (define (unique-trash-path)    (unique-directory path.trash    "trash"))
 
+  (define (new-relation?! name) (when (hash-has-key? name=>relation name)
+                                  (error "relation already exists" name path.db)))
+
   (define (make-relation name)
     (define (description)           (hash-ref (hash-ref metadata 'relations) name))
     (define (description-update! f) (relations-update! (lambda (rs) (hash-update rs name f))))
     (define self
       (method-lambda
         ((metadata)                 (description))
-        ((copy    name.new)         (set! name=>relation
+        ((copy!   name.new)         (pretty-log `(copying relation ,name to ,name.new))
+                                    (new-relation?! name.new)
+                                    (set! name=>relation
                                       (hash-set name=>relation name.new (hash-ref name=>relation name)))
                                     (relations-update! (lambda (rs) (hash-set rs name.new (hash-ref rs name))))
                                     (checkpoint!))
-        ((rename! name.new)         (set! name           name.new)
+        ((rename! name.new)         (pretty-log `(renaming relation ,name to ,name.new))
+                                    (new-relation?! name.new)
                                     (set! name=>relation (let ((r    (hash-ref    name=>relation name))
                                                                (n=>r (hash-remove name=>relation name)))
                                                            (hash-set n=>r name.new r)))
                                     (relations-update! (lambda (rs) (let* ((r  (hash-ref    rs name))
                                                                            (rs (hash-remove rs name)))
                                                                       (hash-set rs name.new r))))
+                                    (set! name name.new)
                                     (checkpoint!))
-        ((delete!)                  (set! self           #f)
+        ((delete!)                  (pretty-log `(deleting relation ,name))
+                                    (set! self           #f)
                                     (set! name=>relation (hash-remove name=>relation name))
                                     (relations-update! (lambda (rs) (hash-remove rs name)))
                                     (checkpoint!))
-        ((rename-attributes! attrs) (valid-attributes?! attrs)
+        ((rename-attributes! attrs) (pretty-log `(renaming ,name attributes)
+                                                `(old: ,(hash-ref (description) 'attributes))
+                                                `(new: ,attrs))
+                                    (valid-attributes?! attrs)
                                     (let ((attrs.old (hash-ref (description) 'attributes)))
                                       (unless (= (length attrs) (length attrs.old))
                                         (error "cannot change the number of attributes"
@@ -400,8 +412,7 @@
                                                    (lambda () (error "unknown relation" name path.db))))
     ((relation-add! name attrs type src) (apply pretty-log `(creating relation ,name)
                                                 (map (lambda (a t) `(,a : ,t)) attrs type))
-                                         (when (hash-has-key? name=>relation name)
-                                           (error "relation already exists" name path.db))
+                                         (new-relation?! name)
                                          (valid-attributes?! attrs)
                                          (for-each (lambda (t) (unless (member t '(nat bytes string symbol))
                                                                  (error "invalid attribute type" t 'in type)))
@@ -424,9 +435,7 @@
                                                                                       path.table       desc.table)))
                                          (relations-update! (lambda (rs)   (hash-set  rs name desc.relation)))
                                          (checkpoint!)
-                                         (define r (make-relation name))
-                                         (set! name=>relation (hash-set name=>relation name r))
-                                         r)
+                                         (set! name=>relation (hash-set name=>relation name (make-relation name))))
     ((compact!)                          (compact!))))
 
 (define (database-metadata         db)              (db 'metadata))
@@ -435,12 +444,13 @@
                                                         (plist-ref pargs 'attributes)
                                                         (plist-ref pargs 'type)
                                                         (plist-ref pargs 'source)))
+(define (database-relation-remove! db name)         (relation-delete! (database-relation db name)))
 (define (database-compact!         db)              (db 'compact!))
 
 ;; TODO: support importing another database entirely
 
 (define (relation-metadata            r)              (r 'metadata))
-(define (relation-copy                r name.new)     (r 'copy               name.new))
+(define (relation-copy!               r name.new)     (r 'copy!              name.new))
 (define (relation-rename!             r name.new)     (r 'rename!            name.new))
 (define (relation-delete!             r)              (r 'delete!))
 (define (relation-rename-attributes!  r attrs.new)    (r 'rename-attributes! attrs.new))
