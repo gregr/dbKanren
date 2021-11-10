@@ -200,6 +200,8 @@
     (define paths.domain-text (set->list (list->set paths.domain-text/duplicates)))
     (unless (< 1 (length paths.domain-text)) (pretty-log '(no compaction necessary)))
     (when (< 1 (length paths.domain-text))
+      (define (type=>id=>id path.domain-text)
+        (hash 'text (hash-ref path.domain-text=>id=>id path.domain-text)))
       (define path.domain-text.new     (unique-path "domain-text"))
       (define descs.domain-text        (map (lambda (p) (hash-ref data p)) paths.domain-text))
       (define compaction               (compact-text-domains
@@ -209,15 +211,23 @@
       (define desc.domain-text.new     (hash-ref compaction 'domain-text))
       (define path.domain-text=>id=>id (make-immutable-hash
                                          (map cons paths.domain-text (hash-ref compaction 'remappings))))
-      (define paths.table.new          (map (lambda (_) (unique-path "table")) paths.table))
+      (define paths.table.new          (map (lambda (path.table desc.table path.domain-text)
+                                              (if (remap-table? desc.table (type=>id=>id path.domain-text))
+                                                (unique-path "table")
+                                                path.table))
+                                            paths.table descs.table paths.domain-text/duplicates))
       (define path.t=>path.t.new       (make-immutable-hash (map cons paths.table paths.table.new)))
       (define descs.table.new
         (map (lambda (path.table path.table.new desc.table path.domain-text)
-               (remap-table (data-path path.table)
-                            (data-path path.table.new)
-                            desc.table
-                            (hash 'text path.domain-text.new)
-                            (hash 'text (hash-ref path.domain-text=>id=>id path.domain-text))))
+               (define desc.domain.new (hash 'text path.domain-text.new))
+               (if (equal? path.table path.table.new)
+                 (begin (pretty-log '(no need to remap table) path.table)
+                        (hash-set desc.table 'domain desc.domain.new))
+                 (remap-table (data-path path.table)
+                              (data-path path.table.new)
+                              desc.table
+                              desc.domain.new
+                              (type=>id=>id path.domain-text))))
              paths.table paths.table.new descs.table paths.domain-text/duplicates))
       (define paths.table-index
         (append* (map (lambda (desc.relation)
@@ -226,20 +236,30 @@
                                   (member (hash-ref desc.table-index 'table) paths.table))
                                 (hash-ref desc.relation 'indexes)))
                       descs.relation)))
-      (define paths.table-index.new (map (lambda (_) (unique-path "table-index")) paths.table-index))
+      (define descs.table-index     (map (lambda (path.ti) (hash-ref data path.ti)) paths.table-index))
+      (define paths.table-index.new (map (lambda (path.ti desc.ti)
+                                           (define path.table  (hash-ref desc.ti 'table))
+                                           (define desc.domain (hash-ref (hash-ref data path.table) 'domain))
+                                           (define path.dt     (hash-ref desc.domain 'text))
+                                           (if (remap-table-index? desc.ti (type=>id=>id path.dt))
+                                             (unique-path "table-index")
+                                             path.ti))
+                                         paths.table-index descs.table-index))
       (define path.ti=>path.ti.new  (make-immutable-hash (map cons paths.table-index paths.table-index.new)))
       (define descs.table-index.new
-        (map (lambda (path.table-index path.table-index.new)
-               (define desc.table-index (hash-ref data               path.table-index))
+        (map (lambda (path.table-index path.table-index.new desc.table-index)
                (define path.table       (hash-ref desc.table-index   'table))
                (define path.table.new   (hash-ref path.t=>path.t.new path.table))
                (define path.domain-text (hash-ref (hash-ref (hash-ref data path.table) 'domain) 'text))
-               (remap-table-index (data-path path.table-index)
-                                  (data-path path.table-index.new)
-                                  desc.table-index
-                                  path.table.new
-                                  (hash 'text (hash-ref path.domain-text=>id=>id path.domain-text))))
-             paths.table-index paths.table-index.new))
+               (if (equal? path.table-index path.table-index.new)
+                 (begin (pretty-log '(no need to remap table index) path.table-index)
+                        desc.table-index)
+                 (remap-table-index (data-path path.table-index)
+                                    (data-path path.table-index.new)
+                                    desc.table-index
+                                    path.table.new
+                                    (type=>id=>id path.domain-text))))
+             paths.table-index paths.table-index.new descs.table-index))
       (pretty-log '(installing remapped data))
       (data-update!
         (lambda (data)
@@ -887,6 +907,12 @@
           (write-bytes (nat->bytes size.col (vector-ref vec.col i)) out)
           (loop (+ i 1))))))
   size.col)
+
+(define (remap-column?      desc.col   type=>id=>id) (not (not (hash-ref type=>id=>id (hash-ref desc.col 'type) #f))))
+(define (remap-table?       desc.table type=>id=>id) (ormap (lambda (desc.col) (remap-column? desc.col type=>id=>id))
+                                                            (hash-ref desc.table 'columns)))
+(define (remap-table-index? desc.ti    type=>id=>id) (ormap (lambda (desc.col) (remap-column? desc.col type=>id=>id))
+                                                            (hash-ref desc.ti 'columns.key)))
 
 (define (remap-column apath.in apath.out desc.in type=>id=>id)
   (pretty-log `(remapping ,apath.in to ,apath.out) desc.in)
