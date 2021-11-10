@@ -110,23 +110,6 @@
 (define (database path.db . pargs)
   (define (db-path   name) (path->string (build-path path.db      name)))
   (define (data-path name) (path->string (build-path path.current name)))
-  (define path.current       (db-path "current"))
-  (define path.previous      (db-path "previous"))
-  (define path.trash         (db-path "trash"))
-  (define path.pending       (db-path "pending"))
-  (define path.metadata      (db-path fn.metadata))
-  (define path.metadata.next (string-append path.metadata fnsuffix.next))
-  (for-each make-directory* (list path.db path.current path.previous path.trash path.pending))
-  (define metadata
-    (cond ((file-exists? path.metadata)      (call-with-input-file path.metadata read))
-          ((file-exists? path.metadata.next) (pretty-log '(checkpointing metadata after interrupted swap))
-                                             (rename-file-or-directory path.metadata.next path.metadata)
-                                             (call-with-input-file path.metadata read))
-          (else                              (pretty-log `(creating new database ,path.db))
-                                             (call-with-output-file
-                                               path.metadata
-                                               (lambda (out) (pretty-write desc.database.empty out)))
-                                             desc.database.empty)))
 
   (define (relations-update! f) (set! metadata (hash-update metadata 'relations f)))
   (define (data-update!      f) (set! metadata (hash-update metadata 'data      f)))
@@ -166,7 +149,6 @@
       (define upath (unique-previous-path))
       (pretty-log `(moving ,pending-previous to ,upath))
       (rename-file-or-directory pending-previous upath))
-
     (define pending-trash (build-path path.db "pending-trash"))
     (when (file-exists? path.metadata.next)
       (pretty-log '(moving interrupted checkpoint to trash) path.metadata.next)
@@ -299,12 +281,6 @@
   (define (unique-previous-path) (unique-directory path.previous "previous"))
   (define (unique-trash-path)    (unique-directory path.trash    "trash"))
 
-  (pretty-log `(loaded metadata for ,path.db) metadata)
-  ;; TODO: migrate metadata if format-version is old
-  (clean!)
-  ;; TODO: resume pending data-processing jobs
-  ;(hash-ref metadata 'jobs)
-
   (define (make-relation name)
     (define (description)           (hash-ref (hash-ref metadata 'relations) name))
     (define (description-update! f) (relations-update! (lambda (rs) (hash-update rs name f))))
@@ -388,6 +364,29 @@
     (lambda args
       (unless self (error "cannot use deleted relation" name))
       (apply self args)))
+
+  (define path.current       (db-path "current"))
+  (define path.previous      (db-path "previous"))
+  (define path.trash         (db-path "trash"))
+  (define path.pending       (db-path "pending"))
+  (define path.metadata      (db-path fn.metadata))
+  (define path.metadata.next (string-append path.metadata fnsuffix.next))
+  (for-each make-directory* (list path.db path.current path.previous path.trash path.pending))
+  (define metadata
+    (cond ((file-exists? path.metadata)      (call-with-input-file path.metadata read))
+          ((file-exists? path.metadata.next) (pretty-log '(checkpointing metadata after interrupted swap))
+                                             (rename-file-or-directory path.metadata.next path.metadata)
+                                             (call-with-input-file path.metadata read))
+          (else                              (pretty-log `(creating new database ,path.db))
+                                             (call-with-output-file
+                                               path.metadata
+                                               (lambda (out) (pretty-write desc.database.empty out)))
+                                             desc.database.empty)))
+  (pretty-log `(loaded metadata for ,path.db) metadata)
+  ;; TODO: migrate metadata if format-version is old
+  (clean!)
+  ;; TODO: resume pending data-processing jobs
+  ;(hash-ref metadata 'jobs)
 
   (define name=>relation (make-immutable-hash
                            (hash-map (hash-ref metadata 'relations)
