@@ -8,7 +8,8 @@
          map/merge map/append
          min-bits min-bytes min-bytes-power2 nat?
          bytes-nat-ref bytes-nat-set! nat->bytes bytes->nat
-         sum)
+         sum
+         normalize-path)
 (require (for-syntax racket/base) racket/fixnum racket/list racket/match racket/set)
 
 (define-syntax simple-match-lambda
@@ -281,3 +282,5 @@
 (define (bytes->nat bs size) (bytes-nat-ref bs size 0))
 
 (define (sum xs) (foldl + 0 xs))
+
+(define (normalize-path path) (path->string (simplify-path (resolve-path (simplify-path path)))))
