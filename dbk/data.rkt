@@ -124,8 +124,18 @@
              (lambda (r) (list (relation-name     r)
                                (relation-metadata r)))))))
 
-;; TODO: prevent duplicate databases from being loaded, based on the fully-expanded, real db path
+;; Racket doesn't seem to have a weak-value hash table, so we
+;; suboptimally use a weak-key hash table as a self-cleaning list.
+(define all-databases (make-weak-hash))
 (define (database path.db)
+  (let ((path.db (normalize-path path.db)))
+    (or (ormap (lambda (db) (and (equal? path.db (wrapped-database-path db)) db))
+               (hash-keys all-databases))
+        (let ((db (make-database path.db)))
+          (hash-set! all-databases db (void))
+          db))))
+
+(define (make-database path.db)
   (define (db-path   name) (path->string (build-path path.db      name)))
   (define (data-path name) (path->string (build-path path.current name)))
 
