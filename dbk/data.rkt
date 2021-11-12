@@ -44,6 +44,7 @@
   database-relation-remove!
   database-compact!
 
+  relation-name
   relation-metadata
   relation-copy!
   relation-rename!
@@ -114,6 +115,14 @@
              (lambda (db) 'database)
              (lambda (db) (list (wrapped-database-path       db)
                                 (hash-ref (database-metadata db) 'relations)))))))
+
+(struct wrapped-relation (controller)
+        #:methods gen:custom-write
+        ((define write-proc
+           (make-constructor-style-printer
+             (lambda (r) 'relation)
+             (lambda (r) (list (relation-name     r)
+                               (relation-metadata r)))))))
 
 ;; TODO: prevent duplicate databases from being loaded, based on the fully-expanded, real db path
 (define (database path.db)
@@ -316,12 +325,12 @@
   (define (new-relation?! name) (when (hash-has-key? name=>relation name)
                                   (error "relation already exists" name path.db)))
 
-  ;; TODO: wrap relation controller with struct
   (define (make-relation name)
     (define (description)           (hash-ref (hash-ref metadata 'relations) name))
     (define (description-update! f) (relations-update! (lambda (rs) (hash-update rs name f))))
     (define self
       (method-lambda
+        ((name)                     name)
         ((metadata)                 (description))
         ((copy!   name.new)         (pretty-log `(copying relation ,name to ,name.new))
                                     (new-relation?! name.new)
@@ -447,9 +456,9 @@
                                         (checkpoint!))))
         ;; TODO: only spend effort compacting this relation
         ((compact!)                 (compact!))))
-    (lambda args
-      (unless self (error "cannot use deleted relation" name))
-      (apply self args)))
+    (wrapped-relation (lambda args
+                        (unless self (error "cannot use deleted relation" name))
+                        (apply self args))))
 
   (define path.current       (db-path "current"))
   (define path.previous      (db-path "previous"))
@@ -525,14 +534,15 @@
 
 ;; TODO: support importing another database entirely
 
-(define (relation-metadata            r)              (r 'metadata))
-(define (relation-copy!               r name.new)     (r 'copy!              name.new))
-(define (relation-rename!             r name.new)     (r 'rename!            name.new))
-(define (relation-delete!             r)              (r 'delete!))
-(define (relation-rename-attributes!  r attrs.new)    (r 'rename-attributes! attrs.new))
-(define (relation-index-add!          r . signatures) (r 'index-add!         signatures))
-(define (relation-index-remove!       r . signatures) (r 'index-remove!      signatures))
-(define (relation-compact!            r)              (r 'compact!))
+(define (relation-name                r)              ((wrapped-relation-controller r) 'name))
+(define (relation-metadata            r)              ((wrapped-relation-controller r) 'metadata))
+(define (relation-copy!               r name.new)     ((wrapped-relation-controller r) 'copy!              name.new))
+(define (relation-rename!             r name.new)     ((wrapped-relation-controller r) 'rename!            name.new))
+(define (relation-delete!             r)              ((wrapped-relation-controller r) 'delete!))
+(define (relation-rename-attributes!  r attrs.new)    ((wrapped-relation-controller r) 'rename-attributes! attrs.new))
+(define (relation-index-add!          r . signatures) ((wrapped-relation-controller r) 'index-add!         signatures))
+(define (relation-index-remove!       r . signatures) ((wrapped-relation-controller r) 'index-remove!      signatures))
+(define (relation-compact!            r)              ((wrapped-relation-controller r) 'compact!))
 
 ;; TODO: in-place sorting of multiple columns
 (define (nat-tuple<? a b)
