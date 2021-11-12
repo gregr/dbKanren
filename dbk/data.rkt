@@ -54,7 +54,7 @@
   relation-compact!
   )
 (require "codec.rkt" "enumerator.rkt" "heap.rkt" "misc.rkt" "order.rkt" "stream.rkt"
-         racket/file racket/list racket/match racket/pretty racket/set racket/vector)
+         racket/file racket/list racket/match racket/pretty racket/set racket/struct racket/vector)
 
 ;; TODO: use these definitions to replace the logging defined in config.rkt
 (define (pretty-log/port out . args)
@@ -107,8 +107,16 @@
   (unless (= (length attrs) (set-count (list->set attrs)))
     (error "attributes must be unique" attrs)))
 
-;; TODO: wrap database and relation controllers with structs
-(define (database path.db . pargs)
+(struct wrapped-database (path controller)
+        #:methods gen:custom-write
+        ((define write-proc
+           (make-constructor-style-printer
+             (lambda (db) 'database)
+             (lambda (db) (list (wrapped-database-path       db)
+                                (hash-ref (database-metadata db) 'relations)))))))
+
+;; TODO: prevent duplicate databases from being loaded, based on the fully-expanded, real db path
+(define (database path.db)
   (define (db-path   name) (path->string (build-path path.db      name)))
   (define (data-path name) (path->string (build-path path.current name)))
 
@@ -308,6 +316,7 @@
   (define (new-relation?! name) (when (hash-has-key? name=>relation name)
                                   (error "relation already exists" name path.db)))
 
+  ;; TODO: wrap relation controller with struct
   (define (make-relation name)
     (define (description)           (hash-ref (hash-ref metadata 'relations) name))
     (define (description-update! f) (relations-update! (lambda (rs) (hash-update rs name f))))
@@ -471,46 +480,48 @@
                                        (pretty-log `(loading relation ,name) desc.relation)
                                        (cons name (make-relation name))))))
 
-  (method-lambda
-    ((metadata)                          metadata)
-    ((relation name)                     (hash-ref name=>relation name
-                                                   (lambda () (error "unknown relation" name path.db))))
-    ((relation-add! name attrs type src) (apply pretty-log `(creating relation ,name)
-                                                (map (lambda (a t) `(,a : ,t)) attrs type))
-                                         (new-relation?! name)
-                                         (valid-attributes?! attrs)
-                                         (for-each (lambda (t) (unless (member t '(nat bytes string symbol))
-                                                                 (error "invalid attribute type" t 'in type)))
-                                                   type)
-                                         (unless (= (length attrs) (length type))
-                                           (error "number of attributes must match the relation type arity"
-                                                  name attrs type))
-                                         (define path.domain-text (unique-path "domain-text"))
-                                         (define path.table       (unique-path "table"))
-                                         (define desc.ingest      (ingest-relation-source
-                                                                    path.current path.domain-text path.table type src))
-                                         (define desc.domain-text (hash-ref (hash-ref desc.ingest 'domain) 'text))
-                                         (define desc.table       (hash-ref desc.ingest 'table))
-                                         (define desc.relation    (hash 'attributes attrs
-                                                                        'type       type
-                                                                        'tables     (list path.table)
-                                                                        'indexes    '()))
-                                         (data-update!      (lambda (data) (hash-set* data
-                                                                                      path.domain-text desc.domain-text
-                                                                                      path.table       desc.table)))
-                                         (relations-update! (lambda (rs)   (hash-set  rs name desc.relation)))
-                                         (checkpoint!)
-                                         (set! name=>relation (hash-set name=>relation name (make-relation name))))
-    ((compact!)                          (compact!))))
+  (wrapped-database
+    path.db
+    (method-lambda
+      ((metadata)                          metadata)
+      ((relation name)                     (hash-ref name=>relation name
+                                                     (lambda () (error "unknown relation" name path.db))))
+      ((relation-add! name attrs type src) (apply pretty-log `(creating relation ,name)
+                                                  (map (lambda (a t) `(,a : ,t)) attrs type))
+                                           (new-relation?! name)
+                                           (valid-attributes?! attrs)
+                                           (for-each (lambda (t) (unless (member t '(nat bytes string symbol))
+                                                                   (error "invalid attribute type" t 'in type)))
+                                                     type)
+                                           (unless (= (length attrs) (length type))
+                                             (error "number of attributes must match the relation type arity"
+                                                    name attrs type))
+                                           (define path.domain-text (unique-path "domain-text"))
+                                           (define path.table       (unique-path "table"))
+                                           (define desc.ingest      (ingest-relation-source
+                                                                      path.current path.domain-text path.table type src))
+                                           (define desc.domain-text (hash-ref (hash-ref desc.ingest 'domain) 'text))
+                                           (define desc.table       (hash-ref desc.ingest 'table))
+                                           (define desc.relation    (hash 'attributes attrs
+                                                                          'type       type
+                                                                          'tables     (list path.table)
+                                                                          'indexes    '()))
+                                           (data-update!      (lambda (data) (hash-set* data
+                                                                                        path.domain-text desc.domain-text
+                                                                                        path.table       desc.table)))
+                                           (relations-update! (lambda (rs)   (hash-set  rs name desc.relation)))
+                                           (checkpoint!)
+                                           (set! name=>relation (hash-set name=>relation name (make-relation name))))
+      ((compact!)                          (compact!)))))
 
-(define (database-metadata         db)              (db 'metadata))
-(define (database-relation         db name)         (db 'relation         name))
-(define (database-relation-add!    db name . pargs) (db 'relation-add!    name
-                                                        (plist-ref pargs 'attributes)
-                                                        (plist-ref pargs 'type)
-                                                        (plist-ref pargs 'source)))
+(define (database-metadata         db)              ((wrapped-database-controller db) 'metadata))
+(define (database-relation         db name)         ((wrapped-database-controller db) 'relation         name))
+(define (database-relation-add!    db name . pargs) ((wrapped-database-controller db) 'relation-add!    name
+                                                                                      (plist-ref pargs 'attributes)
+                                                                                      (plist-ref pargs 'type)
+                                                                                      (plist-ref pargs 'source)))
 (define (database-relation-remove! db name)         (relation-delete! (database-relation db name)))
-(define (database-compact!         db)              (db 'compact!))
+(define (database-compact!         db)              ((wrapped-database-controller db) 'compact!))
 
 ;; TODO: support importing another database entirely
 
