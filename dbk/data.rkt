@@ -57,6 +57,11 @@
 (require "codec.rkt" "enumerator.rkt" "heap.rkt" "misc.rkt" "order.rkt" "stream.rkt"
          racket/file racket/list racket/match racket/pretty racket/set racket/struct racket/vector)
 
+;; TODO:
+;bscm.rkt
+;bscm:read bscm:write ?
+;or favor a bytes-ref/bytes-set! style interface with bscm types?
+
 ;; TODO: use these definitions to replace the logging defined in config.rkt
 (define (pretty-log/port out . args)
   (define seconds (current-seconds))
@@ -77,6 +82,69 @@
   (let-values (((results time.cpu time.real time.gc) (time-apply (lambda () body ...) '())))
     (pretty-log `(time cpu ,time.cpu real ,time.real gc ,time.gc))
     (apply values results)))
+
+;;;;;;;;;;;;;;;;;;;;;;;
+;;; Metadata format ;;;
+;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;desc.database
+;;(hash
+;;  'relations      (hash NAME desc.relation ...)
+;;  'current        (hash PATH desc.arbitrary ...)
+;;  'pending        (list JOB ...)
+;;  )
+;;
+;;;; supports copying by sharing table and index descriptions
+;;desc.relation
+;;(hash
+;;  'attributes (list attribute-names ...)
+;;  'type       (list high-level-types ...)
+;;  'tables     (list path.table ...)
+;;  'indexes    (list path.index ...)
+;;  )
+;;
+;;desc.domain
+;;(hash
+;;  'text path-to-domain-text
+;;  ...
+;;  )
+;;
+;;desc.domain-text
+;;(hash
+;;  'count         num-elements
+;;  'size.position num-bytes
+;;  'index         optional-path-to-index
+;;  )
+;;
+;;TODO:
+;;desc.domain-text-index
+;;(hash
+;;  'domain path.domain
+;;  )
+;;
+;;desc.column
+;;(hash
+;;  'type  'nat|'text
+;;  'count num-elements
+;;  'size  nat-bytes
+;;  'min   _
+;;  'max   _
+;;  )
+;;
+;;desc.table
+;;(hash
+;;  'domain  desc.domain
+;;  'count   tuple-count
+;;  'columns (list desc.column ...)
+;;  )
+;;
+;;desc.table-index
+;;(hash
+;;  'table            path.table
+;;  'ordering         (list 3 1 2 etc.)
+;;  'columns.value    (list desc.column ...)
+;;  'columns.indirect (list desc.column ...)  ; length is (- (length columns) 1)
+;;  )
 
 (define fn.metadata       "metadata.scm")
 (define fn.value          "value")
@@ -99,6 +167,19 @@
   (hash 'relations (hash)
         'data      (hash)
         'jobs      '()))
+
+;; TODO: store redundant metadata
+;; - for optional consistency checking
+;; - also for independent file/folder exploration (e.g., analyzing trash)
+;;   - file explorer:
+;;     - display both logical and physical values
+;;     - indicate min/max
+;;     - jump to row, jump to column
+;;       - absolute or relative
+;;     - search for logical/physical value
+;;       - local (fast), or various forms of global (slow)
+;;       - optionally use full-text search indexes
+;; - "previous" directory supports time travel as long as most recent groups are not deleted
 
 (define (valid-attributes?! attrs)
   (unless (list? attrs)
@@ -1045,6 +1126,9 @@
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
 
+;; TODO:
+;; simple edb-relations vs. idb-relations w/ fixed-point iteration materializations (current + next-delta + now-being-produced)
+
 (define (bisect start end i<)
   (let loop ((start start) (end end))
     (if (<= end start) end
@@ -1073,6 +1157,7 @@
                           ((and (>= n start) (i> n)) (loop n o))
                           (else                      (loop i o)))))))))
 
+;; TODO: remove tables, or at least reduce their scope?
 (define table.empty
   (method-lambda
     ((length)                         0)
@@ -1167,6 +1252,11 @@
                                                       (bytes->string/utf-8 (read-bytes (- pos.1 pos.0) in)))))
 
 (define ((interval->dict:ordered i->key i->value) start end) (dict:ordered i->key i->value start end))
+
+;; TODO: not needed?
+;(define (dict:ordered:trie start end)
+  ;)
+
 
 (define dict.empty
   (method-lambda
@@ -1413,6 +1503,14 @@
 
 
 ;; TODO: computing fixed points?
+;; - iteration: changed?
+;; - relation/variable: stable, next, to-add
+
+;; TODO: multiway-joins
+;; - extend-with
+;; - extend-anti
+;; - filter-with
+;; - filter-anti
 
 (define (domain path type . pargs)
   (unless (equal? type 'string) (error "unimplemented domain type:" type))
@@ -1571,3 +1669,56 @@
         (printf "~s " (table-ref t col row)))
       (newline)))
   )
+
+;; TODO:
+;join-many, need attribute order
+
+;extend-with/anti
+;filter-with/anti
+
+;;; TODO: these are analogous to operators: a set of tuples flowing through a particular program point
+;(struct idb-relation (done current new) #:prefab)
+
+;;; exponential search aka one-sided binary search
+;(define (join-tables t.0 t.1 k)
+  ;;; (k key v.0 v.1)
+;;key.0 key.1
+  ;)
+
+;;; NOTE: this semi-naive join does not correctly generalize to more than 2 relations
+;(define (join-idb-relations r.0 r.1 logic)
+  ;(append
+    ;(map (lambda (t.1)
+           ;(join-tables (idb-relation-current r.0)
+                        ;t.1
+                        ;;; TODO: no need to eta expand
+                        ;(lambda (k v.0 v.1)
+                          ;(logic k v.0 v.1))))
+         ;(idb-relation-done r.1))
+    ;(map (lambda (t.0)
+           ;(join-tables t.0
+                        ;(idb-relation-current r.1)
+                        ;(lambda (k v.0 v.1)
+                          ;(logic k v.0 v.1))))
+         ;(idb-relation-done r.0))
+    ;(join-tables (idb-relation-current r.0)
+                 ;(idb-relation-current r.1)
+                 ;(lambda (k v.0 v.1)
+                   ;(logic k v.0 v.1)))))
+
+;(define (idb-relation-step r)
+  ;(match-define (idb-relation done current new) r)
+  ;(let* ((done    (let loop ((done done) (current current))
+                    ;(match done
+                      ;('()             (list current))
+                      ;((cons top done) (if (<= (vector-length top)
+                                               ;(* 2 (vector-length current)))
+                                         ;(loop done (table-union current top))
+                                         ;(cons current (cons top done)))))))
+         ;(current (foldl (lambda (t.done next)
+                           ;(filter-not (lambda (tuple) (table-member? t.done)) next))
+                         ;(vector->list (match new
+                                         ;('()             (table '()))
+                                         ;((cons next new) (foldl table-union next new))))
+                         ;done)))
+    ;(idb-relation done current '())))
