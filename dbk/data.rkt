@@ -146,14 +146,16 @@
 ;;  'columns.indirect (list desc.column ...)  ; length is (- (length columns) 1)
 ;;  )
 
-(define fn.metadata       "metadata.scm")
-(define fn.value          "value")
-(define fn.pos            "position")
-(define fn.tuple          "tuple")
-(define fn.col            "column")
-(define fnsuffix.key      ".key")
-(define fnsuffix.indirect ".indirect")
-(define fnsuffix.next     ".next")
+(define fnsuffix.key        ".key")
+(define fnsuffix.indirect   ".indirect")
+(define fnsuffix.next       ".next")
+(define fnsuffix.initial    ".initial")
+(define fn.metadata         "metadata.scm")
+(define fn.value            "value")
+(define fn.pos              "position")
+(define fn.tuple            "tuple")
+(define fn.col              "column")
+(define fn.metadata.initial (string-append fn.metadata fnsuffix.initial))
 
 (define metadata-format-version "0")
 
@@ -670,7 +672,7 @@
   (define apath.domain.value    (path->string (build-path apath.root lpath.domain-text fn.value)))
   (define apath.domain.pos      (path->string (build-path apath.root lpath.domain-text fn.pos)))
   (define apath*.column         (column-paths (build-path apath.root lpath.table) (range (length type))))
-  (define apath*.column.initial (map (lambda (p.c) (string-append p.c ".initial"))
+  (define apath*.column.initial (map (lambda (p.c) (string-append p.c fnsuffix.initial))
                                      apath*.column))
   ;; TODO: can store (null)/bools/ints too, which will be physically shifted into min/max range
   ;; if min/max range is singleton (guaranteed for null), nothing needs to be stored for that column
@@ -742,7 +744,7 @@
   (define desc.domain-text
     (hash 'count         count.ids
           'size.position size.pos))
-  (write-metadata (build-path apath.root lpath.domain-text fn.metadata) desc.domain-text)
+  (write-metadata (build-path apath.root lpath.domain-text fn.metadata.initial) desc.domain-text)
 
   (pretty-log '(remapping columns))
   (define column-vmms
@@ -793,7 +795,7 @@
     (hash 'domain  (hash 'text lpath.domain-text)
           'count   count.tuples.unique
           'columns column-descriptions))
-  (write-metadata (build-path apath.root lpath.table fn.metadata) desc.table)
+  (write-metadata (build-path apath.root lpath.table fn.metadata.initial) desc.table)
 
   (hash 'domain (hash 'text desc.domain-text)
         'table  desc.table))
@@ -883,7 +885,7 @@
   (define desc.domain-text
     (hash 'count         count.ids
           'size.position size.pos))
-  (write-metadata (build-path apath.domain-text.new fn.metadata) desc.domain-text)
+  (write-metadata (build-path apath.domain-text.new fn.metadata.initial) desc.domain-text)
   (hash 'domain-text desc.domain-text
         'remappings  remappings))
 
@@ -1022,7 +1024,7 @@
                                              'ordering         ordering
                                              'columns.key      descs.column.key
                                              'columns.indirect descs.column.indirect))
-         (write-metadata (build-path apath.root.index fn.metadata) desc.table-index)
+         (write-metadata (build-path apath.root.index fn.metadata.initial) desc.table-index)
          desc.table-index)
        apath*.root.index orderings))
 
@@ -1099,7 +1101,7 @@
   (define desc.table.out (hash 'domain  desc.domain.new
                                'count   (hash-ref desc.table.in 'count)
                                'columns columns.out))
-  (write-metadata (build-path apath.out fn.metadata) desc.table.out)
+  (write-metadata (build-path apath.out fn.metadata.initial) desc.table.out)
   desc.table.out)
 
 (define (remap-table-index apath.in apath.out desc.table-index.in lpath.table.new type=>id=>id)
@@ -1120,7 +1122,7 @@
                                           'table            lpath.table.new
                                           'columns.key      columns.key.out
                                           'columns.indirect columns.indirect.out))
-  (write-metadata (build-path apath.out fn.metadata) desc.table-index.out)
+  (write-metadata (build-path apath.out fn.metadata.initial) desc.table-index.out)
   desc.table-index.out)
 
 
