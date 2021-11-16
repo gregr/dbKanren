@@ -38,6 +38,7 @@
   domain
 
   database
+  database-path
   database-metadata
   database-relation
   database-relation-names
@@ -193,12 +194,12 @@
   (unless (= (length attrs) (set-count (list->set attrs)))
     (error "attributes must be unique" attrs)))
 
-(struct wrapped-database (path controller)
+(struct wrapped-database (controller)
         #:methods gen:custom-write
         ((define write-proc
            (make-constructor-style-printer
              (lambda (db) 'database)
-             (lambda (db) (list (wrapped-database-path       db)
+             (lambda (db) (list (database-path db)
                                 (hash-ref (database-metadata db) 'relations)))))))
 
 (struct wrapped-relation (controller)
@@ -214,7 +215,7 @@
 (define all-databases (make-weak-hash))
 (define (database path.db)
   (let ((path.db (normalize-path path.db)))
-    (or (ormap (lambda (db) (and (equal? path.db (wrapped-database-path db)) db))
+    (or (ormap (lambda (db) (and (equal? path.db (database-path db)) db))
                (hash-keys all-databases))
         (let ((db (make-database path.db)))
           (hash-set! all-databases db (void))
@@ -585,8 +586,8 @@
                                        (cons name (make-relation name))))))
 
   (wrapped-database
-    path.db
     (method-lambda
+      ((path)                              path.db)
       ((metadata)                          metadata)
       ((relation name)                     (hash-ref name=>relation name
                                                      (lambda () (error "unknown relation" name path.db))))
@@ -618,6 +619,7 @@
                                            (set! name=>relation (hash-set name=>relation name (make-relation name))))
       ((compact!)                          (compact!)))))
 
+(define (database-path             db)              ((wrapped-database-controller db) 'path))
 (define (database-metadata         db)              ((wrapped-database-controller db) 'metadata))
 (define (database-relation         db name)         ((wrapped-database-controller db) 'relation         name))
 (define (database-relation-names   db)              (hash-keys     (hash-ref (database-metadata db) 'relations)))
