@@ -46,6 +46,8 @@
   database-relation-add!
   database-relation-remove!
   database-compact!
+  database-import!
+  database-export!
 
   relation-name
   relation-metadata
@@ -228,9 +230,12 @@
   (define (relations-update! f) (set! metadata (hash-update metadata 'relations f)))
   (define (data-update!      f) (set! metadata (hash-update metadata 'data      f)))
 
-  (define (reachable)
+  (define (reachable (relation-names #f))
     (define data               (hash-ref metadata 'data))
-    (define descs.relation     (hash-values (hash-ref metadata 'relations)))
+    (define name=>relation     (hash-ref metadata 'relations))
+    (define descs.relation     (if relation-names
+                                 (map (lambda (name) (hash-ref name=>relation name)) relation-names)
+                                 (hash-values name=>relation)))
     (define lpaths.table       (list->set (append* (map (lambda (desc.r) (hash-ref desc.r 'tables))  descs.relation))))
     (define lpaths.table-index (list->set (append* (map (lambda (desc.r) (hash-ref desc.r 'indexes)) descs.relation))))
     (define descs.table        (set-map lpaths.table (lambda (lp) (hash-ref data lp))))
@@ -589,6 +594,7 @@
     (method-lambda
       ((path)                              path.db)
       ((metadata)                          metadata)
+      ((reachable names)                   (reachable names))
       ((relation name)                     (hash-ref name=>relation name
                                                      (lambda () (error "unknown relation" name path.db))))
       ((relation-add! name attrs type src) (apply pretty-log `(creating relation ,name)
@@ -617,6 +623,39 @@
                                            (relations-update! (lambda (rs)   (hash-set  rs name desc.relation)))
                                            (checkpoint!)
                                            (set! name=>relation (hash-set name=>relation name (make-relation name))))
+      ((import! db.in names.in)            (pretty-log `(importing relations . ,names.in) 'from: (db.in 'path) 'into: path.db)
+                                           (define path.current.in   (path->string (build-path (db.in 'path) "current")))
+                                           (define name=>relation.in (hash-ref (db.in 'metadata) 'relations))
+                                           (define lpath=>data.in    (hash-ref (db.in 'metadata) 'data))
+                                           (define descs.relation.in (map (lambda (name)
+                                                                            (unless (hash-has-key? name=>relation.in name)
+                                                                              (error "cannot import non-existent relation"
+                                                                                     name (db.in 'path)))
+                                                                            (new-relation?! name)
+                                                                            (hash-ref name=>relation.in name))
+                                                                          names.in))
+                                           (define lpaths.reachable (set->list (db.in 'reachable names.in)))
+                                           ;; TODO: support renaming paths when collision occurs
+                                           ;; This currently causes multiple domain-sharing imports from the same db to fail
+                                           (for-each (lambda (lpath)
+                                                       (define apath (data-path lpath))
+                                                       (when (directory-exists? apath)
+                                                         (error "import path already exists" apath)))
+                                                     lpaths.reachable)
+                                           (for-each (lambda (lpath)
+                                                       (define apath.in  (path->string (build-path path.current.in lpath)))
+                                                       (define apath.out (data-path lpath))
+                                                       (pretty-log '(copying for import) apath.in apath.out)
+                                                       (copy-directory/files apath.in apath.out #:keep-modify-seconds? #t))
+                                                     lpaths.reachable)
+                                           (data-update!      (lambda (data)
+                                                                (foldl (lambda (lpath data)
+                                                                         (hash-set data lpath (hash-ref lpath=>data.in lpath)))
+                                                                       data lpaths.reachable)))
+                                           (relations-update! (lambda (rs)
+                                                                (foldl (lambda (name desc rs) (hash-set rs name desc))
+                                                                       rs names.in descs.relation.in)))
+                                           (checkpoint!))
       ((compact!)                          (compact!)))))
 
 (define (database-path             db)              ((wrapped-database-controller db) 'path))
@@ -631,7 +670,13 @@
 (define (database-relation-remove! db name)         (relation-delete! (database-relation db name)))
 (define (database-compact!         db)              ((wrapped-database-controller db) 'compact!))
 
-;; TODO: support importing another database entirely
+(define (database-import! db db.in    . relation-names.in)
+  ((wrapped-database-controller db) 'import! (wrapped-database-controller db.in) relation-names.in))
+(define (database-export! db path.out . relation-names.out)
+  (let ((path.out (normalize-path path.out)))
+    (when (or (file-exists? path.out) (directory-exists? path.out))
+      (error "export destination already exists" path.out))
+    (apply database-import! (database path.out) db relation-names.out)))
 
 (define (relation-name                r)              ((wrapped-relation-controller r) 'name))
 (define (relation-metadata            r)              ((wrapped-relation-controller r) 'metadata))
