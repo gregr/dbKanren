@@ -40,6 +40,8 @@
   database
   database-metadata
   database-relation
+  database-relation-names
+  database-relation-has?
   database-relation-add!
   database-relation-remove!
   database-compact!
@@ -618,6 +620,8 @@
 
 (define (database-metadata         db)              ((wrapped-database-controller db) 'metadata))
 (define (database-relation         db name)         ((wrapped-database-controller db) 'relation         name))
+(define (database-relation-names   db)              (hash-keys     (hash-ref (database-metadata db) 'relations)))
+(define (database-relation-has?    db name)         (hash-has-key? (hash-ref (database-metadata db) 'relations) name))
 (define (database-relation-add!    db name . pargs) ((wrapped-database-controller db) 'relation-add!    name
                                                                                       (plist-ref pargs 'attributes)
                                                                                       (plist-ref pargs 'type)
