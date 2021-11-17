@@ -635,18 +635,15 @@
                                                                             (hash-ref name=>relation.in name))
                                                                           names.in))
                                            (define lpaths.reachable (set->list (db.in 'reachable names.in)))
-                                           ;; TODO: support renaming paths when collision occurs
-                                           ;; This currently causes multiple domain-sharing imports from the same db to fail
-                                           (for-each (lambda (lpath)
-                                                       (define apath (data-path lpath))
-                                                       (when (directory-exists? apath)
-                                                         (error "import path already exists" apath)))
-                                                     lpaths.reachable)
                                            (for-each (lambda (lpath)
                                                        (define apath.in  (path->string (build-path path.current.in lpath)))
                                                        (define apath.out (data-path lpath))
-                                                       (pretty-log '(copying for import) apath.in apath.out)
-                                                       (copy-directory/files apath.in apath.out #:keep-modify-seconds? #t))
+                                                       ;; TODO: validate that skipped data is identical
+                                                       ;; TODO: support renaming paths when non-identical data collision occurs
+                                                       (cond ((directory-exists? apath.out) (pretty-log '(skipping import copy) apath.in apath.out))
+                                                             (else                          (pretty-log '(copying for import)   apath.in apath.out)
+                                                                                            (copy-directory/files apath.in apath.out
+                                                                                                                  #:keep-modify-seconds? #t))))
                                                      lpaths.reachable)
                                            (data-update!      (lambda (data)
                                                                 (foldl (lambda (lpath data)
