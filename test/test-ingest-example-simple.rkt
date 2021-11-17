@@ -31,9 +31,9 @@
     'source     (s-map (lambda (row) (cons (string->number (car row)) (cdr row)))
                        (in:file "example/example.edgeprop.tsv" 'header '(":ID" "propname" "value")))))
 
-(define cprop (database-relation '(example cprop)))
-(define edge  (database-relation '(example edge)))
-(define eprop (database-relation '(example eprop)))
+(define cprop (database-relation db '(example cprop)))
+(define edge  (database-relation db '(example edge)))
+(define eprop (database-relation db '(example eprop)))
 
 (database-compact! db)
 
