@@ -43,7 +43,8 @@
 (relation-index-add! edge
                      '(eid)
                      '(subject object)
-                     '(object subject))
+                     '(subject eid)
+                     '(object  eid))
 (relation-index-add! eprop
                      '(eid key)
                      '(key value))
