@@ -11,6 +11,7 @@
   column:port-string
   interval->dict:ordered
   dict.empty
+  dict:ordered
   dict:ordered:vector
   dict:hash
   enumerator-project
@@ -1343,7 +1344,7 @@
                                          (and (< 0 (self 'count))
                                               (equal? (self 'min) key))))
           ((ref key k.found k.missing) (let ((self (self '>= key)))
-                                         (if (or (< 0 (self 'count))
+                                         (if (or (= 0 (self 'count))
                                                  (not (equal? (self 'min) key)))
                                            (k.missing)
                                            (k.found (self 'top)))))
