@@ -26,8 +26,11 @@
     (map (lambda (j desc.col)
            (and desc.col
                 (let* ((fname (string-append "column." (number->string j) fnsuffix))
-                       (port  (open-input-file (build-path (data-path lpath.ti) fname))))
-                  (column:port port `#(nat ,(hash-ref desc.col 'size))))))
+                       (apath (build-path (data-path lpath.ti) fname)))
+                  (column:port (open-input-file apath) `#(nat ,(hash-ref desc.col 'size)))
+                  ;; Optionally load index columns into memory instead
+                  ;(time (column:bytes:nat (file->bytes apath) (hash-ref desc.col 'size)))
+                  )))
          (range (length descs.col)) descs.col))
   (define desc.ti       (hash-ref data lpath.ti))
   (define descs.col.key (hash-ref desc.ti 'columns.key))
@@ -53,7 +56,7 @@
   (define apath.dt    (data-path lpath.dt))
   (define col.pos     (column:port (open-input-file (build-path apath.dt "position")) `#(nat ,size.pos)))
   ;; Optionally load positions into memory instead; does not seem to impact performance, though
-  ;(define col.pos     (column:bytes:nat (file->bytes (build-path apath.dt "position")) size.pos))
+  ;(define col.pos     (time (column:bytes:nat (file->bytes (build-path apath.dt "position")) size.pos)))
   (column:port-string col.pos (open-input-file (build-path apath.dt "value"))))
 
 (define (lpath.domain-text->string->id lpath.dt)
