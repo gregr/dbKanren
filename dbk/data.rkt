@@ -475,11 +475,7 @@
                                            (data         (hash-ref metadata 'data))
                                            (attrs        (hash-ref desc     'attributes))
                                            (lpaths.table (hash-ref desc     'tables))
-                                           (lpath.table  (if (= 1 (length lpaths.table))
-                                                           (car lpaths.table)
-                                                           (error "multi-table relations are not supported"
-                                                                  name lpaths.table)))
-                                           (desc.table   (hash-ref data lpath.table))
+                                           (descs.table  (map (lambda (lp) (hash-ref data lp)) lpaths.table))
                                            (orderings    (map (lambda (signature)
                                                                 (map (lambda (attr)
                                                                        (let ((i (index-of attrs attr)))
@@ -487,11 +483,10 @@
                                                                                         attr signature))))
                                                                      signature))
                                                               signatures))
-                                           (orderings    (normalize-table-index-orderings desc.table orderings))
+                                           (orderings    (normalize-table-index-orderings (length attrs) orderings))
                                            (ords.current (list->set (hash-keys (hash-ref desc 'indexes))))
                                            (ords.skipped (set->list (set-intersect (list->set orderings) ords.current)))
-                                           (ords.new     (set->list (set-subtract  (list->set orderings) ords.current)))
-                                           (lpaths.ti    (map (lambda (_) (unique-path "table-index")) ords.new)))
+                                           (ords.new     (set->list (set-subtract  (list->set orderings) ords.current))))
                                       (define (ords->sigs ords)
                                         (map (lambda (ordering) (map (lambda (i) (list-ref attrs i))
                                                                      (filter-not (lambda (i) (eq? #t i))
@@ -503,27 +498,27 @@
                                                (ords->sigs ords.skipped)))
                                       (when   (null? ords.new) (pretty-log '(no table indexes to build)))
                                       (unless (null? ords.new)
-                                        (define descs.ti (build-table-indexes
-                                                           path.current lpaths.ti lpath.table desc.table ords.new))
-                                        (data-update!
-                                          (lambda (data) (apply hash-set* data
-                                                                (append* (map list lpaths.ti descs.ti)))))
+                                        (define lpaths*.ti
+                                          (apply map list
+                                                 (map (lambda (lpath.table desc.table)
+                                                        (define lpaths.ti (map (lambda (_) (unique-path "table-index")) ords.new))
+                                                        (define descs.ti  (build-table-indexes
+                                                                            path.current lpaths.ti lpath.table desc.table ords.new))
+                                                        (data-update!
+                                                          (lambda (data) (apply hash-set* data
+                                                                                (append* (map list lpaths.ti descs.ti)))))
+                                                        lpaths.ti)
+                                                      lpaths.table descs.table)))
                                         (description-update!
                                           (lambda (desc) (hash-update desc 'indexes
                                                                       (lambda (ordering=>lps)
                                                                         (apply hash-set* ordering=>lps
-                                                                               (append* (map list ords.new (map list lpaths.ti))))))))
+                                                                               (append* (map list ords.new lpaths*.ti)))))))
                                         (checkpoint!))))
         ((index-remove! signatures) (apply pretty-log `(removing indexes for ,name) signatures)
                                     (let* ((desc         (description))
                                            (data         (hash-ref metadata 'data))
                                            (attrs        (hash-ref desc     'attributes))
-                                           (lpaths.table (hash-ref desc     'tables))
-                                           (lpath.table  (if (= 1 (length lpaths.table))
-                                                           (car lpaths.table)
-                                                           (error "multi-table relations are not supported"
-                                                                  name lpaths.table)))
-                                           (desc.table   (hash-ref data lpath.table))
                                            (orderings    (map (lambda (signature)
                                                                 (map (lambda (attr)
                                                                        (let ((i (index-of attrs attr)))
@@ -531,7 +526,7 @@
                                                                                         attr signature))))
                                                                      signature))
                                                               signatures))
-                                           (orderings    (normalize-table-index-orderings desc.table orderings))
+                                           (orderings    (normalize-table-index-orderings (length attrs) orderings))
                                            (ords.current (list->set (hash-keys (hash-ref desc 'indexes))))
                                            (ords.missing (set->list (set-subtract  (list->set orderings) ords.current)))
                                            (ords.found   (set->list (set-intersect (list->set orderings) ords.current))))
@@ -932,9 +927,7 @@
   (hash 'domain-text desc.domain-text
         'remappings  remappings))
 
-(define (normalize-table-index-orderings desc.table orderings)
-  (define desc*.column  (hash-ref desc.table 'columns))
-  (define count.columns (length desc*.column))
+(define (normalize-table-index-orderings count.columns orderings)
   (for-each (lambda (ordering) (unless (and (not (null? ordering))
                                             (list? ordering)
                                             (andmap (lambda (i) (and (nat? i) (<= 0 i) (< i count.columns)))
