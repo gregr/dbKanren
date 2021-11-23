@@ -138,9 +138,10 @@
 ;;
 ;;desc.table
 ;;(hash
-;;  'domain  desc.domain
-;;  'count   tuple-count
-;;  'columns (list desc.column ...)
+;;  'direction 'insert|'delete
+;;  'domain    desc.domain
+;;  'count     tuple-count
+;;  'columns   (list desc.column ...)
 ;;  )
 ;;
 ;;desc.table-index
@@ -830,9 +831,10 @@
                  'max   max.col))
          type columns (map cadr column-vmms) (map caddr column-vmms) apath*.column))
   (define desc.table
-    (hash 'domain  (hash 'text lpath.domain-text)
-          'count   count.tuples.unique
-          'columns column-descriptions))
+    (hash 'direction 'insert
+          'domain    (hash 'text lpath.domain-text)
+          'count     count.tuples.unique
+          'columns   column-descriptions))
   (write-metadata (build-path apath.root lpath.table fn.metadata.initial) desc.table)
 
   (hash 'domain (hash 'text desc.domain-text)
