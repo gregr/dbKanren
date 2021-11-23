@@ -4,7 +4,6 @@
   "../dbk/data.rkt"
   "../dbk/enumerator.rkt"
   racket/file
-  racket/list
   racket/pretty
   racket/runtime-path
   racket/set)
@@ -20,35 +19,6 @@
 
 (define metadata (call-with-input-file (build-path path.db "metadata.scm") read))
 (define data     (hash-ref metadata 'data))
-
-(define (lpath.table-index->dict lpath.ti)
-  (define (descs->cols fnsuffix descs.col)
-    (map (lambda (j desc.col)
-           (and desc.col
-                (let* ((fname (string-append "column." (number->string j) fnsuffix))
-                       (apath (build-path (data-path lpath.ti) fname)))
-                  (column:port (open-input-file apath) `#(nat ,(hash-ref desc.col 'size)))
-                  ;; Optionally load index columns into memory instead
-                  ;(time (column:bytes:nat (file->bytes apath) (hash-ref desc.col 'size)))
-                  )))
-         (range (length descs.col)) descs.col))
-  (define desc.ti       (hash-ref data lpath.ti))
-  (define descs.col.key (hash-ref desc.ti 'columns.key))
-  (define cols.key      (descs->cols ".key"      descs.col.key))
-  (define cols.indirect (descs->cols ".indirect" (hash-ref desc.ti 'columns.indirect)))
-  (let loop ((start         0)
-             (end           (hash-ref (car descs.col.key) 'count))
-             (cols.key      cols.key)
-             (cols.indirect cols.indirect))
-    (define (next start end) (loop start end (cdr cols.key) (cdr cols.indirect)))
-    (define i->key   (car cols.key))
-    (define i->value (if (null? cols.indirect)
-                       (column:const '())
-                       (let ((ci (car cols.indirect)))
-                         (if ci
-                           (column:interval ci next)
-                           (lambda (i) (next i (+ i 1)))))))
-    (dict:ordered i->key i->value start end)))
 
 (define (lpath.domain-text->id->string lpath.dt)
   (define desc.dt     (hash-ref data lpath.dt))
@@ -90,11 +60,17 @@
 ;│   │   ├── [309M Nov 17 15:28]  position
 ;│   │   └── [ 22G Nov 17 15:28]  value
 
+(define db      (database path.db))
+(define r.cprop (database-relation db '(rtx-kg2 cprop)))
+(define r.edge  (database-relation db '(rtx-kg2 edge)))
+(define r.eprop (database-relation db '(rtx-kg2 eprop)))
+
+(define dict.eprop.eid.value.key     (relation-index-dict r.eprop '(key value eid)))
+(define dict.edge.subject.eid.object (relation-index-dict r.edge  '(object eid subject)))
+(define dict.cprop.value.key.curie   (relation-index-dict r.cprop '(curie key value)))
+
 (define id->string                   (lpath.domain-text->id->string lpath.domain-text))
 (define string->id                   (lpath.domain-text->string->id lpath.domain-text))
-(define dict.eprop.eid.value.key     (lpath.table-index->dict lpath.index.eprop))
-(define dict.edge.subject.eid.object (lpath.table-index->dict lpath.index.edge))
-(define dict.cprop.value.key.curie   (lpath.table-index->dict lpath.index.cprop))
 
 (define (dict-select d key) (d 'ref key (lambda (v) v) (lambda () (error "dict ref failed" key))))
 
