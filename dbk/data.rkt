@@ -477,13 +477,7 @@
                                            (attrs        (hash-ref desc     'attributes))
                                            (lpaths.table (hash-ref desc     'tables))
                                            (descs.table  (map (lambda (lp) (hash-ref data lp)) lpaths.table))
-                                           (orderings    (map (lambda (signature)
-                                                                (map (lambda (attr)
-                                                                       (let ((i (index-of attrs attr)))
-                                                                         (if i i (error "invalid signature attribute"
-                                                                                        attr signature))))
-                                                                     signature))
-                                                              signatures))
+                                           (orderings    (map (attrs->signature->ordering attrs) signatures))
                                            (orderings    (normalize-table-index-orderings (length attrs) orderings))
                                            (ords.current (list->set (hash-keys (hash-ref desc 'indexes))))
                                            (ords.skipped (set->list (set-intersect (list->set orderings) ords.current)))
@@ -520,13 +514,7 @@
                                     (let* ((desc         (description))
                                            (data         (hash-ref metadata 'data))
                                            (attrs        (hash-ref desc     'attributes))
-                                           (orderings    (map (lambda (signature)
-                                                                (map (lambda (attr)
-                                                                       (let ((i (index-of attrs attr)))
-                                                                         (if i i (error "invalid signature attribute"
-                                                                                        attr signature))))
-                                                                     signature))
-                                                              signatures))
+                                           (orderings    (map (attrs->signature->ordering attrs) signatures))
                                            (orderings    (normalize-table-index-orderings (length attrs) orderings))
                                            (ords.current (list->set (hash-keys (hash-ref desc 'indexes))))
                                            (ords.missing (set->list (set-subtract  (list->set orderings) ords.current)))
@@ -928,6 +916,11 @@
   (write-metadata (build-path apath.domain-text.new fn.metadata.initial) desc.domain-text)
   (hash 'domain-text desc.domain-text
         'remappings  remappings))
+
+(define ((attrs->signature->ordering attrs) signature)
+  (map (lambda (attr) (let ((i (index-of attrs attr)))
+                        (if i i (error "invalid signature attribute" attr signature))))
+       signature))
 
 (define (normalize-table-index-orderings count.columns orderings)
   (for-each (lambda (ordering) (unless (and (not (null? ordering))
