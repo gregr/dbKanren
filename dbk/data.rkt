@@ -57,6 +57,7 @@
   relation-rename-attributes!
   relation-index-add!
   relation-index-remove!
+  relation-index-dict
   relation-compact!
   )
 (require "codec.rkt" "enumerator.rkt" "heap.rkt" "misc.rkt" "order.rkt" "stream.rkt"
@@ -536,6 +537,46 @@
                                                                         (foldl (lambda (o o=>lps) (hash-remove o=>lps o))
                                                                                ordering=>lps ords.found)))))
                                         (checkpoint!))))
+        ((index-dict signature)     (let* ((desc      (description))
+                                           (data      (hash-ref metadata 'data))
+                                           (attrs     (hash-ref desc     'attributes))
+                                           (ordering  ((attrs->signature->ordering attrs) signature))
+                                           (ordering  (car (normalize-table-index-orderings (length attrs) (list ordering))))
+                                           (lpaths.ti (hash-ref (hash-ref desc 'indexes) ordering
+                                                                (lambda () (error "no relation index matches signature"
+                                                                                  name signature)))))
+                                      (match lpaths.ti
+                                        ('() dict.empty)
+                                        ((list lpath.ti)
+                                         (define (descs->cols fnsuffix descs.col)
+                                           (map (lambda (j desc.col)
+                                                  (and desc.col
+                                                       (let* ((fname (string-append "column." (number->string j) fnsuffix))
+                                                              (apath (build-path (data-path lpath.ti) fname)))
+                                                         (column:port (open-input-file apath) `#(nat ,(hash-ref desc.col 'size)))
+                                                         ;; Optionally load index columns into memory instead
+                                                         ;(time (column:bytes:nat (file->bytes apath) (hash-ref desc.col 'size)))
+                                                         )))
+                                                (range (length descs.col)) descs.col))
+                                         (define desc.ti       (hash-ref data lpath.ti))
+                                         (define descs.col.key (hash-ref desc.ti 'columns.key))
+                                         (define cols.key      (descs->cols ".key"      descs.col.key))
+                                         (define cols.indirect (descs->cols ".indirect" (hash-ref desc.ti 'columns.indirect)))
+                                         (let loop ((start         0)
+                                                    (end           (hash-ref (car descs.col.key) 'count))
+                                                    (cols.key      cols.key)
+                                                    (cols.indirect cols.indirect))
+                                           (define (next start end) (loop start end (cdr cols.key) (cdr cols.indirect)))
+                                           (define i->key   (car cols.key))
+                                           (define i->value (if (null? cols.indirect)
+                                                              (column:const '())
+                                                              (let ((ci (car cols.indirect)))
+                                                                (if ci
+                                                                  (column:interval ci next)
+                                                                  (lambda (i) (next i (+ i 1)))))))
+                                           (dict:ordered i->key i->value start end)))
+                                        ;; TODO: multiple table-indexes, possibly with deletions
+                                        (_ (error "multi-table indexes are not yet supported" name lpaths.ti)))))
         ;; TODO: only spend effort compacting this relation
         ((compact!)                 (compact!))))
     (wrapped-relation (lambda args
@@ -662,6 +703,7 @@
 (define (relation-rename-attributes!  r attrs.new)    ((wrapped-relation-controller r) 'rename-attributes! attrs.new))
 (define (relation-index-add!          r . signatures) ((wrapped-relation-controller r) 'index-add!         signatures))
 (define (relation-index-remove!       r . signatures) ((wrapped-relation-controller r) 'index-remove!      signatures))
+(define (relation-index-dict          r signature)    ((wrapped-relation-controller r) 'index-dict         signature))
 (define (relation-compact!            r)              ((wrapped-relation-controller r) 'compact!))
 
 ;; TODO: in-place sorting of multiple columns
