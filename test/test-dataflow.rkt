@@ -11,36 +11,11 @@
 (define-relation/table (edge  id subject object) 'path "rtx2/20210204/edge")
 (define-relation/table (eprop id key value)      'path "rtx2/20210204/eprop")
 
-(define-runtime-path path.here ".")
-(define path.db      (path->string (build-path path.here "rtx-kg2_20210204.db")))
-(define path.db.data (path->string (build-path path.db   "current")))
-(define (data-path lpath) (path->string (build-path path.db.data lpath)))
-
-(define metadata (call-with-input-file (build-path path.db "metadata.scm") read))
-(define data     (hash-ref metadata 'data))
-
 (define (dict-select d key) (d 'ref key (lambda (v) v) (lambda () (error "dict ref failed" key))))
 
-(define lpath.index.eprop "table-index-1637181430-1") ; key value eid
-;│   │   ├── [204M Nov 17 15:42]  column.0.indirect
-;│   │   ├── [204M Nov 17 15:42]  column.0.key
-;│   │   ├── [2.0G Nov 17 15:42]  column.1.key
-;│   │   ├── [2.0G Nov 17 15:42]  column.2.key
-(define lpath.index.edge  "table-index-1637195642-0") ; object eid subject
-;│   │   ├── [ 21M Nov 17 19:35]  column.0.indirect
-;│   │   ├── [ 21M Nov 17 19:35]  column.0.key
-;│   │   ├── [204M Nov 17 19:35]  column.1.key
-;│   │   ├── [204M Nov 17 19:35]  column.2.key
-(define lpath.index.cprop "table-index-1637181128-0") ; curie key value
-;│   │   ├── [ 40M Nov 17 15:33]  column.0.indirect
-;│   │   ├── [ 40M Nov 17 15:33]  column.0.key
-;│   │   ├── [375M Nov 17 15:33]  column.1.key
-;│   │   ├── [375M Nov 17 15:33]  column.2.key
-(define lpath.domain-text "domain-text-1637180795-0")
-;│   │   ├── [309M Nov 17 15:28]  position
-;│   │   └── [ 22G Nov 17 15:28]  value
+(define-runtime-path path.here ".")
 
-(define db      (database path.db))
+(define db      (database (path->string (build-path path.here "rtx-kg2_20210204.db"))))
 (define r.cprop (database-relation db '(rtx-kg2 cprop)))
 (define r.edge  (database-relation db '(rtx-kg2 edge)))
 (define r.eprop (database-relation db '(rtx-kg2 eprop)))
@@ -69,12 +44,11 @@
      (lambda (eid __ dict.edge.subject)
        ((merge-join dict.edge.subject dict.cprop.value.key.curie)
         (lambda (subject.id __ dict.cprop.value.key)
-          (define subject (id->string subject.id))
+          (define subject             (id->string subject.id))
           (define dict.cprop.category (dict-select dict.cprop.value.key ckey.category.id))
           (define dict.cprop.name     (dict-select dict.cprop.value.key ckey.name.id))
-          ((dict.cprop.category 'enumerator)
-           (lambda (category.id)
-             (define category (id->string category.id))
+          ((merge-join dict.cprop.category dict.id=>string)
+           (lambda (category.id __ category)
              ((merge-join dict.cprop.name dict.id=>string)
               (lambda (name.id __ name)
                 (yield (list subject category name)))))))))))
