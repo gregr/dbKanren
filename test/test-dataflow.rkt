@@ -3,7 +3,6 @@
   "../dbk.rkt"
   "../dbk/data.rkt"
   "../dbk/enumerator.rkt"
-  racket/file
   racket/pretty
   racket/runtime-path
   racket/set)
@@ -19,26 +18,6 @@
 
 (define metadata (call-with-input-file (build-path path.db "metadata.scm") read))
 (define data     (hash-ref metadata 'data))
-
-(define (lpath.domain-text->dict.id=>string lpath.dt)
-  (define desc.dt     (hash-ref data lpath.dt))
-  (define size.pos    (hash-ref desc.dt 'size.position))
-  (define count       (hash-ref desc.dt 'count))
-  (define apath.dt    (data-path lpath.dt))
-  (define col.pos     (column:port (open-input-file (build-path apath.dt "position")) `#(nat ,size.pos)))
-  ;; Optionally load positions into memory instead; does not seem to impact performance, though
-  ;(define col.pos     (time (column:bytes:nat (file->bytes (build-path apath.dt "position")) size.pos)))
-  (define id->str     (column:port-string col.pos (open-input-file (build-path apath.dt "value"))))
-  (dict:ordered (lambda (id) id) id->str 0 count))
-
-(define (lpath.domain-text->dict.string=>id lpath.dt)
-  (define desc.dt     (hash-ref data lpath.dt))
-  (define size.pos    (hash-ref desc.dt 'size.position))
-  (define count       (hash-ref desc.dt 'count))
-  (define apath.dt    (data-path lpath.dt))
-  (define col.pos     (column:port (open-input-file (build-path apath.dt "position")) `#(nat ,size.pos)))
-  (define i->key      (column:port-string col.pos (open-input-file (build-path apath.dt "value"))))
-  (dict:ordered i->key (lambda (i) i) 0 count))
 
 (define (dict-select d key) (d 'ref key (lambda (v) v) (lambda () (error "dict ref failed" key))))
 
@@ -69,8 +48,9 @@
 (define dict.eprop.eid.value.key     (relation-index-dict r.eprop '(key value eid)))
 (define dict.edge.subject.eid.object (relation-index-dict r.edge  '(object eid subject)))
 (define dict.cprop.value.key.curie   (relation-index-dict r.cprop '(curie key value)))
-(define dict.id=>string              (lpath.domain-text->dict.id=>string lpath.domain-text))
-(define dict.string=>id              (lpath.domain-text->dict.string=>id lpath.domain-text))
+(define domain-dicts                 (relation-domain-dicts r.cprop))
+(define dict.string=>id              (car (hash-ref (car domain-dicts) 'text)))
+(define dict.id=>string              (car (hash-ref (cdr domain-dicts) 'text)))
 
 (define (string->id str) (dict-select dict.string=>id str))
 (define (id->string id)  (dict-select dict.id=>string id))
