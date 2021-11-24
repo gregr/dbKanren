@@ -58,6 +58,7 @@
   relation-index-add!
   relation-index-remove!
   relation-index-dict
+  relation-domain-dicts
   relation-compact!
   )
 (require "codec.rkt" "enumerator.rkt" "heap.rkt" "misc.rkt" "order.rkt" "stream.rkt"
@@ -577,6 +578,29 @@
                                            (dict:ordered i->key i->value start end)))
                                         ;; TODO: multiple table-indexes, possibly with deletions
                                         (_ (error "multi-table indexes are not yet supported" name lpaths.ti)))))
+        ;; TODO: share domain dicts when the domains are shared across relations
+        ((domain-dicts)             (let* ((desc         (description))
+                                           (data         (hash-ref metadata 'data))
+                                           (lpaths.table (hash-ref desc     'tables))
+                                           (descs.table  (map (lambda (lp) (hash-ref data lp)) lpaths.table))
+                                           (descs.domain (map (lambda (desc) (hash-ref desc 'domain)) descs.table)))
+                                      (define (domain->dict-pair.text desc.domain)
+                                        (define lpath.dt     (hash-ref desc.domain 'text))
+                                        (define desc.dt      (hash-ref data        lpath.dt))
+                                        (define size.pos     (hash-ref desc.dt     'size.position))
+                                        (define count        (hash-ref desc.dt     'count))
+                                        (define apath.dt     (data-path lpath.dt))
+                                        ;; TODO: should col.pos be shared like this, or duplicated across dicts for safety?
+                                        (define col.pos      (column:port (open-input-file (build-path apath.dt "position")) `#(nat ,size.pos)))
+                                        ;; Optionally load positions into memory instead
+                                        ;(define col.pos      (time (column:bytes:nat (file->bytes (build-path apath.dt "position")) size.pos)))
+                                        (define id->str      (column:port-string col.pos (open-input-file (build-path apath.dt "value"))))
+                                        (define dict.str=>id (dict:ordered id->str (lambda (id) id) 0 count))
+                                        (define dict.id=>str (dict:ordered (lambda (id) id) id->str 0 count))
+                                        (cons dict.str=>id dict.id=>str))
+                                      (define dict-pairs.text (map domain->dict-pair.text descs.domain))
+                                      (cons (hash 'text (map car dict-pairs.text))
+                                            (hash 'text (map cdr dict-pairs.text)))))
         ;; TODO: only spend effort compacting this relation
         ((compact!)                 (compact!))))
     (wrapped-relation (lambda args
@@ -704,6 +728,7 @@
 (define (relation-index-add!          r . signatures) ((wrapped-relation-controller r) 'index-add!         signatures))
 (define (relation-index-remove!       r . signatures) ((wrapped-relation-controller r) 'index-remove!      signatures))
 (define (relation-index-dict          r signature)    ((wrapped-relation-controller r) 'index-dict         signature))
+(define (relation-domain-dicts        r)              ((wrapped-relation-controller r) 'domain-dicts))
 (define (relation-compact!            r)              ((wrapped-relation-controller r) 'compact!))
 
 ;; TODO: in-place sorting of multiple columns
