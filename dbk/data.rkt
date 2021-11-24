@@ -11,6 +11,7 @@
   column:port-string
   interval->dict:ordered
   dict.empty
+  dict:integer
   dict:ordered
   dict:ordered:vector
   dict:hash
@@ -596,7 +597,7 @@
                                         ;(define col.pos      (time (column:bytes:nat (file->bytes (build-path apath.dt "position")) size.pos)))
                                         (define id->str      (column:port-string col.pos (open-input-file (build-path apath.dt "value"))))
                                         (define dict.str=>id (dict:ordered id->str (lambda (id) id) 0 count))
-                                        (define dict.id=>str (dict:ordered (lambda (id) id) id->str 0 count))
+                                        (define dict.id=>str (dict:integer 0       id->str          0 count))
                                         (cons dict.str=>id dict.id=>str))
                                       (define dict-pairs.text (map domain->dict-pair.text descs.domain))
                                       (cons (hash 'text (map car dict-pairs.text))
@@ -1374,22 +1375,58 @@
     ((enumerator/2)            (lambda _ (void)))
     ((enumerator)              (lambda _ (void)))))
 
+(define (dict:integer offset.key i->value start end)
+  (let loop ((start start) (end end))
+    (define self
+      (if (<= end start)
+        dict.empty
+        (method-lambda
+          ((pop)    (loop (+ start 1) end))
+          ((count)  (- end start))
+          ((top)    (i->value start))
+          ((max)    (+ offset.key (- end 1)))
+          ((min)    (+ offset.key start))
+          ((>= key) (loop (max start    (- key offset.key))    end))
+          ((>  key) (loop (max start (+ (- key offset.key) 1)) end))
+          ((<= key) (loop start                                (min end (+ (- key offset.key) 1))))
+          ((<  key) (loop start                                (min end    (- key offset.key))))
+          ((== key) ((self '>= key) '<= key))
+          ((has-key? key)              (let ((self (self '>= key)))
+                                         (and (< 0 (self 'count))
+                                              (equal? (self 'min) key))))
+          ((ref key k.found k.missing) (let ((self (self '>= key)))
+                                         (if (or (= 0 (self 'count))
+                                                 (not (equal? (self 'min) key)))
+                                           (k.missing)
+                                           (k.found (self 'top)))))
+          ((enumerator/2)              (lambda (yield)
+                                         (let loop ((i start))
+                                           (when (< i end)
+                                             (yield (+ i offset.key) (i->value i))
+                                             (loop (+ i 1))))))
+          ((enumerator)                (lambda (yield)
+                                         (let loop ((i start))
+                                           (when (< i end)
+                                             (yield (+ i offset.key))
+                                             (loop (+ i 1)))))))))
+    self))
+
 (define (dict:ordered i->key i->value start end)
   (let loop ((start start) (end end))
     (define self
       (if (<= end start)
         dict.empty
         (method-lambda
-          ((pop)       (loop (+ start 1) end))
-          ((count)     (- end start))
-          ((top)       (i->value start))
-          ((max)       (i->key   (- end 1)))
-          ((min)       (i->key   start))
-          ((>= key)    (loop (bisect-next start end (lambda (i) (any<?  (i->key i) key))) end))
-          ((>  key)    (loop (bisect-next start end (lambda (i) (any<=? (i->key i) key))) end))
-          ((<= key)    (loop start (bisect-prev start end (lambda (i) (any<?  key (i->key i))))))
-          ((<  key)    (loop start (bisect-prev start end (lambda (i) (any<=? key (i->key i))))))
-          ((== key)    ((self '>= key) '<= key))
+          ((pop)    (loop (+ start 1) end))
+          ((count)  (- end start))
+          ((top)    (i->value start))
+          ((max)    (i->key   (- end 1)))
+          ((min)    (i->key   start))
+          ((>= key) (loop (bisect-next start end (lambda (i) (any<?  (i->key i) key))) end))
+          ((>  key) (loop (bisect-next start end (lambda (i) (any<=? (i->key i) key))) end))
+          ((<= key) (loop start (bisect-prev start end (lambda (i) (any<?  key (i->key i))))))
+          ((<  key) (loop start (bisect-prev start end (lambda (i) (any<=? key (i->key i))))))
+          ((== key) ((self '>= key) '<= key))
           ((has-key? key)              (let ((self (self '>= key)))
                                          (and (< 0 (self 'count))
                                               (equal? (self 'min) key))))
