@@ -1043,11 +1043,7 @@
                                                        column.key)))
                                       '())
                                     (map (lambda (i.col apath.in)
-                                           (define desc.col (hash-ref i=>desc.col i.col))
-                                           (define size.in  (hash-ref desc.col    'size))
-                                           (define (read-element in)
-                                             (bytes-nat-ref (read-bytes size.in in) size.in 0))
-                                           (cons i.col (read-column apath.in count.tuples read-element)))
+                                           (cons i.col (read-column apath.in (hash-ref i=>desc.col i.col))))
                                          column-ids.used
                                          (column-paths apath.root.table column-ids.used)))))
   (map (lambda (apath.root.index ordering)
@@ -1143,13 +1139,15 @@
                      (max max.col value)))
               (else (list vec.col (or min.col 0) max.col)))))))
 
-(define (read-column apath.in count read-element)
+(define (read-column apath.in desc.in)
+  (define count   (hash-ref desc.in 'count))
+  (define size    (hash-ref desc.in 'size))
   (define vec.col (make-vector count))
   (pretty-log `(reading ,count elements from) apath.in)
   (let/files ((in apath.in)) ()
     (time/pretty-log
       (let loop ((i 0))
-        (cond ((< i count) (vector-set! vec.col i (read-element in))
+        (cond ((< i count) (vector-set! vec.col i (bytes-nat-ref (read-bytes size in) size 0))
                            (loop (+ i 1)))
               (else        vec.col))))))
 
