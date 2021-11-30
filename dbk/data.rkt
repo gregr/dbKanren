@@ -1,6 +1,8 @@
 #lang racket/base
 (provide
   column:const
+  column:identity
+  column:offset
   column:vector
   column:table
   column:indirect
@@ -1332,7 +1334,9 @@
 (define (table-sort     t)                              (t 'sort))
 (define (table-sort!    t)                              (t 'sort!))
 
+(define (column:identity                           i) i)
 (define ((column:const     c)                      _) c)
+(define ((column:offset    column offset)          i) (+ (column i) offset))
 (define ((column:vector    rows)                   i) (vector-ref rows i))
 (define ((column:table     columns)                i) (map (lambda (col) (col i)) columns))
 (define ((column:indirect  column.pos column)      i) (column (column.pos i)))
