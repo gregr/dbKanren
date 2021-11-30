@@ -1154,13 +1154,20 @@
   (define size    (hash-ref desc.in 'size))
   (define offset  (hash-ref desc.in 'offset 0)) ; TODO: later, require this
   (define vec.col (make-vector count))
-  (pretty-log `(reading ,count elements from) apath.in)
-  (let/files ((in apath.in)) ()
-    (time/pretty-log
-      (let loop ((i 0))
-        (cond ((< i count) (vector-set! vec.col i (+ offset (bytes-nat-ref (read-bytes size in) size 0)))
-                           (loop (+ i 1)))
-              (else        vec.col))))))
+  (cond ((< 0 size) (pretty-log `(reading ,count elements from) apath.in)
+                    (let/files ((in apath.in)) ()
+                      (time/pretty-log
+                        (let loop ((i 0))
+                          (cond ((< i count) (define v.in (bytes-nat-ref (read-bytes size in) size 0))
+                                             (vector-set! vec.col i (+ offset v.in))
+                                             (loop (+ i 1)))
+                                (else        vec.col))))))
+        (else       (pretty-log `(building ,count consecutive integers starting at ,offset)
+                                '(instead of reading from) apath.in)
+                    (let loop ((i 0))
+                      (cond ((< i count) (vector-set! vec.col i (+ offset i))
+                                         (loop (+ i 1)))
+                            (else        vec.col))))))
 
 (define (write-column apath.out count vec.col min.col max.col)
   ;; TODO: consider offseting column values
@@ -1191,12 +1198,17 @@
   (define offset  (hash-ref desc.in 'offset 0)) ; TODO: later, require this
   (define id=>id  (hash-ref type=>id=>id type #f))
   (cond (id=>id (match-define (list vec.col min.col max.col)
-                  (read-column/bounds apath.in count
-                                      (lambda (in)
-                                        (define v.in (+ offset (bytes-nat-ref (read-bytes size.in in) size.in 0)))
-                                        (vector-ref id=>id v.in))))
+                  (if (< 0 size.in)
+                    (read-column/bounds apath.in count
+                                        (lambda (in)
+                                          (define v.in (bytes-nat-ref (read-bytes size.in in) size.in 0))
+                                          (vector-ref id=>id (+ offset v.in))))
+                    (let loop ((i 0))
+                      (cond ((< i count) (vector-set! vec.col i (+ offset i))
+                                         (loop (+ i 1)))
+                            (else        (list vec.col offset (+ offset (- count 1))))))))
+                ;; TODO: also return offset from write-column
                 (define size.col (write-column apath.out (vector-length vec.col) vec.col min.col max.col))
-                ;; TODO: offset
                 (hash-set* desc.in 'size size.col 'offset 0 'min min.col 'max max.col))
         (else (pretty-log '(copying verbatim due to identity remapping))
               (time/pretty-log (copy-file apath.in apath.out))
