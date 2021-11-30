@@ -1058,9 +1058,11 @@
                                          (column-paths apath.root.table column-ids.used)))))
   (map (lambda (apath.root.index ordering)
          (pretty-log '(building index) apath.root.index '(with ordering) ordering)
-         (define columns.used        (map (lambda (i.col) (hash-ref i=>col      i.col)) ordering))
-         (define descs.used          (map (lambda (i.col) (hash-ref i=>desc.col i.col)) ordering))
-         (define sizes.used          (map (lambda (desc)  (hash-ref desc        'size)) descs.used))
+         (define columns.used        (map (lambda (i.col) (hash-ref i=>col      i.col))   ordering))
+         (define descs.used          (map (lambda (i.col) (hash-ref i=>desc.col i.col))   ordering))
+         ;; TODO: if size is 0, we need to recompute it as (min-nat-bytes (- max offset))
+         (define sizes.used          (map (lambda (desc)  (hash-ref desc        'size))   descs.used))
+         (define offsets.used        (map (lambda (desc)  (hash-ref desc        'offset 0)) descs.used)) ; TODO: later, require this
          (define tuples              (sorted-tuples count.tuples columns.used))
          (define apath*.col.key      (map (lambda (apath.col) (string-append apath.col fnsuffix.key))
                                           (column-paths apath.root.index (range    (length ordering)))))
@@ -1082,15 +1084,19 @@
                                  out*.indirect)
                        (let loop.keys ((i*.key        (range (length ordering)))
                                        (size*.key     sizes.used)
+                                       (offset*.key   offsets.used)
                                        (out*.key      out*.key)
                                        (out*.indirect out*.indirect)
                                        (pos*          (make-list (length out*.key) 0))
                                        (start         0)
                                        (end           count.tuples))
-                         (let ((i.key (car i*.key)) (i*.key (cdr i*.key)) (size.key (car size*.key)))
+                         (let ((i.key      (car i*.key))
+                               (i*.key     (cdr i*.key))
+                               (size.key   (car size*.key))
+                               (offset.key (car offset*.key)))
                            (define (key-ref i) (list-ref (vector-ref tuples i) i.key))
                            (let ((out.key (car out*.key)))
-                             (define (write-key key) (write-bytes (nat->bytes size.key key) out.key))
+                             (define (write-key key) (write-bytes (nat->bytes size.key (- key offset.key)) out.key))
                              (if (null? i*.key)
                                (let loop.final ((i start))
                                  (cond ((< i end) (write-key (key-ref i))
@@ -1104,6 +1110,7 @@
                                        (let ((start.new (bisect-next start end (lambda (i) (<= (key-ref i) key)))))
                                          (let ((pos* (loop.keys i*.key
                                                                 (cdr size*.key)
+                                                                (cdr offset*.key)
                                                                 (cdr out*.key)
                                                                 (cdr out*.indirect)
                                                                 pos*
@@ -1112,6 +1119,8 @@
                                            (write-bytes (nat->bytes size.pos (car pos*)) out.indirect)
                                            (loop.key (+ pos 1) pos* start.new end))))
                                      (cons pos pos*)))))))))))))))
+         ;; TODO: check for and handle consecutivity
+         ;; Will also need to update size if consecutivity has changed due to the reordering
          (define descs.column.key      (map (lambda (desc count) (hash-set desc 'count count))
                                             descs.used counts))
          (define descs.column.indirect (map (lambda (apath.indirect count.current count.next)
@@ -1172,18 +1181,25 @@
                             (else        vec.col))))))
 
 (define (write-column apath.out count vec.col min.col max.col)
-  ;; TODO: consider offseting column values
-  ;; - if storing ints
-  ;; - if (- max.col min.col) supports a smaller nat size
-  (define size.col   (min-nat-bytes max.col))
-  (define offset.col 0)
+  ;; TODO: check whether this column is a set of consecutive integers
+  ;; - no need to store any data in this case since all values can be computed from the column stats
+  ;; - if count is equal to (- max.col min.col), scan to see if values in vec.col are consecutive
+  ;;   - if so, don't write a file, and return a size of 0
+  (define diff.col  (- max.col min.col))
+  (define size.diff (min-nat-bytes diff.col))
+  (define size.max  (min-nat-bytes max.col))
+  (match-define (cons size.col offset.col)
+    (if (or (< min.col   0)
+            (< size.diff size.max))
+      (cons size.diff min.col)
+      (cons size.max  0)))
   (pretty-log `(writing ,count elements to) apath.out
               `(nat-size: ,size.col offset: ,offset.col min: ,min.col max: ,max.col))
   (let/files () ((out apath.out))
     (time/pretty-log
       (let loop ((i 0))
         (when (< i count)
-          (write-bytes (nat->bytes size.col (vector-ref vec.col i)) out)
+          (write-bytes (nat->bytes size.col (- (vector-ref vec.col i) offset.col)) out)
           (loop (+ i 1))))))
   (cons size.col offset.col))
 
