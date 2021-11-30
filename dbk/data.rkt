@@ -886,14 +886,14 @@
 
   (define column-descriptions
     (map (lambda (t.col vec.col min.col max.col apath.out)
-           ;; TODO: also return offset from write-column
-           (define size.col (write-column apath.out count.tuples.unique vec.col min.col max.col))
+           (match-define (cons size.col offset.col)
+             (write-column apath.out count.tuples.unique vec.col min.col max.col))
            (hash 'type   (match t.col
                            ('nat                        'nat)
                            ((or 'bytes 'string 'symbol) 'text))
                  'count  count.tuples.unique
                  'size   size.col
-                 'offset 0
+                 'offset offset.col
                  'min    min.col
                  'max    max.col))
          type columns (map cadr column-vmms) (map caddr column-vmms) apath*.column))
@@ -1173,16 +1173,17 @@
   ;; TODO: consider offseting column values
   ;; - if storing ints
   ;; - if (- max.col min.col) supports a smaller nat size
-  (define size.col (min-nat-bytes max.col))
+  (define size.col   (min-nat-bytes max.col))
+  (define offset.col 0)
   (pretty-log `(writing ,count elements to) apath.out
-              `(nat-size: ,size.col min: ,min.col max: ,max.col))
+              `(nat-size: ,size.col offset: ,offset.col min: ,min.col max: ,max.col))
   (let/files () ((out apath.out))
     (time/pretty-log
       (let loop ((i 0))
         (when (< i count)
           (write-bytes (nat->bytes size.col (vector-ref vec.col i)) out)
           (loop (+ i 1))))))
-  size.col)
+  (cons size.col offset.col))
 
 (define (remap-column?      desc.col   type=>id=>id) (not (not (hash-ref type=>id=>id (hash-ref desc.col 'type) #f))))
 (define (remap-table?       desc.table type=>id=>id) (ormap (lambda (desc.col) (remap-column? desc.col type=>id=>id))
@@ -1207,9 +1208,9 @@
                       (cond ((< i count) (vector-set! vec.col i (+ offset i))
                                          (loop (+ i 1)))
                             (else        (list vec.col offset (+ offset (- count 1))))))))
-                ;; TODO: also return offset from write-column
-                (define size.col (write-column apath.out (vector-length vec.col) vec.col min.col max.col))
-                (hash-set* desc.in 'size size.col 'offset 0 'min min.col 'max max.col))
+                (match-define (cons size.col offset.col)
+                  (write-column apath.out (vector-length vec.col) vec.col min.col max.col))
+                (hash-set* desc.in 'size size.col 'offset offset.col 'min min.col 'max max.col))
         (else (pretty-log '(copying verbatim due to identity remapping))
               (time/pretty-log (copy-file apath.in apath.out))
               desc.in)))
