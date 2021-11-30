@@ -134,11 +134,12 @@
 ;;
 ;;desc.column
 ;;(hash
-;;  'type  'nat|'text
-;;  'count num-elements
-;;  'size  nat-bytes
-;;  'min   _
-;;  'max   _
+;;  'type   'nat|'text
+;;  'count  num-elements
+;;  'size   nat-bytes
+;;  'min    _
+;;  'max    _
+;;  'offset _
 ;;  )
 ;;
 ;;desc.table
@@ -555,12 +556,18 @@
                                          (define (descs->cols fnsuffix descs.col)
                                            (map (lambda (j desc.col)
                                                   (and desc.col
-                                                       (let* ((fname (string-append "column." (number->string j) fnsuffix))
-                                                              (apath (build-path (data-path lpath.ti) fname)))
-                                                         (column:port (open-input-file apath) `#(nat ,(hash-ref desc.col 'size)))
-                                                         ;; Optionally load index columns into memory instead
-                                                         ;(time (column:bytes:nat (file->bytes apath) (hash-ref desc.col 'size)))
-                                                         )))
+                                                       (let ((size   (hash-ref desc.col 'size))
+                                                             (offset (hash-ref desc.col 'offset 0))) ; TODO: later, require this
+                                                         (column:offset
+                                                           (if (< 0 size)
+                                                             (let* ((fname (string-append "column." (number->string j) fnsuffix))
+                                                                    (apath (build-path (data-path lpath.ti) fname)))
+                                                               (column:port (open-input-file apath) `#(nat ,size))
+                                                               ;; Optionally load index columns into memory instead
+                                                               ;(time (column:bytes:nat (file->bytes apath) (hash-ref desc.col 'size)))
+                                                               )
+                                                             column:identity)
+                                                           offset))))
                                                 (range (length descs.col)) descs.col))
                                          (define desc.ti       (hash-ref data lpath.ti))
                                          (define descs.col.key (hash-ref desc.ti 'columns.key))
@@ -879,14 +886,16 @@
 
   (define column-descriptions
     (map (lambda (t.col vec.col min.col max.col apath.out)
+           ;; TODO: also return offset from write-column
            (define size.col (write-column apath.out count.tuples.unique vec.col min.col max.col))
-           (hash 'type  (match t.col
-                          ('nat                        'nat)
-                          ((or 'bytes 'string 'symbol) 'text))
-                 'count count.tuples.unique
-                 'size  size.col
-                 'min   min.col
-                 'max   max.col))
+           (hash 'type   (match t.col
+                           ('nat                        'nat)
+                           ((or 'bytes 'string 'symbol) 'text))
+                 'count  count.tuples.unique
+                 'size   size.col
+                 'offset 0
+                 'min    min.col
+                 'max    max.col))
          type columns (map cadr column-vmms) (map caddr column-vmms) apath*.column))
   (define desc.table
     (hash 'direction 'insert
@@ -1026,11 +1035,12 @@
   (define size.pos        (min-nat-bytes (- count.tuples 1)))
   (define i=>desc.col     (make-immutable-hash
                             (append (if key-used?
-                                      (list (cons #t (hash 'type  'nat
-                                                           'count count.tuples
-                                                           'size  size.pos
-                                                           'min   0
-                                                           'max   (- count.tuples 1))))
+                                      (list (cons #t (hash 'type   'nat
+                                                           'count  count.tuples
+                                                           'size   size.pos
+                                                           'offset 0
+                                                           'min    0
+                                                           'max    (- count.tuples 1))))
                                       '())
                                     (map cons (range count.columns) desc*.column))))
   (define i=>col          (make-immutable-hash
@@ -1142,12 +1152,13 @@
 (define (read-column apath.in desc.in)
   (define count   (hash-ref desc.in 'count))
   (define size    (hash-ref desc.in 'size))
+  (define offset  (hash-ref desc.in 'offset 0)) ; TODO: later, require this
   (define vec.col (make-vector count))
   (pretty-log `(reading ,count elements from) apath.in)
   (let/files ((in apath.in)) ()
     (time/pretty-log
       (let loop ((i 0))
-        (cond ((< i count) (vector-set! vec.col i (bytes-nat-ref (read-bytes size in) size 0))
+        (cond ((< i count) (vector-set! vec.col i (+ offset (bytes-nat-ref (read-bytes size in) size 0)))
                            (loop (+ i 1)))
               (else        vec.col))))))
 
@@ -1177,14 +1188,16 @@
   (define type    (hash-ref desc.in 'type))
   (define count   (hash-ref desc.in 'count))
   (define size.in (hash-ref desc.in 'size))
+  (define offset  (hash-ref desc.in 'offset 0)) ; TODO: later, require this
   (define id=>id  (hash-ref type=>id=>id type #f))
   (cond (id=>id (match-define (list vec.col min.col max.col)
                   (read-column/bounds apath.in count
                                       (lambda (in)
-                                        (define v.in (bytes-nat-ref (read-bytes size.in in) size.in 0))
+                                        (define v.in (+ offset (bytes-nat-ref (read-bytes size.in in) size.in 0)))
                                         (vector-ref id=>id v.in))))
                 (define size.col (write-column apath.out (vector-length vec.col) vec.col min.col max.col))
-                (hash-set* desc.in 'size size.col 'min min.col 'max max.col))
+                ;; TODO: offset
+                (hash-set* desc.in 'size size.col 'offset 0 'min min.col 'max max.col))
         (else (pretty-log '(copying verbatim due to identity remapping))
               (time/pretty-log (copy-file apath.in apath.out))
               desc.in)))
