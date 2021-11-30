@@ -818,7 +818,7 @@
     '() apath*.column.initial
     (lambda outs.column.initial
       (time/pretty-log
-        (s-each (lambda (row) (map encode outs.column.initial type.tuple (row->tuple row)))
+        (s-each (lambda (row) (for-each encode outs.column.initial type.tuple (row->tuple row)))
                 s.in))))
 
   (define size.pos  (min-nat-bytes size.bytes))
@@ -1136,6 +1136,7 @@
        apath*.root.index orderings))
 
 (define (read-column/bounds apath.in count read-element)
+  ;; TODO: consider specialized vectors: https://docs.racket-lang.org/foreign/homogeneous-vectors.html
   (define vec.col (make-vector count))
   (pretty-log `(reading ,count elements and computing min/max from) apath.in)
   (let/files ((in apath.in)) ()
@@ -1153,6 +1154,7 @@
   (define count   (hash-ref desc.in 'count))
   (define size    (hash-ref desc.in 'size))
   (define offset  (hash-ref desc.in 'offset 0)) ; TODO: later, require this
+  ;; TODO: consider specialized vectors: https://docs.racket-lang.org/foreign/homogeneous-vectors.html
   (define vec.col (make-vector count))
   (cond ((< 0 size) (pretty-log `(reading ,count elements from) apath.in)
                     (let/files ((in apath.in)) ()
@@ -1357,6 +1359,10 @@
 (define (table-dedup!   t)                              (t 'dedup!))
 (define (table-sort     t)                              (t 'sort))
 (define (table-sort!    t)                              (t 'sort!))
+
+;; TODO: support a direct-scanning operator, rather than scanning via column indices
+;; TODO: columns with methods: 'ref for what it does now, and 'enumerator for efficient scanning?
+;; TODO: more flexible/efficient method-lambda
 
 (define (column:identity                           i) i)
 (define ((column:const     c)                      _) c)
