@@ -1060,9 +1060,11 @@
          (pretty-log '(building index) apath.root.index '(with ordering) ordering)
          (define columns.used        (map (lambda (i.col) (hash-ref i=>col      i.col))   ordering))
          (define descs.used          (map (lambda (i.col) (hash-ref i=>desc.col i.col))   ordering))
-         ;; TODO: if size is 0, we need to recompute it as (min-nat-bytes (- max offset))
-         (define sizes.used          (map (lambda (desc)  (hash-ref desc        'size))   descs.used))
-         (define offsets.used        (map (lambda (desc)  (hash-ref desc        'offset 0)) descs.used)) ; TODO: later, require this
+         (define s&o*.used           (map (lambda (desc) (ideal-size-and-offset (hash-ref desc 'min)
+                                                                                (hash-ref desc 'max)))
+                                          descs.used))
+         (define sizes.used          (map car s&o*.used))
+         (define offsets.used        (map cdr s&o*.used))
          (define tuples              (sorted-tuples count.tuples columns.used))
          (define apath*.col.key      (map (lambda (apath.col) (string-append apath.col fnsuffix.key))
                                           (column-paths apath.root.index (range    (length ordering)))))
@@ -1119,10 +1121,16 @@
                                            (write-bytes (nat->bytes size.pos (car pos*)) out.indirect)
                                            (loop.key (+ pos 1) pos* start.new end))))
                                      (cons pos pos*)))))))))))))))
-         ;; TODO: check for and handle consecutivity
-         ;; Will also need to update size if consecutivity has changed due to the reordering
-         (define descs.column.key      (map (lambda (desc count) (hash-set desc 'count count))
-                                            descs.used counts))
+         (define descs.column.key      (map (lambda (apath desc count size offset)
+                                              (let* ((desc (hash-set* desc 'count count 'size size 'offset offset)))
+                                                (cond ((column-consecutive? (lambda () (read-column apath desc))
+                                                                            count
+                                                                            (hash-ref desc 'min)
+                                                                            (hash-ref desc 'max))
+                                                       (delete-file apath)
+                                                       (hash-set* desc 'size 0 'offset (hash-ref desc 'min)))
+                                                      (else desc))))
+                                            apath*.col.key descs.used counts sizes.used offsets.used))
          (define descs.column.indirect (map (lambda (apath.indirect count.current count.next)
                                               (cond ((= count.current count.next)
                                                      (pretty-log '(deleting identity indirection) apath.indirect)
@@ -1181,27 +1189,38 @@
                             (else        vec.col))))))
 
 (define (write-column apath.out count vec.col min.col max.col)
-  ;; TODO: check whether this column is a set of consecutive integers
-  ;; - no need to store any data in this case since all values can be computed from the column stats
-  ;; - if count is equal to (- max.col min.col), scan to see if values in vec.col are consecutive
-  ;;   - if so, don't write a file, and return a size of 0
+  (if (column-consecutive? (lambda () vec.col) count min.col max.col)
+    (begin (pretty-log '(not writing column to file because column is consecutive)
+                       `(would have written ,count elements to) apath.out
+                       `(nat-size: ,0 offset: ,min.col min: ,min.col max: ,max.col))
+           (cons 0 min.col))
+    (match-let (((cons size.col offset.col) (ideal-size-and-offset min.col max.col)))
+      (pretty-log `(writing ,count elements to) apath.out
+                  `(nat-size: ,size.col offset: ,offset.col min: ,min.col max: ,max.col))
+      (let/files () ((out apath.out))
+        (time/pretty-log
+          (let loop ((i 0))
+            (when (< i count)
+              (write-bytes (nat->bytes size.col (- (vector-ref vec.col i) offset.col)) out)
+              (loop (+ i 1))))))
+      (cons size.col offset.col))))
+
+(define (ideal-size-and-offset min.col max.col)
   (define diff.col  (- max.col min.col))
   (define size.diff (min-nat-bytes diff.col))
   (define size.max  (min-nat-bytes max.col))
-  (match-define (cons size.col offset.col)
-    (if (or (< min.col   0)
-            (< size.diff size.max))
-      (cons size.diff min.col)
-      (cons size.max  0)))
-  (pretty-log `(writing ,count elements to) apath.out
-              `(nat-size: ,size.col offset: ,offset.col min: ,min.col max: ,max.col))
-  (let/files () ((out apath.out))
-    (time/pretty-log
-      (let loop ((i 0))
-        (when (< i count)
-          (write-bytes (nat->bytes size.col (- (vector-ref vec.col i) offset.col)) out)
-          (loop (+ i 1))))))
-  (cons size.col offset.col))
+  (if (or (< min.col   0)
+          (< size.diff size.max))
+    (cons size.diff min.col)
+    (cons size.max  0)))
+
+(define (column-consecutive? ->vec count.col min.col max.col)
+  (and (= count.col (+ 1 (- max.col min.col)))
+       (let ((vec.col (->vec)))
+         (let loop ((i 0) (expected min.col))
+           (or (= i count.col)
+               (and (= expected (vector-ref vec.col i))
+                    (loop (+ i 1) (+ expected 1))))))))
 
 (define (remap-column?      desc.col   type=>id=>id) (not (not (hash-ref type=>id=>id (hash-ref desc.col 'type) #f))))
 (define (remap-table?       desc.table type=>id=>id) (ormap (lambda (desc.col) (remap-column? desc.col type=>id=>id))
@@ -1229,9 +1248,11 @@
                 (match-define (cons size.col offset.col)
                   (write-column apath.out (vector-length vec.col) vec.col min.col max.col))
                 (hash-set* desc.in 'size size.col 'offset offset.col 'min min.col 'max max.col))
-        (else (pretty-log '(copying verbatim due to identity remapping))
-              (time/pretty-log (copy-file apath.in apath.out))
-              desc.in)))
+        ((= 0 size.in) (pretty-log '(identity remapping on a consecutive integer sequence: nothing to do))
+                       desc.in)
+        (else          (pretty-log '(copying verbatim due to identity remapping))
+                       (time/pretty-log (copy-file apath.in apath.out))
+                       desc.in)))
 
 (define (remap-table apath.in apath.out desc.table.in desc.domain.new type=>id=>id)
   (pretty-log `(remapping ,apath.in to ,apath.out) desc.table.in)
