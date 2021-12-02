@@ -620,10 +620,9 @@
   (define path.current       (db-path "current"))
   (define path.previous      (db-path "previous"))
   (define path.trash         (db-path "trash"))
-  (define path.pending       (db-path "pending"))
   (define path.metadata      (db-path fn.metadata))
   (define path.metadata.next (string-append path.metadata fnsuffix.next))
-  (for-each make-directory* (list path.db path.current path.previous path.trash path.pending))
+  (for-each make-directory* (list path.db path.current path.previous path.trash))
   (define metadata
     (cond ((file-exists? path.metadata)      (call-with-input-file path.metadata read))
           ((file-exists? path.metadata.next) (pretty-log '(checkpointing metadata after interrupted swap))
