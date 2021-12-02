@@ -134,7 +134,7 @@
 ;;
 ;;desc.column
 ;;(hash
-;;  'type   'nat|'text
+;;  'type   'int|'text
 ;;  'count  num-elements
 ;;  'size   nat-bytes
 ;;  'min    _
@@ -604,6 +604,7 @@
                                         (define col.pos      (column:port (open-input-file (build-path apath.dt "position")) `#(nat ,size.pos)))
                                         ;; Optionally load positions into memory instead
                                         ;(define col.pos      (time (column:bytes:nat (file->bytes (build-path apath.dt "position")) size.pos)))
+                                        ;; TODO: properly support all text types: bytes, string, symbol
                                         (define id->str      (column:port-string col.pos (open-input-file (build-path apath.dt "value"))))
                                         (define dict.str=>id (dict:ordered id->str (lambda (id) id) 0 count))
                                         (define dict.id=>str (dict:integer 0       id->str          0 count))
@@ -654,7 +655,7 @@
                                                   (map (lambda (a t) `(,a : ,t)) attrs type))
                                            (new-relation?! name)
                                            (valid-attributes?! attrs)
-                                           (for-each (lambda (t) (unless (member t '(nat bytes string symbol))
+                                           (for-each (lambda (t) (unless (member t '(nat int bytes string symbol))
                                                                    (error "invalid attribute type" t 'in type)))
                                                      type)
                                            (unless (= (length attrs) (length type))
@@ -741,7 +742,7 @@
 (define (relation-compact!            r)              ((wrapped-relation-controller r) 'compact!))
 
 ;; TODO: in-place sorting of multiple columns
-(define (nat-tuple<? a b)
+(define (int-tuple<? a b)
   (let loop ((a a) (b b))
     (and (not (null? a))
          (or (< (car a) (car b))
@@ -749,17 +750,17 @@
                   (loop (cdr a) (cdr b)))))))
 
 (define (sorted-tuples count.tuples columns)
-    (pretty-log `(building ,count.tuples tuples from ,(length columns) columns))
-    (define tuples (make-vector count.tuples))
-    (time/pretty-log
-      (let loop ((i 0))
-        (when (< i count.tuples)
-          (vector-set! tuples i (map (lambda (col) (vector-ref col i))
-                                     columns))
-          (loop (+ i 1)))))
-    (pretty-log '(sorting tuples))
-    (time/pretty-log (vector-sort! tuples nat-tuple<?))
-    tuples)
+  (pretty-log `(building ,count.tuples tuples from ,(length columns) columns))
+  (define tuples (make-vector count.tuples))
+  (time/pretty-log
+    (let loop ((i 0))
+      (when (< i count.tuples)
+        (vector-set! tuples i (map (lambda (col) (vector-ref col i))
+                                   columns))
+        (loop (+ i 1)))))
+  (pretty-log '(sorting tuples))
+  (time/pretty-log (vector-sort! tuples int-tuple<?))
+  tuples)
 
 (define (min-nat-bytes nat.max) (max (min-bytes nat.max) 1))
 
@@ -777,9 +778,6 @@
   (define apath*.column         (column-paths (build-path apath.root lpath.table) (range (length type))))
   (define apath*.column.initial (map (lambda (p.c) (string-append p.c fnsuffix.initial))
                                      apath*.column))
-  ;; TODO: can store (null)/bools/ints too, which will be physically shifted into min/max range
-  ;; if min/max range is singleton (guaranteed for null), nothing needs to be stored for that column
-  (define type.tuple           (map (lambda (_) 'nat) type))
   (define (insert-bytes! b)
     (or (hash-ref bytes=>id b #f)
         (let ((id (hash-count bytes=>id)))
@@ -789,6 +787,9 @@
   (define row->tuple
     (let ((col->num* (map (lambda (i t.col)
                             (match t.col
+                              ('int    (lambda (x)
+                                         (unless (int?    x) (error "invalid int"    `(column: ,i) x))
+                                         x))
                               ('nat    (lambda (x)
                                          (unless (nat?    x) (error "invalid nat"    `(column: ,i) x))
                                          x))
@@ -816,6 +817,7 @@
   (call/files
     '() apath*.column.initial
     (lambda outs.column.initial
+      (define type.tuple (map (lambda (_) 'int) type))
       (time/pretty-log
         (s-each (lambda (row) (for-each encode outs.column.initial type.tuple (row->tuple row)))
                 s.in))))
@@ -854,9 +856,9 @@
     (map (lambda (t.col apath.in)
            (define col->col
              (match t.col
-               ('nat                        (lambda (n)  n))
+               ((or 'nat 'int)              (lambda (n)  n))
                ((or 'bytes 'string 'symbol) (lambda (id) (vector-ref id=>id id)))))
-           (define (read-element in) (col->col (decode in 'nat)))
+           (define (read-element in) (col->col (decode in 'int)))
            (match-define (list vec.col min.col max.col)
              (read-column/bounds apath.in count.tuples.initial read-element))
            (pretty-log `(deleting ,apath.in))
@@ -888,7 +890,7 @@
            (match-define (cons size.col offset.col)
              (write-column apath.out count.tuples.unique vec.col min.col max.col))
            (hash 'type   (match t.col
-                           ('nat                        'nat)
+                           ((or 'nat 'int)              'int)
                            ((or 'bytes 'string 'symbol) 'text))
                  'count  count.tuples.unique
                  'size   size.col
@@ -1034,7 +1036,7 @@
   (define size.pos        (min-nat-bytes (- count.tuples 1)))
   (define i=>desc.col     (make-immutable-hash
                             (append (if key-used?
-                                      (list (cons #t (hash 'type   'nat
+                                      (list (cons #t (hash 'type   'int
                                                            'count  count.tuples
                                                            'size   size.pos
                                                            'offset 0
@@ -1135,7 +1137,7 @@
                                                      (pretty-log '(deleting identity indirection) apath.indirect)
                                                      (delete-file apath.indirect)
                                                      #f)
-                                                    (else (hash 'type  'nat
+                                                    (else (hash 'type  'int
                                                                 'count count.current
                                                                 'size  size.pos
                                                                 'min   0
@@ -1409,6 +1411,7 @@
 (define ((column:interval  column.pos interval->x) i) (interval->x (column.pos i) (column.pos (+ i 1))))
 (define ((column:bytes:nat bs size)                i) (bytes-nat-ref bs size (* i size)))
 
+;; TODO: specialize to fixed-size nat
 (define (column:port                     in type) (let ((size.type (sizeof type (void))))
                                                     (lambda (i)
                                                       (file-position in (* i size.type))
@@ -1416,6 +1419,7 @@
 (define (column:port-indirect column.pos in type)   (lambda (i)
                                                       (file-position in (column.pos i))
                                                       (decode        in type)))
+;; TODO: generalize to bytes
 (define (column:port-string   column.pos in)      (column:interval
                                                     column.pos
                                                     (lambda (pos.0 pos.1)
