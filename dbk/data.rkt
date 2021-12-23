@@ -16,6 +16,7 @@
   dict:integer
   dict:ordered
   dict:ordered:vector
+  dict:ordered:union
   dict:hash
   enumerator-project
   enumerator-filter
@@ -1530,6 +1531,56 @@
                                              (yield (i->key i))
                                              (loop (+ i 1)))))))))
     self))
+
+(define (dict:ordered:union combined-value d.left d.right)
+  (let loop ((d.left d.left) (d.right d.right))
+    (define (shared d.left d.right)
+      (method-lambda
+        ((empty?)    #f)
+        ((min)       (d.left 'min))
+        ((max)       (let ((max.left  (d.left  'max))
+                           (max.right (d.right 'max)))
+                       (if (any<? max.left max.right) max.right max.left)))
+        ((after  k<) (loop (d.left 'after  k<) (d.right 'after  k<)))
+        ((before k>) (loop (d.left 'before k>) (d.right 'before k>)))
+        ((>= key)    (loop (d.left '>= key) (d.right '>= key)))
+        ((>  key)    (loop (d.left '>  key) (d.right '>  key)))
+        ((<= key)    (loop (d.left '<= key) (d.right '<= key)))
+        ((<  key)    (loop (d.left '<  key) (d.right '<  key)))
+        ((== key)    (loop (d.left '== key) (d.right '== key)))
+        ((has-key? key)              (or (d.left 'has-key? key) (d.right 'has-key? key)))
+        ((ref key k.found k.missing) (d.left 'ref key
+                                             (lambda (v.left)
+                                               (d.right 'ref key
+                                                        (lambda (v.right) (combined-value v.left v.right))
+                                                        (lambda ()        v.left)))
+                                             (lambda () (d.right 'ref key k.found k.missing))))
+
+        ((enumerator/2)              (merge-union combined-value d.left d.right))
+        ((enumerator)                (merge-key-union d.left d.right))))
+    (define (less d.left d.right)
+      (define super (shared d.left d.right))
+      (method-lambda
+        ((pop)   (loop (d.left 'pop) d.right))
+        ((top)   (d.left 'top))
+        ((count) (and (= 1 (d.left 'count)) (+ 1 (d.right 'count))))
+        (else    super)))
+    (define (same d.left d.right)
+      (define super (shared d.left d.right))
+      (method-lambda
+        ((pop)   (loop (d.left 'pop) (d.right 'pop)))
+        ((top)   (combined-value (d.left 'top) (d.right 'top)))
+        ((count) (let ((count.left (d.left  'count)))
+                   (cond ((= 1 count.left)       (d.right 'count))
+                         ((= 1 (d.right 'count)) count.left)
+                         (else                   #f))))
+        (else    super)))
+    (cond
+      ((d.left  'empty?)                     d.right)
+      ((d.right 'empty?)                     d.left)
+      ((any<? (d.left  'min) (d.right 'min)) (less d.left  d.right))
+      ((any<? (d.right 'min) (d.left  'min)) (less d.right d.left))
+      (else                                  (same d.left  d.right)))))
 
 (define (dict:ordered:vector rows (t->key (lambda (t) t)) (start 0) (end (vector-length rows)))
   (define (i->value i) (vector-ref rows i))
