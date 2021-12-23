@@ -1716,7 +1716,8 @@
                                 (yield k.d)
                                 (loop))
                           (else (set! d.index (d.index 'pop))
-                                (yield k))))))))))
+                                (yield k)))))))))
+  ((d.index 'enumerator) yield))
 
 
 ;; TODO: computing fixed points?
@@ -1768,7 +1769,7 @@
   (displayln 'hash-join)
   ((hash-join
      (enumerator->enumerator/2 (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3))))
-     (enumerator->enumerator/2 (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))))
+     (enumerator->enumerator/2 (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (20 . 111) (0 . 77) (8 . 3)))))
    (lambda (k a b) (pretty-write (list k a b))))
 
   (displayln 'merge-join)
@@ -1777,14 +1778,14 @@
        (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
        car)
      (enumerator->dict:ordered:vector-group
-       (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
+       (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (20 . 111) (0 . 77) (8 . 3)))
        car))
    (lambda (k a b) (pretty-write (list k a b))))
 
   (displayln 'hash-key-union)
   ((hash-key-union
      (list->enumerator (map car '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3))))
-     (list->enumerator (map car '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))))
+     (list->enumerator (map car '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (20 . 111) (0 . 77) (8 . 3)))))
    pretty-write)
 
   (displayln 'merge-key-union)
@@ -1793,14 +1794,14 @@
        (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
        car)
      (enumerator->dict:ordered:vector-group
-       (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
+       (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (20 . 111) (0 . 77) (8 . 3)))
        car))
    pretty-write)
 
   (displayln 'hash-antijoin)
   ((hash-antijoin
      (enumerator->enumerator/2 (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3))))
-     (enumerator->enumerator/2 (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))))
+     (enumerator->enumerator/2 (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (20 . 111) (0 . 77) (8 . 3)))))
    (lambda (k v) (pretty-write (list k v))))
 
   (displayln 'merge-antijoin)
@@ -1809,7 +1810,7 @@
        (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
        car)
      (enumerator->dict:ordered:vector-group
-       (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (0 . 77) (8 . 3)))
+       (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (20 . 111) (0 . 77) (8 . 3)))
        car))
    (lambda (k v) (pretty-write (list k v))))
 
