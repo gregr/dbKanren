@@ -27,6 +27,7 @@
   group-fold
   group-fold-ordered
   merge-key-union
+  merge-union
   merge-antijoin
   merge-join
   dict-join-unordered
@@ -37,6 +38,8 @@
   hash-antijoin
   dict-key-union-unordered
   dict-key-union-ordered
+  dict-union-unordered
+  dict-union-ordered
   dict-subtract-unordered
   dict-subtract-ordered
 
@@ -1580,6 +1583,9 @@
 (define ((merge-key-union A B) yield)
   ((dict-key-union-ordered (A 'enumerator) B) yield))
 
+(define ((merge-union combined-value A B) yield)
+  ((dict-union-ordered combined-value (A 'enumerator/2) B) yield))
+
 (define (group-fold->hash en v.0 f)
   (define k=>v (hash))
   (en (lambda (k v) (set! k=>v (hash-update k=>v k
@@ -1719,6 +1725,36 @@
                                 (yield k)))))))))
   ((d.index 'enumerator) yield))
 
+(define ((dict-union-ordered combined-value en.ordered d.index) yield)
+  (en.ordered (if (d.index 'empty?)
+                yield
+                (lambda (k v)
+                  (let loop ()
+                    (if (d.index 'empty?)
+                      (yield k v)
+                      (let ((k.d (d.index 'min)))
+                        (case (compare-any k k.d)
+                          ((-1) (yield k v))
+                          (( 1) (yield k.d (d.index 'top))
+                                (set! d.index (d.index 'pop))
+                                (loop))
+                          (else (yield k (combined-value v (d.index 'top)))
+                                (set! d.index (d.index 'pop))))))))))
+  ((d.index 'enumerator/2) yield))
+
+(define ((dict-union-unordered combined-value en d.index) yield)
+  (en (if (d.index 'empty?)
+        yield
+        (lambda (k v)
+          (if (d.index 'empty?)
+            (yield k v)
+            (d.index 'ref k
+                     (lambda (v.index)
+                       (yield k (combined-value v v.index))
+                       (set! d.index (d.index '=/= k)))
+                     (lambda () (yield k v)))))))
+  ((d.index 'enumerator/2) yield))
+
 
 ;; TODO: computing fixed points?
 ;; - iteration: changed?
@@ -1797,6 +1833,17 @@
        (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (20 . 111) (0 . 77) (8 . 3)))
        car))
    pretty-write)
+
+  (displayln 'merge-union)
+  ((merge-union
+     append
+     (enumerator->dict:ordered:vector-group
+       (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
+       car)
+     (enumerator->dict:ordered:vector-group
+       (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (20 . 111) (0 . 77) (8 . 3)))
+       car))
+   (lambda (k v) (pretty-write (list k v))))
 
   (displayln 'hash-antijoin)
   ((hash-antijoin
