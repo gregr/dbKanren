@@ -1435,6 +1435,7 @@
 
 (define dict.empty
   (method-lambda
+    ((empty?)                  #t)
     ((count)                   0)
     ((=/= _)                   dict.empty)
     ((==  _)                   dict.empty)
@@ -1456,6 +1457,7 @@
         dict.empty
         (method-lambda
           ((pop)    (loop (+ start 1) end))
+          ((empty?) (= end start))
           ((count)  (- end start))
           ((top)    (i->value start))
           ((max)    (+ offset.key (- end 1)))
@@ -1466,10 +1468,10 @@
           ((<  key) (loop start                                (min end    (- key offset.key))))
           ((== key) ((self '>= key) '<= key))
           ((has-key? key)              (let ((self (self '>= key)))
-                                         (and (< 0 (self 'count))
+                                         (and (not (self 'empty?))
                                               (equal? (self 'min) key))))
           ((ref key k.found k.missing) (let ((self (self '>= key)))
-                                         (if (or (= 0 (self 'count))
+                                         (if (or (self 'empty?)
                                                  (not (equal? (self 'min) key)))
                                            (k.missing)
                                            (k.found (self 'top)))))
@@ -1494,6 +1496,7 @@
         dict.empty
         (method-lambda
           ((pop)       (loop (+ start 1) end))
+          ((empty?)    (= end start))
           ((count)     (- end start))
           ((top)       (i->value start))
           ((max)       (i->key   (- end 1)))
@@ -1506,10 +1509,10 @@
           ((<  key)    (before (lambda (k) (any<=? key k))))
           ((== key)    ((self '>= key) '<= key))
           ((has-key? key)              (let ((self (self '>= key)))
-                                         (and (< 0 (self 'count))
+                                         (and (not (self 'empty?))
                                               (equal? (self 'min) key))))
           ((ref key k.found k.missing) (let ((self (self '>= key)))
-                                         (if (or (= 0 (self 'count))
+                                         (if (or (self 'empty?)
                                                  (not (equal? (self 'min) key)))
                                            (k.missing)
                                            (k.found (self 'top)))))
@@ -1535,7 +1538,8 @@
     (if (= (hash-count k=>t) 0)
       dict.empty
       (method-lambda
-        ((count)                     (hash-count k=>t))
+        ((empty?)                    (hash-empty? k=>t))
+        ((count)                     (hash-count  k=>t))
         ((=/= key)                   (loop (hash-remove k=>t key)))
         ((==  key)                   (if (hash-has-key? k=>t key)
                                        (loop (hash key (hash-ref k=>t key)))
@@ -1550,26 +1554,24 @@
                                          (yield k))))))))
 
 (define ((merge-join A B) yield)
-  (when (and (< 0 (A 'count))
-             (< 0 (B 'count)))
+  (unless (or (A 'empty?) (B 'empty?))
     (let loop ((A   A)
                (k.A (A 'min))
                (B   B)
                (k.B (B 'min)))
       (case (compare-any k.A k.B)
         ((-1) (let ((A (A '>= k.B)))
-                (when (< 0 (A 'count))
+                (unless (A 'empty?)
                   (loop A (A 'min) B k.B))))
         (( 1) (let ((B (B '>= k.A)))
-                (when (< 0 (B 'count))
+                (unless (B 'empty?)
                   (loop A k.A B (B 'min)))))
         (else (let ((t.A (A 'top))
                     (t.B (B 'top))
                     (A   (A 'pop))
                     (B   (B 'pop)))
                 (yield k.A t.A t.B)
-                (when (and (< 0 (A 'count))
-                           (< 0 (B 'count)))
+                (unless (or (A 'empty?) (B 'empty?))
                   (loop A (A 'min) B (B 'min)))))))))
 
 (define ((merge-antijoin A B) yield)
@@ -1649,13 +1651,13 @@
    yield))
 
 (define ((dict-join-unordered en d.index) yield)
-  (when (< 0 (d.index 'count))
+  (unless (d.index 'empty?)
     (en (lambda (k v) (d.index 'ref k
                                (lambda (v.index) (yield k v v.index))
                                (lambda ()        (void)))))))
 
 (define ((dict-join-ordered en.ordered d.index) yield)
-  (when (< 0 (d.index 'count))
+  (unless (d.index 'empty?)
     (en.ordered (lambda (k v)
                   (set! d.index (d.index '>= k))
                   (d.index 'ref k
@@ -1663,13 +1665,13 @@
                            (lambda ()        (void)))))))
 
 (define ((dict-antijoin-unordered en d.index) yield)
-  (en (if (= 0 (d.index 'count))
+  (en (if (d.index 'empty?)
         yield
         (lambda (k v) (unless (d.index 'has-key? k)
                         (yield k v))))))
 
 (define ((dict-antijoin-ordered en.ordered d.index) yield)
-  (en.ordered (if (= 0 (d.index 'count))
+  (en.ordered (if (d.index 'empty?)
                 yield
                 (lambda (k v)
                   (set! d.index (d.index '>= k))
@@ -1677,13 +1679,13 @@
                     (yield k v))))))
 
 (define ((dict-subtract-unordered en d.index) yield)
-  (en (if (= 0 (d.index 'count))
+  (en (if (d.index 'empty?)
         yield
         (lambda (k) (unless (d.index 'has-key? k)
                       (yield k))))))
 
 (define ((dict-subtract-ordered en.ordered d.index) yield)
-  (en.ordered (if (= 0 (d.index 'count))
+  (en.ordered (if (d.index 'empty?)
                 yield
                 (lambda (k)
                   (set! d.index (d.index '>= k))
@@ -1701,11 +1703,11 @@
   ((d.index 'enumerator)                yield))
 
 (define ((dict-key-union-ordered en.ordered d.index) yield)
-  (en.ordered (if (= 0 (d.index 'count))
+  (en.ordered (if (d.index 'empty?)
                 yield
                 (lambda (k)
                   (let loop ()
-                    (if (= 0 (d.index 'count))
+                    (if (d.index 'empty?)
                       (yield k)
                       (let ((k.d (d.index 'min)))
                         (case (compare-any k k.d)
