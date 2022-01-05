@@ -1564,19 +1564,14 @@
       (method-lambda
         ((pop)   (loop (d.left 'pop) d.right))
         ((top)   (d.left 'top))
-        ;; TODO: provide upper bound instead of #f
-        ((count) (and (= 1 (d.left 'count)) (+ 1 (d.right 'count))))
+        ((count) (+ (d.left 'count) (d.right 'count)))
         (else    super)))
     (define (same d.left d.right)
       (define super (shared d.left d.right))
       (method-lambda
         ((pop)   (loop (d.left 'pop) (d.right 'pop)))
         ((top)   (combined-value (d.left 'top) (d.right 'top)))
-        ;; TODO: provide upper bound instead of #f
-        ((count) (let ((count.left (d.left  'count)))
-                   (cond ((= 1 count.left)       (d.right 'count))
-                         ((= 1 (d.right 'count)) count.left)
-                         (else                   #f))))
+        ((count) (+ (d.left 'count) (d.right 'count) -1))
         (else    super)))
     (cond ((d.left  'empty?)                     d.right)
           ((d.right 'empty?)                     d.left)
