@@ -17,6 +17,7 @@
   dict:ordered
   dict:ordered:vector
   dict:ordered:union
+  dict:ordered:subtraction
   dict:hash
   enumerator-project
   enumerator-filter
@@ -1563,6 +1564,7 @@
       (method-lambda
         ((pop)   (loop (d.left 'pop) d.right))
         ((top)   (d.left 'top))
+        ;; TODO: provide upper bound instead of #f
         ((count) (and (= 1 (d.left 'count)) (+ 1 (d.right 'count))))
         (else    super)))
     (define (same d.left d.right)
@@ -1570,17 +1572,76 @@
       (method-lambda
         ((pop)   (loop (d.left 'pop) (d.right 'pop)))
         ((top)   (combined-value (d.left 'top) (d.right 'top)))
+        ;; TODO: provide upper bound instead of #f
         ((count) (let ((count.left (d.left  'count)))
                    (cond ((= 1 count.left)       (d.right 'count))
                          ((= 1 (d.right 'count)) count.left)
                          (else                   #f))))
         (else    super)))
-    (cond
-      ((d.left  'empty?)                     d.right)
-      ((d.right 'empty?)                     d.left)
-      ((any<? (d.left  'min) (d.right 'min)) (less d.left  d.right))
-      ((any<? (d.right 'min) (d.left  'min)) (less d.right d.left))
-      (else                                  (same d.left  d.right)))))
+    (cond ((d.left  'empty?)                     d.right)
+          ((d.right 'empty?)                     d.left)
+          ((any<? (d.left  'min) (d.right 'min)) (less d.left  d.right))
+          ((any<? (d.right 'min) (d.left  'min)) (less d.right d.left))
+          (else                                  (same d.left  d.right)))))
+
+(define (dict:ordered:subtraction count.keys d.positive d.negative)
+  (let loop ((d.pos d.positive) (d.neg d.negative))
+    (define (shared d.pos d.neg)
+      (method-lambda
+        ((empty?)    #f)
+        ((count)     (d.pos 'count))
+        ((min)       (d.pos 'min))
+        ((max)       (error "TODO: dict:ordered:subtraction max"))
+        ((after  k<) (loop (d.pos 'after  k<) (d.neg 'after  k<)))
+        ((before k>) (loop (d.pos 'before k>) (d.neg 'before k>)))
+        ((>= key)    (loop (d.pos '>= key)    (d.neg '>= key)))
+        ((>  key)    (loop (d.pos '>  key)    (d.neg '>  key)))
+        ((<= key)    (loop (d.pos '<= key)    (d.neg '<= key)))
+        ((<  key)    (loop (d.pos '<  key)    (d.neg '<  key)))
+        ((== key)    (loop (d.pos '== key)    (d.neg '== key)))))
+    (define (less d.pos d.neg)
+      (define super (shared d.pos d.neg))
+      (method-lambda
+        ((pop) (loop (d.pos 'pop) d.neg))
+        ((top) (d.pos 'top))
+        (else  super)))
+    (define (same d.pos d.neg)
+      (if (= count.keys 1)
+        (loop (d.pos 'pop) (d.neg 'pop))
+        (let ((d.pos.top (dict:ordered:subtraction (- count.keys 1) (d.pos 'top) (d.neg 'top))))
+          (if (d.pos.top 'empty?)
+            (loop (d.pos 'pop) (d.neg 'pop))
+            (let ((super (shared d.pos d.neg)))
+              (method-lambda
+                ((pop) (loop (d.pos 'pop) (d.neg 'pop)))
+                ((top) d.pos.top)
+                (else  super)))))))
+    (define self (cond ((d.pos 'empty?) dict.empty)
+                       ((d.neg 'empty?) d.pos)
+                       (else (let ((min.pos (d.pos 'min)) (min.neg (d.neg 'min)))
+                               (cond ((any<? min.pos min.neg) (less d.pos d.neg))
+                                     ((any<? min.neg min.pos) (loop d.pos (d.neg '>= min.pos)))
+                                     (else                    (same d.pos d.neg)))))))
+    (method-lambda
+      ((has-key? key)              (let ((self (self '>= key)))
+                                     (and (not (self 'empty?))
+                                          (equal? (self 'min) key))))
+      ((ref key k.found k.missing) (let ((self (self '>= key)))
+                                     (if (or (self 'empty?)
+                                             (not (equal? (self 'min) key)))
+                                       (k.missing)
+                                       (k.found (self 'top)))))
+      ((enumerator/2)              (lambda (yield)
+                                     (let loop ((self self))
+                                       (unless (self 'empty?)
+                                         (yield (self 'min) (self 'top))
+                                         (loop (self 'pop))))))
+      ((enumerator)                (lambda (yield)
+                                     (let loop ((self self))
+                                       (unless (self 'empty?)
+                                         (yield (self 'min))
+                                         (loop (self 'pop))))))
+      (else                        self))))
 
 (define (dict:ordered:vector rows (t->key (lambda (t) t)) (start 0) (end (vector-length rows)))
   (define (i->value i) (vector-ref rows i))
@@ -1895,6 +1956,58 @@
        (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (20 . 111) (0 . 77) (8 . 3)))
        car))
    (lambda (k v) (pretty-write (list k v))))
+
+  (displayln 'dict:ordered:union)
+  (((dict:ordered:union
+      append
+      (enumerator->dict:ordered:vector-group
+        (list->enumerator '((5 . 6) (10 . 17) (8 . 33) (1 . 5) (0 . 7) (18 . 3)))
+        car)
+      (enumerator->dict:ordered:vector-group
+        (list->enumerator '((7 . 61) (10 . 20) (18 . 33) (11 . 5) (20 . 111) (0 . 77) (8 . 3)))
+        car))
+    'enumerator/2)
+   (lambda (k v) (pretty-write (list k v))))
+
+  (displayln 'dict:ordered:subtraction)
+  (let ()
+    (define (table->dict table)
+      (if (equal? table '(()))
+        '()
+        (let* ((groups (map reverse (s-group table = car)))
+               (__ (pretty-write `(groups: ,groups)))
+               (ks (list->vector (map (lambda (rows) (car (car rows)))             groups)))
+               (vs (list->vector (map (lambda (rows) (table->dict (map cdr rows))) groups))))
+          (dict:ordered (column:vector ks) (column:vector vs) 0 (vector-length ks)))))
+    (let* ((table.example.pos '((1 1 1) (1 1 2) (1 2 0) (1 2 1) (1 2 2) (1 2 3)
+                                (2 1 1) (2 1 2) (2 2 0) (2 2 1) (2 2 2) (2 2 3) (2 3 0) (2 3 1) (2 3 2) (2 3 3)
+                                (3 1 1) (3 1 2) (3 2 0) (3 2 1) (3 2 2) (3 2 3)))
+           (table.example.neg '(        (1 1 2) (1 2 0) (1 2 1)                 (1 2 4)
+                                        (2 1 2) (2 2 0) (2 2 1)                 (2 3 0) (2 3 1)                 (2 4 0) (2 4 1)
+                                                (3 2 0) (3 2 1)         (3 2 3)))
+           (table.expected    '((1 1 1)                         (1 2 2) (1 2 3)
+                                (2 1 1)                         (2 2 2) (2 2 3)                 (2 3 2) (2 3 3)
+                                (3 1 1) (3 1 2)                 (3 2 2)        ))
+           (index.example.pos (table->dict table.example.pos))
+           (index.example.neg (table->dict table.example.neg))
+           (result.0          (filter (lambda (row) (not (member row table.example.neg)) )
+                                      table.example.pos))
+           (result.1          (enumerator->list
+                                (lambda (yield)
+                                  (((dict:ordered:subtraction
+                                      3
+                                      index.example.pos
+                                      index.example.neg)
+                                    'enumerator/2)
+                                   (lambda (k1 i2)
+                                     ((i2 'enumerator/2)
+                                      (lambda (k2 i3)
+                                        ((i3 'enumerator)
+                                         (lambda (k3)
+                                           (yield (list k1 k2 k3))))))))))))
+      (pretty-write `(via set-subtract: ,result.0))
+      (pretty-write `(via dict:ordered:subtraction ,result.1))
+      (pretty-write `(equal? ,(equal? result.0 result.1) ,(equal? table.expected result.1)))))
 
   (displayln 'hash-antijoin)
   ((hash-antijoin
