@@ -122,22 +122,40 @@
                        ((_ (f p) ...)
                         #'(struct* id.struct ((f p) ...))))))))))))))
 
-(define (method-unknown name . args) (error "unknown method:" name args))
+(define method-unknown
+  (case-lambda
+    (()            (case-lambda
+                     (()     '())
+                     ((name) (error "unknown method:" name))))
+    ((name . args) (error "unknown method:" name args))))
 (define (method-except m names)
-  (lambda (name . args)
-    (apply (if (member name names) method-unknown m) name args)))
+  (case-lambda
+    (()            (case-lambda
+                     (()     (set-subtract ((m)) names))
+                     ((name) (((if (member name names) method-unknown m)) name))))
+    ((name . args) (apply (if (member name names) method-unknown m) name args))))
 (define (method-only m names)
-  (lambda (name . args)
-    (apply (if (member name names) m method-unknown) name args)))
+  (case-lambda
+    (()            (case-lambda
+                     (()     (set-intersect ((m)) names))
+                     ((name) (((if (member name names) m method-unknown)) name))))
+    ((name . args) (apply (if (member name names) m method-unknown) name args))))
 
 (define-syntax method-choose
   (syntax-rules (else)
     ((_ ((name ...) body ...) ... (else else-body ...))
-     (lambda (method-name . args)
-       (apply (case method-name
-                ((name ...) body ...) ...
-                (else       else-body ...))
-              method-name args)))
+     (case-lambda
+       (()                   (case-lambda
+                               (()            (set-union '(name ...) ... (((begin else-body ...)))))
+                               ((method-name) (case method-name
+                                                ((name ...) (let ((handler (begin body ...)))
+                                                              (lambda args (apply handler method-name args))))
+                                                ...
+                                                (else       (((begin else-body ...)) method-name))))))
+       ((method-name . args) (apply (case method-name
+                                      ((name ...) body ...) ...
+                                      (else       else-body ...))
+                                    method-name args))))
     ((_ body ...) (method-choose body ... (else method-unknown)))))
 
 (define-syntax method-lambda
