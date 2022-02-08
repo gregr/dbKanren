@@ -69,7 +69,7 @@
   relation-domain-dicts
   relation-compact!
   )
-(require "codec.rkt" "enumerator.rkt" "heap.rkt" "misc.rkt" "order.rkt" "stream.rkt"
+(require "codec.rkt" "enumerator.rkt" "heap.rkt" "logging.rkt" "misc.rkt" "order.rkt" "stream.rkt"
          racket/file racket/list racket/match racket/pretty racket/set racket/struct racket/vector)
 
 ;; TODO:
@@ -77,26 +77,10 @@
 ;bscm:read bscm:write ?
 ;or favor a bytes-ref/bytes-set! style interface with bscm types?
 
-;; TODO: use these definitions to replace the logging defined in config.rkt
-(define (pretty-log/port out . args)
-  (define seconds (current-seconds))
-  (define d       (seconds->date seconds #f))
-  (define d-parts (list seconds 'UTC
-                        (date-year d) (date-month  d) (date-day    d)
-                        (date-hour d) (date-minute d) (date-second d)))
-  (pretty-write (cons d-parts args) out))
 
-(define (pretty-logf/port out message . args) (pretty-log/port out (apply format message args)))
 
-(define current-log-port (make-parameter (current-error-port)))
 
-(define (pretty-log  . args) (apply pretty-log/port  (current-log-port) args))
-(define (pretty-logf . args) (apply pretty-logf/port (current-log-port) args))
 
-(define-syntax-rule (time/pretty-log body ...)
-  (let-values (((results time.cpu time.real time.gc) (time-apply (lambda () body ...) '())))
-    (pretty-log `(time cpu ,time.cpu real ,time.real gc ,time.gc))
-    (apply values results)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Metadata format ;;;
