@@ -15,6 +15,7 @@
   storage-block-names
   storage-block-id
   storage-block-out
+  storage-block-out-close!
   storage-block-data
   storage-block-new!
   storage-block-add-names!
@@ -109,6 +110,7 @@
 (define (storage-block-names         s)                      ((wrapped-storage-controller s) 'block-names))
 (define (storage-block-id            s name)                 ((wrapped-storage-controller s) 'block-id            name))
 (define (storage-block-out           s name)                 ((wrapped-storage-controller s) 'block-output-port   name))
+(define (storage-block-out-close!    s name)                 (close-output-port (storage-block-out s name)))
 (define (storage-block-data          s name)                 ((wrapped-storage-controller s) 'block-data          name))
 (define (storage-block-new!          s         name . names) ((wrapped-storage-controller s) 'block-new!          (cons name names)))
 (define (storage-block-add-names!    s name.current . names) ((wrapped-storage-controller s) 'block-add-names!    name.current names))
@@ -231,9 +233,10 @@
       ((block-output-port              name) (let ((id (block-id name)))
                                                (or (hash-ref id=>out id #f)
                                                    (error "cannot write to committed storage block" name path.storage))))
-      ((block-data                     name) (let ((id (block-id name)))
-                                               (when (hash-has-key? id=>out id)
-                                                 (error "cannot read from uncommitted storage block" name path.storage))
+      ((block-data                     name) (let* ((id  (block-id name))
+                                                    (out (hash-ref id=>out id #f)))
+                                               (when (and out (not (port-closed? out)))
+                                                 (error "cannot read from open, uncommitted storage block" name path.storage))
                                                (let ((path.id (build-path path.block (number->string id))))
                                                  (lambda () (open-input-file path.id)))))
       ((block-new!                    names) (define b (block))
