@@ -127,6 +127,8 @@
 (define (storage:filesystem path.storage)
   (let* ((path.storage (normalize-path path.storage))
          (key.storage  (list path.storage)))
+    (unless (complete-path? path.storage)
+      (error "storage path must be absolute" path.storage))
     (when (set-member? all-filesystem-storage-keys key.storage)
       (error "storage path already in use" path.storage))
     (set-add! all-filesystem-storage-keys key.storage)
