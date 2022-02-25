@@ -30,24 +30,24 @@
 ;; Limitations:
 ;; - The default key-value store will not scale well to enormous amounts of data and/or enormous
 ;;   numbers of blocks (because these require tracking metadata).
-;; - The default key-value store will not scale well to high-frequency checkpoints.
+;; - The default key-value store will not scale well to high frequency checkpoints.
 ;; - A single storage location should not be used by multiple host processes running concurrently.
 ;;   Initializing the same storage location from concurrent processes may lead to data corruption.
-;; - Multiple threads of a single process may read concurrently from a single storage location,
-;;   but it is not safe to read concurrently with writes or checkpoint commits.
-;; - The implementation does not support concurrent writes or checkpoint commits.
+;; - Multiple threads of a single process can read concurrently from a single storage location,
+;;   but it is not safe to read concurrently with writes or checkpoint commits to that location.
+;; - It is not safe to perform concurrent writes or checkpoint commits to a single storage location.
 ;; - While it should be possible to recover from typical process failure and interruption, sudden
 ;;   host system failure and interruption may corrupt data.
 
-;; Two forms of data may be stored:
+;; Two forms of data can be stored:
 ;; - Description
 ;;   - "description" is a key-value map.
-;;   - Keys and values may be any s-expression.
+;;   - Keys and values can be any s-expression.
 ;;   - Keys can be added and removed.  A key's value can be updated.
 ;; - Block
 ;;   - Blocks are uninterpreted files of data.
 ;;   - Blocks are referenced by names.  A name can be any s-expression.  Each name maps to at most
-;;     one block.  Multiple names may refer to the same block.
+;;     one block.  Multiple names can refer to the same block.
 ;;   - When a new block is created, it's data can be written and modified freely until the next
 ;;     checkpoint.  Once the checkpoint is committed, blocks cannot be updated.
 ;;   - Block data is only expected to be read after the checkpoint that creates them.
