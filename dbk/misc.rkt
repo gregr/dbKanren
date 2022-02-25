@@ -302,4 +302,7 @@
 
 (define (sum xs) (foldl + 0 xs))
 
-(define (normalize-path path) (path->string (simplify-path (resolve-path (simplify-path path)))))
+(define (normalize-path path) (path->string (normal-case-path
+                                              (simplify-path
+                                                (resolve-path
+                                                  (simplify-path path))))))
