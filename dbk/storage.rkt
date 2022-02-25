@@ -119,18 +119,16 @@
   (storage-block-add-names!    s name.old name.new)
   (storage-block-remove-names! s name.old))
 
-;; Racket doesn't seem to have a weak-value hash table, so we
-;; suboptimally use a weak-key hash table as a self-cleaning list.
-(define all-filesystem-storages (make-weak-hash))
+(define all-filesystem-storage-keys (weak-set))
 (define (storage:filesystem path.storage)
-  (let ((path.storage (normalize-path path.storage)))
-    (or (ormap (lambda (s) (and (equal? path.storage (storage-path s)) s))
-               (hash-keys all-filesystem-storages))
-        (let ((s (make-filesystem-storage path.storage)))
-          (hash-set! all-filesystem-storages s (void))
-          s))))
+  (let* ((path.storage (normalize-path path.storage))
+         (key.storage  (list path.storage)))
+    (when (set-member? all-filesystem-storage-keys key.storage)
+      (error "storage path already in use" path.storage))
+    (set-add! all-filesystem-storage-keys key.storage)
+    (wrapped-storage key.storage (make-filesystem-storage path.storage))))
 
-(struct wrapped-storage (controller)
+(struct wrapped-storage (key controller)
         #:methods gen:custom-write
         ((define write-proc
            (make-constructor-style-printer
