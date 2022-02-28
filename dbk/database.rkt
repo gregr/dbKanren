@@ -179,21 +179,21 @@
   (let ((version (storage-description-ref stg 'version #f)))
     (unless (equal? version version.current)
       (when version (error "unknown version" version))
-      (storage-description-set! stg 'version                       version.current)
-      (storage-description-set! stg 'name=>relation-id             (hash))
-      (storage-description-set! stg 'relation-id=>name             (hash))
-      (storage-description-set! stg 'relation-id=>attributes       (hash))
-      (storage-description-set! stg 'relation-id=>type             (hash))
+      (stg-set! 'version                       version.current)
+      (stg-set! 'name=>relation-id             (hash))
+      (stg-set! 'relation-id=>name             (hash))
+      (stg-set! 'relation-id=>attributes       (hash))
+      (stg-set! 'relation-id=>type             (hash))
       ;; relation-id => (list (cons (OR 'insert 'delete) table-id) ...)
-      (storage-description-set! stg 'relation-id=>tables           (hash))
+      (stg-set! 'relation-id=>tables           (hash))
       ;; relation-id => (ordering => ())
-      (storage-description-set! stg 'relation-id=>indexes          (hash))
+      (stg-set! 'relation-id=>indexes          (hash))
       ;; table-id => (list desc.column ...)
-      (storage-description-set! stg 'table-id=>columns             (hash))
+      (stg-set! 'table-id=>columns             (hash))
       ;; (cons table-id ordering-prefix) => desc.column
-      (storage-description-set! stg 'index-prefix=>key-column      (hash))
+      (stg-set! 'index-prefix=>key-column      (hash))
       ;; (cons table-id ordering-prefix) => desc.column  ; for forming intervals
-      (storage-description-set! stg 'index-prefix=>position-column (hash))
+      (stg-set! 'index-prefix=>position-column (hash))
       ;; desc.column:
       ;;  (hash 'type   'line
       ;;        'count  nat
@@ -208,13 +208,13 @@
       ;;        'max       int)
       ;; Indirects are optional and provide dictionary compression:
       ;; table-id => (list (OR #f desc.column) ...)  ; one per column
-      (storage-description-set! stg 'table-id=>indirects           (hash))
+      (stg-set! 'table-id=>indirects           (hash))
       ;; table-id => text-id
-      (storage-description-set! stg 'table-id=>text-id             (hash))
+      (stg-set! 'table-id=>text-id             (hash))
       ;; text-id => (hash 'value desc.column 'position desc.column)
-      (storage-description-set! stg 'text-id=>text                 (hash))
+      (stg-set! 'text-id=>text                 (hash))
       ;; (list relation-id ...)
-      (storage-description-set! stg 'pending-deleted-relations     '())
+      (stg-set! 'pending-deleted-relations     '())
       ;; Pending jobs are queued during an update, but do not need to be completed before
       ;; successfully committing the update.  The work performed for these jobs can be
       ;; checkpointed separately from any data insertion/deletion portion of the update.
@@ -228,14 +228,14 @@
       ;; - garbage collect text: (list (cons table-id.new table-id.old) ...)
       ;; - merge indexes?:       TBD
       ;; (list job ...)
-      (storage-description-set! stg 'pending-jobs                  '())
+      (stg-set! 'pending-jobs                  '())
       ;; table-id => nat
-      (storage-description-set! stg 'table-id=>refcount            (hash))
+      (stg-set! 'table-id=>refcount            (hash))
       ;; (cons table-id ordering) => nat
-      (storage-description-set! stg 'index-id=>refcount            (hash))
+      (stg-set! 'index-id=>refcount            (hash))
       ;; text-id => nat
-      (storage-description-set! stg 'text-id=>refcount             (hash))
-      (storage-description-set! stg 'next-uid                      0)
+      (stg-set! 'text-id=>refcount             (hash))
+      (stg-set! 'next-uid                      0)
       (storage-checkpoint! stg))
     (perform-pending-jobs!))
 
