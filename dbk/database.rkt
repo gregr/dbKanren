@@ -14,7 +14,7 @@
   relation-delete!
   current-batch-size)
 (require "logging.rkt" "misc.rkt" "storage.rkt"
-         racket/set racket/struct)
+         racket/list racket/set racket/struct)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Persistent databases ;;;
@@ -112,8 +112,37 @@
          (claim-update!)
          (apply pretty-log `(deleting relation ,name)
                 (map (lambda (a t) `(,a : ,t)) attrs type))
-         (stg-update! 'name=>relation-id         (lambda (n=>rid) (hash-remove n=>rid  name)))
-         (stg-update! 'pending-deleted-relations (lambda (rids)   (cons id.self rids)))
+         (stg-update! 'name=>relation-id       (lambda (n=>rid) (hash-remove n=>rid  name)))
+         (stg-update! 'relation-id=>name       (lambda (rid=>n)  (hash-remove rid=>n  id.self)))
+         (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-remove rid=>as id.self)))
+         (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-remove rid=>t  id.self)))
+         (stg-update!
+           'pending:relation-id=>tables
+           (lambda (rid=>tables)
+             (for-each decref-table!
+                       (map cdr (hash-ref rid=>tables id.self '())))
+             (hash-remove rid=>tables id.self)))
+         (stg-update!
+           'relation-id=>tables
+           (lambda (rid=>tables)
+             (define tables.current (map cdr (hash-ref rid=>tables id.self)))
+             (for-each decref-table! tables.current)
+             (stg-update!
+               'relation-id=>indexes
+               (lambda (rid=>indexes)
+                 (stg-update!
+                   'pending:index-id=>delta
+                   (lambda (iid=>delta)
+                     (foldl
+                       (lambda (iid iid=>delta)
+                         (hash-update iid=>delta iid (lambda (delta) (- delta 1)) 0))
+                       iid=>delta
+                       (append*
+                         (map (lambda (ordering)
+                                (map (lambda (tid) (cons tid ordering)) tables.current))
+                              (hash-keys (hash-ref rid=>indexes id.self)))))))
+                 (hash-remove rid=>indexes id.self)))
+             (hash-remove rid=>tables id.self)))
          (invalidate!)))
       ))
 
@@ -163,23 +192,80 @@
     (set! rids.new '())
     (perform-pending-jobs!))
   (define (perform-pending-jobs!)
-    (let ((rids (stg-ref 'pending-deleted-relations)))
-      (unless (null? rids)
-        (stg-set! 'pending-deleted-relations '())
-        (for-each (lambda (rid)
-                    (stg-update! 'relation-id=>name       (lambda (rid=>n)  (hash-remove rid=>n  rid)))
-                    (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-remove rid=>as rid)))
-                    (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-remove rid=>t  rid)))
-                    (stg-update! 'relation-id=>tables     (lambda (rid=>ts) (hash-remove rid=>ts rid)))
-                    (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-remove rid=>is rid))))
-                  rids)
-        (storage-checkpoint! stg))))
+    (stg-update!
+      'pending:relation-id=>tables
+      (lambda (rid=>tables.new)
+        (stg-update!
+          'relation-id=>tables
+          (lambda (rid=>tables.current)
+            (foldl
+              (lambda (ridts rid=>ts)
+                (let ((rid    (car ridts))
+                      (ts.new (cdr ridts)))
+                  (hash-update
+                    rid=>ts rid
+                    (lambda (ts.current)
+                      ;; TODO: automatically request compaction if appropriate
+                      (append ts.current ts.new)))))
+              rid=>tables.current
+              (hash->list rid=>tables.new))))
+        (hash)))
+    ;; TODO: perform any compaction before building new indexes
+    (stg-update!
+      'pending:index-id=>delta
+      (lambda (iid=>delta)
+        (stg-update!
+          'index-id=>refcount
+          (lambda (iid=>rc)
+            (foldl
+              (lambda (iidd iid=>rc)
+                (let* ((iid     (car iidd))
+                       (delta   (cdr iidd))
+                       (iid=>rc (hash-update
+                                  iid=>rc iid
+                                  (lambda (rc)
+                                    (let ((rc.new (+ rc delta)))
+                                      (cond ((and (= rc 0) (< 0 rc.new))
+                                             ;; TODO: build a new index
+                                             )
+                                            ((and (= rc.new 0) (< 0 rc))
+                                             ;; TODO: deallocate index
+                                             ))
+                                      rc.new))
+                                  0)))
+                  (if (= 0 (hash-ref iid=>rc iid))
+                    (hash-remove iid=>rc iid)
+                    iid=>rc)))
+              iid=>rc
+              (hash->list iid=>delta))))
+        (hash)))
+    (when (storage-checkpoint-pending? stg)
+      (storage-checkpoint! stg)))
+
+  ;; TODO: bulk process this stg-update! instead, as is done with index-id=>refcount
+  (define (decref-table! tid)
+    (stg-update!
+      'table-id=>refcount
+      (lambda (tid=>rc)
+        (let ((tid=>rc
+                (hash-update
+                  tid=>rc tid
+                  (lambda (rc)
+                    (let ((rc (- rc 1)))
+                      (when (= rc 0)
+                        ;; TODO: deallocate columns
+                        ;; TODO: and deref any associated text-id
+                        (void))
+                      rc)))))
+          (if (= 0 (hash-ref tid=>rc tid))
+            (hash-remove tid=>rc tid)
+            tid=>rc)))))
 
   (define stg (storage:filesystem path.db))
-  (let ((version (storage-description-ref stg 'version #f)))
+  (let ((version (storage-description-ref stg 'database-format-version #f)))
     (unless (equal? version version.current)
       (when version (error "unknown version" version))
-      (stg-set! 'version                       version.current)
+      (stg-set! 'database-format-version       version.current)
       (stg-set! 'name=>relation-id             (hash))
       (stg-set! 'relation-id=>name             (hash))
       (stg-set! 'relation-id=>attributes       (hash))
@@ -213,22 +299,10 @@
       (stg-set! 'table-id=>text-id             (hash))
       ;; text-id => (hash 'value desc.column 'position desc.column)
       (stg-set! 'text-id=>text                 (hash))
-      ;; (list relation-id ...)
-      (stg-set! 'pending-deleted-relations     '())
-      ;; Pending jobs are queued during an update, but do not need to be completed before
-      ;; successfully committing the update.  The work performed for these jobs can be
-      ;; checkpointed separately from any data insertion/deletion portion of the update.
-      ;; All jobs in this list must be completed, and resource cleanup performed, before
-      ;; subsequent database reads or updates.
-      ;; types of job:
-      ;; - add/remove index:     (cons table-id ordering)
-      ;; - add/remove table:     table-id  ; no work performed, only used for refcount balancing
-      ;; - merge tables:         (cons table-id.new (list (cons 'insert-or-delete table-id) ...))
-      ;; - merge text:           (list (cons table-id.new table-id.old) ...)
-      ;; - garbage collect text: (list (cons table-id.new table-id.old) ...)
-      ;; - merge indexes?:       TBD
-      ;; (list job ...)
-      (stg-set! 'pending-jobs                  '())
+      ;; relation-id => (list (cons (OR 'insert 'delete) table-id) ...)
+      (stg-set! 'pending:relation-id=>tables   (hash))
+      ;; (cons table-id ordering) => delta
+      (stg-set! 'pending:index-id=>delta       (hash))
       ;; table-id => nat
       (stg-set! 'table-id=>refcount            (hash))
       ;; (cons table-id ordering) => nat
