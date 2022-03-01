@@ -152,10 +152,12 @@
     (let* ((id.R  (hash-ref (name=>relation-id) name
                             (lambda () (error "unknown relation" name (storage-path stg)))))
            (key.R (list id.R)))
-      (or (hash-ref id=>R key.R #f)
-          (let ((R (wrapped-relation key.R (make-relation id.R))))
-            (hash-set! id=>R key.R R)
-            R))))
+      (wrapped-relation
+        key.R
+        (or (hash-ref id=>R key.R #f)
+            (let ((R (make-relation id.R)))
+              (hash-set! id=>R key.R R)
+              R)))))
   (define (stg-ref      key)        (storage-description-ref     stg key))
   (define (stg-set!     key value)  (storage-description-set!    stg key value))
   (define (stg-update!  key update) (storage-description-update! stg key update))
