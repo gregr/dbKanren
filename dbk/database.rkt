@@ -8,10 +8,12 @@
   database-relation
   database-relation-add!
   database-relation-remove!
+  database-trash-empty!
   relation-name
   relation-attributes
   relation-type
   relation-delete!
+  auto-empty-trash?
   current-batch-size)
 (require "logging.rkt" "misc.rkt" "storage.rkt"
          racket/list racket/set racket/struct)
@@ -60,6 +62,7 @@
 
 (define version.current '2022-2-22)
 
+(define auto-empty-trash?  (make-parameter #f))
 (define current-batch-size (make-parameter (expt 2 24)))
 
 (define (database-path             db)                 ((wrapped-database-controller db) 'path))
@@ -68,6 +71,7 @@
 (define (database-relation         db name)            ((wrapped-database-controller db) 'relation         name))
 (define (database-relation-add!    db name attrs type) ((wrapped-database-controller db) 'relation-add!    name attrs type))
 (define (database-relation-remove! db name)            (relation-delete! (database-relation db name)))
+(define (database-trash-empty!     db)                 ((wrapped-database-controller db) 'trash-empty!))
 
 (define (relation-name       r) ((wrapped-relation-controller r) 'name))
 (define (relation-attributes r) ((wrapped-relation-controller r) 'attributes))
@@ -183,6 +187,12 @@
                                            'revert! revert!))
         (unless (equal? commit!? commit!)
           (error "cannot update multiple databases simultaneously" (storage-path stg))))))
+  (define (checkpoint!)
+    (when (storage-checkpoint-pending? stg)
+      (storage-checkpoint! stg))
+    (when (and (auto-empty-trash?)
+               (not (storage-trash-empty? stg)))
+      (storage-trash-empty! stg)))
   (define (revert!)
     (for-each (lambda (rid) (let ((R (hash-ref id=>R (list rid) #f)))
                               (when R ((wrapped-relation-controller R) 'invalidate!))))
@@ -190,7 +200,7 @@
     (set! rids.new '())
     (storage-revert! stg))
   (define (commit!)
-    (storage-checkpoint! stg)
+    (checkpoint!)
     (set! rids.new '())
     (perform-pending-jobs!))
   (define (perform-pending-jobs!)
@@ -241,8 +251,7 @@
               iid=>rc
               (hash->list iid=>delta))))
         (hash)))
-    (when (storage-checkpoint-pending? stg)
-      (storage-checkpoint! stg)))
+    (checkpoint!))
 
   ;; TODO: bulk process this stg-update! instead, as is done with index-id=>refcount
   (define (decref-table! tid)
@@ -312,7 +321,7 @@
       ;; text-id => nat
       (stg-set! 'text-id=>refcount             (hash))
       (stg-set! 'next-uid                      0)
-      (storage-checkpoint! stg))
+      (checkpoint!))
     (perform-pending-jobs!))
 
   (wrapped-database
@@ -338,7 +347,8 @@
        (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.R attrs)))
        (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-set rid=>t  id.R type)))
        (stg-update! 'relation-id=>tables     (lambda (rid=>ts) (hash-set rid=>ts id.R '())))
-       (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-set rid=>is id.R (hash))))))))
+       (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-set rid=>is id.R (hash)))))
+      ((trash-empty!) (storage-trash-empty! stg)))))
 
 (define (valid-attributes?! attrs)
   (unless (list? attrs)

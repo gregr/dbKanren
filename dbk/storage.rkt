@@ -7,6 +7,7 @@
   storage-checkpoint!
   storage-revert!
   storage-trash-empty!
+  storage-trash-empty?
   storage-description-keys
   storage-description-key?
   storage-description-ref
@@ -100,6 +101,7 @@
 (define (storage-checkpoint!         s) ((wrapped-storage-controller s) 'checkpoint!))
 (define (storage-revert!             s) ((wrapped-storage-controller s) 'revert!))
 (define (storage-trash-empty!        s) ((wrapped-storage-controller s) 'trash-empty!))
+(define (storage-trash-empty?        s) ((wrapped-storage-controller s) 'trash-empty?))
 
 (define ((missing-key s key)) (error "storage description key does not exist" key (storage-path s)))
 
@@ -284,6 +286,7 @@
                            (clear-output-ports!)
                            (collect-garbage!))
                           (else (pretty-log '(no revert necessary: storage has not been modified)))))
+    ((trash-empty?) (null? (directory-list path.trash #:build? #t)))
     ((trash-empty!) (define (delete-path path)
                       (cond ((file-exists?      path) (delete-file path))
                             ((directory-exists? path) (for-each delete-path (directory-list path #:build? #t))
