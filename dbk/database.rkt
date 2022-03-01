@@ -16,7 +16,7 @@
   auto-empty-trash?
   current-batch-size)
 (require "logging.rkt" "misc.rkt" "storage.rkt"
-         racket/list racket/set racket/struct)
+         racket/hash racket/list racket/set racket/struct)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Persistent databases ;;;
@@ -116,37 +116,14 @@
          (claim-update!)
          (apply pretty-log `(deleting relation ,name)
                 (map (lambda (a t) `(,a : ,t)) attrs type))
-         (stg-update! 'name=>relation-id       (lambda (n=>rid) (hash-remove n=>rid  name)))
-         (stg-update! 'relation-id=>name       (lambda (rid=>n)  (hash-remove rid=>n  id.self)))
-         (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-remove rid=>as id.self)))
-         (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-remove rid=>t  id.self)))
-         (stg-update!
-           'pending:relation-id=>tables
-           (lambda (rid=>tables)
-             (for-each decref-table!
-                       (map cdr (hash-ref rid=>tables id.self '())))
-             (hash-remove rid=>tables id.self)))
-         (stg-update!
-           'relation-id=>tables
-           (lambda (rid=>tables)
-             (define tables.current (map cdr (hash-ref rid=>tables id.self)))
-             (for-each decref-table! tables.current)
-             (stg-update!
-               'relation-id=>indexes
-               (lambda (rid=>indexes)
-                 (stg-update!
-                   'pending:index-id=>delta
-                   (lambda (iid=>delta)
-                     (foldl
-                       (lambda (iid iid=>delta)
-                         (hash-update iid=>delta iid (lambda (delta) (- delta 1)) 0))
-                       iid=>delta
-                       (append*
-                         (map (lambda (ordering)
-                                (map (lambda (tid) (cons tid ordering)) tables.current))
-                              (hash-keys (hash-ref rid=>indexes id.self)))))))
-                 (hash-remove rid=>indexes id.self)))
-             (hash-remove rid=>tables id.self)))
+         (stg-update! 'name=>relation-id            (lambda (n=>rid)  (hash-remove n=>rid  name)))
+         (stg-update! 'relation-id=>name            (lambda (rid=>n)  (hash-remove rid=>n  id.self)))
+         (stg-update! 'relation-id=>attributes      (lambda (rid=>as) (hash-remove rid=>as id.self)))
+         (stg-update! 'relation-id=>type            (lambda (rid=>t)  (hash-remove rid=>t  id.self)))
+         (stg-update! 'relation-id=>tables          (lambda (rid=>ts) (hash-remove rid=>ts id.self)))
+         (stg-update! 'relation-id=>indexes         (lambda (rid=>os) (hash-remove rid=>os id.self)))
+         (stg-update! 'pending:relation-id=>tables  (lambda (rid=>ts) (hash-remove rid=>ts id.self)))
+         (stg-update! 'pending:relation-id=>indexes (lambda (rid=>os) (hash-remove rid=>os id.self)))
          (invalidate!)))
       ))
 
@@ -217,60 +194,36 @@
                   (hash-update
                     rid=>ts rid
                     (lambda (ts.current)
-                      ;; TODO: automatically request compaction if appropriate
+                      ;; TODO: request incremental compaction if appropriate
                       (append ts.current ts.new)))))
               rid=>tables.current
               (hash->list rid=>tables.new))))
         (hash)))
-    ;; TODO: perform any compaction before building new indexes
+    ;; TODO: collect table garbage
     (stg-update!
-      'pending:index-id=>delta
-      (lambda (iid=>delta)
+      'pending:relation-id=>indexes
+      (lambda (rid=>orderings.new)
         (stg-update!
-          'index-id=>refcount
-          (lambda (iid=>rc)
+          'relation-id=>indexes
+          (lambda (rid=>orderings.current)
             (foldl
-              (lambda (iidd iid=>rc)
-                (let* ((iid     (car iidd))
-                       (delta   (cdr iidd))
-                       (iid=>rc (hash-update
-                                  iid=>rc iid
-                                  (lambda (rc)
-                                    (let ((rc.new (+ rc delta)))
-                                      (cond ((and (= rc 0) (< 0 rc.new))
-                                             ;; TODO: build a new index
-                                             )
-                                            ((and (= rc.new 0) (< 0 rc))
-                                             ;; TODO: deallocate index
-                                             ))
-                                      rc.new))
-                                  0)))
-                  (if (= 0 (hash-ref iid=>rc iid))
-                    (hash-remove iid=>rc iid)
-                    iid=>rc)))
-              iid=>rc
-              (hash->list iid=>delta))))
+              (lambda (ridos rid=>os)
+                (let ((rid    (car ridos))
+                      (os.new (cdr ridos)))
+                  (hash-update
+                    rid=>os rid
+                    (lambda (os.current)
+                      (hash-union os.current os.new #:combine (lambda (a b) #t))))))
+              rid=>orderings.current
+              (hash->list rid=>orderings.new))))
         (hash)))
+    ;; TODO:
+    ;; - perform compaction and intra-text gc
+    ;; - collect index garbage
+    ;; - collect text garbage
+    ;; - checkpoint
+    ;; - build new indexes
     (checkpoint!))
-
-  ;; TODO: bulk process this stg-update! instead, as is done with index-id=>refcount
-  (define (decref-table! tid)
-    (stg-update!
-      'table-id=>refcount
-      (lambda (tid=>rc)
-        (let ((tid=>rc
-                (hash-update
-                  tid=>rc tid
-                  (lambda (rc)
-                    (let ((rc (- rc 1)))
-                      (when (= rc 0)
-                        ;; TODO: deallocate columns
-                        ;; TODO: and deref any associated text-id
-                        (void))
-                      rc)))))
-          (if (= 0 (hash-ref tid=>rc tid))
-            (hash-remove tid=>rc tid)
-            tid=>rc)))))
 
   (define stg (storage:filesystem path.db))
   (let ((version (storage-description-ref stg 'database-format-version #f)))
@@ -283,7 +236,7 @@
       (stg-set! 'relation-id=>type             (hash))
       ;; relation-id => (list (cons (OR 'insert 'delete) table-id) ...)
       (stg-set! 'relation-id=>tables           (hash))
-      ;; relation-id => (ordering => ())
+      ;; relation-id => (ordering => #t)
       (stg-set! 'relation-id=>indexes          (hash))
       ;; table-id => (list desc.column ...)
       (stg-set! 'table-id=>columns             (hash))
@@ -312,14 +265,12 @@
       (stg-set! 'text-id=>text                 (hash))
       ;; relation-id => (list (cons (OR 'insert 'delete) table-id) ...)
       (stg-set! 'pending:relation-id=>tables   (hash))
-      ;; (cons table-id ordering) => delta
-      (stg-set! 'pending:index-id=>delta       (hash))
-      ;; table-id => nat
-      (stg-set! 'table-id=>refcount            (hash))
-      ;; (cons table-id ordering) => nat
-      (stg-set! 'index-id=>refcount            (hash))
-      ;; text-id => nat
-      (stg-set! 'text-id=>refcount             (hash))
+      ;; relation-id => (ordering => #t)
+      (stg-set! 'pending:relation-id=>indexes  (hash))
+      ;; relation-id => #t
+      (stg-set! 'pending:full-compactions      (hash))
+      ;; relation-id => #t
+      (stg-set! 'pending:minor-compactions     (hash))
       (stg-set! 'next-uid                      0)
       (checkpoint!))
     (perform-pending-jobs!))
