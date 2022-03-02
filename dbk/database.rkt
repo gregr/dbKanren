@@ -6,13 +6,16 @@
   database-relation-names
   database-relation-name?
   database-relation
+  database-relation-new
   database-relation-add!
-  database-relation-remove!
   database-trash-empty!
+  relation-has-name?
   relation-name
   relation-attributes
   relation-type
   relation-delete!
+  relation-name-set!
+  relation-attributes-set!
   auto-empty-trash?
   current-batch-size)
 (require "logging.rkt" "misc.rkt" "storage.rkt"
@@ -65,18 +68,26 @@
 (define auto-empty-trash?  (make-parameter #f))
 (define current-batch-size (make-parameter (expt 2 24)))
 
-(define (database-path             db)                 ((wrapped-database-controller db) 'path))
-(define (database-relation-names   db)                 ((wrapped-database-controller db) 'relation-names))
-(define (database-relation-name?   db name)            ((wrapped-database-controller db) 'relation-name?   name))
-(define (database-relation         db name)            ((wrapped-database-controller db) 'relation         name))
-(define (database-relation-add!    db name attrs type) ((wrapped-database-controller db) 'relation-add!    name attrs type))
-(define (database-relation-remove! db name)            (relation-delete! (database-relation db name)))
-(define (database-trash-empty!     db)                 ((wrapped-database-controller db) 'trash-empty!))
+(define (database-path             db)      ((wrapped-database-controller db) 'path))
+(define (database-trash-empty!     db)      ((wrapped-database-controller db) 'trash-empty!))
+(define (database-relation-names   db)      ((wrapped-database-controller db) 'relation-names))
+(define (database-relation-name?   db name) ((wrapped-database-controller db) 'relation-name? name))
+(define (database-relation         db name) ((wrapped-database-controller db) 'relation       name))
+(define (database-relation-new     db type) ((wrapped-database-controller db) 'relation-new   type))
+(define (database-relation-add!    db name attrs type)
+  (let ((r (database-relation-new db type)))
+    (relation-name-set!       r name)
+    (relation-attributes-set! r attrs)
+    r))
 
-(define (relation-name       r) ((wrapped-relation-controller r) 'name))
-(define (relation-attributes r) ((wrapped-relation-controller r) 'attributes))
-(define (relation-type       r) ((wrapped-relation-controller r) 'type))
-(define (relation-delete!    r) ((wrapped-relation-controller r) 'delete!))
+(define (relation-has-name?       r)       ((wrapped-relation-controller r) 'has-name?))
+(define (relation-name            r)       ((wrapped-relation-controller r) 'name))
+(define (relation-attributes      r)       ((wrapped-relation-controller r) 'attributes))
+(define (relation-type            r)       ((wrapped-relation-controller r) 'type))
+(define (relation-delete!         r)       ((wrapped-relation-controller r) 'delete!))
+(define (relation-name-set!       r name)  ((wrapped-relation-controller r) 'name-set!       name))
+(define (relation-attributes-set! r attrs) ((wrapped-relation-controller r) 'attributes-set! attrs))
+
 
 (struct wrapped-database (controller)
         #:methods gen:custom-write
@@ -92,31 +103,45 @@
                                   'relation
                                   'deleted-relation))
                               (lambda (r)
-                                (if ((wrapped-relation-controller r) 'valid?)
+                                (if (and ((wrapped-relation-controller r) 'valid?)
+                                         (relation-has-name? r))
                                   (list (relation-name r))
                                   '()))))))
 
 (define (database path.db)
   (define (make-relation id.self)
 
-    (define (valid?) (not (not id.self)))
     (define (invalidate!)
-      (set! id.self #f)
-      (hash-remove! id=>R (list id.self)))
-    (method-lambda
-      ((valid?)      (valid?))
-      ((invalidate!) (invalidate!))
-      ((name)        (R-name  id.self))
-      ((attributes)  (R-attrs id.self))
-      ((type)        (R-type  id.self))
-      ((delete!)
-       (let ((name  (R-name  id.self))
-             (attrs (R-attrs id.self))
-             (type  (R-type  id.self)))
+      (hash-remove! id=>R (list id.self))
+      (set! self #f))
+    (define (remove-name!)
+      (when (R-has-name? id.self)
+        (stg-update! 'name=>relation-id (lambda (n=>rid) (hash-remove n=>rid (R-name id.self))))))
+    (define self
+      (method-lambda
+        ((valid?)      #t)
+        ((invalidate!) (invalidate!))
+        ((has-name?)   (R-has-name? id.self))
+        ((name)        (R-name      id.self))
+        ((attributes)  (R-attrs     id.self))
+        ((type)        (R-type      id.self))
+        ((name-set! name)
+         (unless (and (R-has-name? id.self) (equal? (R-name id.self) name))
+           (new-relation?! name)
+           (remove-name!)
+           (stg-update! 'name=>relation-id (lambda (n=>rid) (hash-set n=>rid name id.self)))
+           (stg-update! 'relation-id=>name (lambda (rid=>n) (hash-set rid=>n id.self name)))))
+        ((attributes-set! attrs)
+         (valid-attributes?! attrs)
+         (let ((type (R-type id.self)))
+           (unless (= (length attrs) (length type))
+             (error "number of attributes must match the relation type arity"
+                    attrs type)))
+         (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.self attrs))))
+        ((delete!)
          (claim-update!)
-         (apply pretty-log `(deleting relation ,name)
-                (map (lambda (a t) `(,a : ,t)) attrs type))
-         (stg-update! 'name=>relation-id            (lambda (n=>rid)  (hash-remove n=>rid  name)))
+         (set-remove! rids.new id.self)
+         (remove-name!)
          (stg-update! 'relation-id=>name            (lambda (rid=>n)  (hash-remove rid=>n  id.self)))
          (stg-update! 'relation-id=>attributes      (lambda (rid=>as) (hash-remove rid=>as id.self)))
          (stg-update! 'relation-id=>type            (lambda (rid=>t)  (hash-remove rid=>t  id.self)))
@@ -124,15 +149,18 @@
          (stg-update! 'relation-id=>indexes         (lambda (rid=>os) (hash-remove rid=>os id.self)))
          (stg-update! 'pending:relation-id=>tables  (lambda (rid=>ts) (hash-remove rid=>ts id.self)))
          (stg-update! 'pending:relation-id=>indexes (lambda (rid=>os) (hash-remove rid=>os id.self)))
-         (invalidate!)))
-      ))
+         (invalidate!))))
+    (lambda args (apply (or self (method-lambda
+                                   ((valid?) #f)))
+                        args)))
 
-  (define rids.new '())
+  (define rids.new (mutable-set))
   (define id=>R    (make-weak-hash))
-  (define (make-R name)
-    (let* ((id.R  (hash-ref (name=>relation-id) name
-                            (lambda () (error "unknown relation" name (storage-path stg)))))
-           (key.R (list id.R)))
+  (define (name->R name)
+    (id->R (hash-ref (name=>relation-id) name
+                     (lambda () (error "unknown relation" name (storage-path stg))))))
+  (define (id->R id.R)
+    (let* ((key.R (list id.R)))
       (wrapped-relation
         key.R
         (or (hash-ref id=>R key.R #f)
@@ -142,10 +170,11 @@
   (define (stg-ref      key)        (storage-description-ref     stg key))
   (define (stg-set!     key value)  (storage-description-set!    stg key value))
   (define (stg-update!  key update) (storage-description-update! stg key update))
-  (define (R-invalid)               (error "cannot use deleted relation"))
-  (define (R-name       id)         (hash-ref (stg-ref 'relation-id=>name)       id R-invalid))
-  (define (R-attrs      id)         (hash-ref (stg-ref 'relation-id=>attributes) id R-invalid))
-  (define (R-type       id)         (hash-ref (stg-ref 'relation-id=>type)       id R-invalid))
+  (define (R-anonymous)             (error "anonymous relation has no name"))
+  (define (R-has-name?  id)         (hash-has-key? (stg-ref 'relation-id=>name)  id))
+  (define (R-name       id)         (hash-ref (stg-ref 'relation-id=>name)       id R-anonymous))
+  (define (R-attrs      id)         (hash-ref (stg-ref 'relation-id=>attributes) id))
+  (define (R-type       id)         (hash-ref (stg-ref 'relation-id=>type)       id))
   (define (name=>relation-id)       (stg-ref 'name=>relation-id))
   (define (relation-name? name)     (hash-has-key? (name=>relation-id) name))
   (define (new-relation?! name)     (when (relation-name? name)
@@ -172,13 +201,18 @@
       (storage-trash-empty! stg)))
   (define (revert!)
     (for-each (lambda (rid) (let ((R (hash-ref id=>R (list rid) #f)))
-                              (when R ((wrapped-relation-controller R) 'invalidate!))))
-              rids.new)
-    (set! rids.new '())
+                              (when R (R 'invalidate!))))
+              (set->list rids.new))
+    (set-clear! rids.new)
     (storage-revert! stg))
   (define (commit!)
+    (for-each (lambda (rid)
+                (let ((R (hash-ref id=>R (list rid) #f)))
+                  (when (and R (not (R-has-name? rid)))
+                    (R 'delete!))))  ; Delete anonymous relations before checkpoint
+              (set->list rids.new))
     (checkpoint!)
-    (set! rids.new '())
+    (set-clear! rids.new)
     (perform-pending-jobs!))
   (define (perform-pending-jobs!)
     (stg-update!
@@ -280,25 +314,17 @@
       ((path)                (storage-path stg))
       ((relation-names)      (hash-keys (name=>relation-id)))
       ((relation-name? name) (relation-name? name))
-      ((relation       name) (make-R name))
-      ((relation-add! name attrs type)
+      ((relation       name) (name->R name))
+      ((relation-new   type)
        (claim-update!)
-       (new-relation?! name)
-       (valid-attributes?! attrs)
        (valid-relation-type?! type)
-       (unless (= (length attrs) (length type))
-         (error "number of attributes must match the relation type arity"
-                name attrs type))
-       (apply pretty-log `(creating relation ,name)
-              (map (lambda (a t) `(,a : ,t)) attrs type))
        (define id.R (fresh-uid))
-       (set! rids.new (cons id.R rids.new))
-       (stg-update! 'name=>relation-id       (lambda (n=>rid)  (hash-set n=>rid  name id.R)))
-       (stg-update! 'relation-id=>name       (lambda (rid=>n)  (hash-set rid=>n  id.R name)))
-       (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.R attrs)))
+       (set-add! rids.new id.R)
+       (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.R (range (length type)))))
        (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-set rid=>t  id.R type)))
        (stg-update! 'relation-id=>tables     (lambda (rid=>ts) (hash-set rid=>ts id.R '())))
-       (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-set rid=>is id.R (hash)))))
+       (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-set rid=>is id.R (hash))))
+       (id->R id.R))
       ((trash-empty!) (storage-trash-empty! stg)))))
 
 (define (valid-attributes?! attrs)
