@@ -13,13 +13,18 @@
   relation-name
   relation-attributes
   relation-type
+  relation-indexes
   relation-delete!
   relation-name-set!
   relation-attributes-set!
+  relation-assign!
+  relation-index-add!
+  relation-index-remove!
+  R.empty R+ R-
   auto-empty-trash?
   current-batch-size)
 (require "logging.rkt" "misc.rkt" "storage.rkt"
-         racket/hash racket/list racket/set racket/struct)
+         racket/hash racket/list racket/match racket/set racket/struct)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Persistent databases ;;;
@@ -84,9 +89,13 @@
 (define (relation-name            r)       ((wrapped-relation-controller r) 'name))
 (define (relation-attributes      r)       ((wrapped-relation-controller r) 'attributes))
 (define (relation-type            r)       ((wrapped-relation-controller r) 'type))
+(define (relation-indexes         r)       ((wrapped-relation-controller r) 'indexes))
 (define (relation-delete!         r)       ((wrapped-relation-controller r) 'delete!))
 (define (relation-name-set!       r name)  ((wrapped-relation-controller r) 'name-set!       name))
 (define (relation-attributes-set! r attrs) ((wrapped-relation-controller r) 'attributes-set! attrs))
+(define (relation-assign!         r expr)  ((wrapped-relation-controller r) 'assign!         expr))
+(define (relation-index-add!      r . ixs) ((wrapped-relation-controller r) 'index-add!      ixs))
+(define (relation-index-remove!   r . ixs) ((wrapped-relation-controller r) 'index-remove!   ixs))
 
 
 (struct wrapped-database (controller)
@@ -117,14 +126,25 @@
     (define (remove-name!)
       (when (R-has-name? id.self)
         (stg-update! 'name=>relation-id (lambda (n=>rid) (hash-remove n=>rid (R-name id.self))))))
+    (define (index-signature->ordering ix)
+      (valid-attributes?! ix)
+      (let ((attrs (R-attrs id.self)))
+        (map (lambda (attr) (let ((i (index-of attrs attr)))
+                              (if i i (error "invalid index attribute" attr ix attrs))))
+             ix)))
+    (define (update-indexes! update)
+      (stg-update! 'relation-id=>indexes (lambda (rid=>os) (hash-update rid=>os id.self update))))
     (define self
       (method-lambda
         ((valid?)      #t)
+        ((path)        path.db)
         ((invalidate!) (invalidate!))
         ((has-name?)   (R-has-name? id.self))
         ((name)        (R-name      id.self))
         ((attributes)  (R-attrs     id.self))
         ((type)        (R-type      id.self))
+        ((table-expr)             (hash-ref (stg-ref 'relation-id=>table-expr) id.self))
+        ((indexes)     (hash-keys (hash-ref (stg-ref 'relation-id=>indexes)    id.self)))
         ((name-set! name)
          (unless (and (R-has-name? id.self) (equal? (R-name id.self) name))
            (new-relation?! name)
@@ -138,21 +158,45 @@
              (error "number of attributes must match the relation type arity"
                     attrs type)))
          (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.self attrs))))
+        ((assign! expr) (R-assign! id.self expr))
+        ((index-add!    ixs) (update-indexes! (lambda (os)
+                                                (foldl (lambda (ordering os)
+                                                         (hash-set os ordering #t))
+                                                       os
+                                                       (map index-signature->ordering ixs)))))
+        ((index-remove! ixs) (update-indexes! (lambda (os)
+                                                (foldl (lambda (ordering os)
+                                                         (hash-remove os ordering))
+                                                       os
+                                                       (map index-signature->ordering ixs)))))
         ((delete!)
          (claim-update!)
          (set-remove! rids.new id.self)
          (remove-name!)
-         (stg-update! 'relation-id=>name            (lambda (rid=>n)  (hash-remove rid=>n  id.self)))
-         (stg-update! 'relation-id=>attributes      (lambda (rid=>as) (hash-remove rid=>as id.self)))
-         (stg-update! 'relation-id=>type            (lambda (rid=>t)  (hash-remove rid=>t  id.self)))
-         (stg-update! 'relation-id=>tables          (lambda (rid=>ts) (hash-remove rid=>ts id.self)))
-         (stg-update! 'relation-id=>indexes         (lambda (rid=>os) (hash-remove rid=>os id.self)))
-         (stg-update! 'pending:relation-id=>tables  (lambda (rid=>ts) (hash-remove rid=>ts id.self)))
-         (stg-update! 'pending:relation-id=>indexes (lambda (rid=>os) (hash-remove rid=>os id.self)))
+         (stg-update! 'relation-id=>name       (lambda (rid=>n)  (hash-remove rid=>n  id.self)))
+         (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-remove rid=>as id.self)))
+         (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-remove rid=>t  id.self)))
+         (stg-update! 'relation-id=>table-expr (lambda (rid=>te) (hash-remove rid=>te id.self)))
+         (stg-update! 'relation-id=>indexes    (lambda (rid=>os) (hash-remove rid=>os id.self)))
          (invalidate!))))
     (lambda args (apply (or self (method-lambda
                                    ((valid?) #f)))
                         args)))
+
+  (define (table-expr type rexpr)
+    ;; TODO: simplify and normalize resulting table expression
+    (let loop ((rexpr rexpr))
+      (match rexpr
+        ('()                     '())
+        (`(+ ,@rs)               `(+ . ,(map loop rs)))
+        (`(- ,r0 ,r1)            `(- ,(loop r0) ,(loop r1)))
+        ((? wrapped-relation? R) (let ((R (wrapped-relation-controller R)))
+                                   (unless (equal? (R 'path) path.db)
+                                     (error "cannot combine relations from different databases"
+                                            (R 'path) path.db))
+                                   (unless (equal? (R 'type) type)
+                                     (error "type mismatch" (R 'type) type))
+                                   (R 'table-expr))))))
 
   (define rids.new (mutable-set))
   (define id=>R    (make-weak-hash))
@@ -175,6 +219,10 @@
   (define (R-name       id)         (hash-ref (stg-ref 'relation-id=>name)       id R-anonymous))
   (define (R-attrs      id)         (hash-ref (stg-ref 'relation-id=>attributes) id))
   (define (R-type       id)         (hash-ref (stg-ref 'relation-id=>type)       id))
+  (define (R-assign!    id rexpr)   (stg-update!
+                                      'relation-id=>table-expr
+                                      (lambda (rid=>ts)
+                                        (hash-set rid=>ts id (table-expr (R-type id) rexpr)))))
   (define (name=>relation-id)       (stg-ref 'name=>relation-id))
   (define (relation-name? name)     (hash-has-key? (name=>relation-id) name))
   (define (new-relation?! name)     (when (relation-name? name)
@@ -215,43 +263,8 @@
     (set-clear! rids.new)
     (perform-pending-jobs!))
   (define (perform-pending-jobs!)
-    (stg-update!
-      'pending:relation-id=>tables
-      (lambda (rid=>tables.new)
-        (stg-update!
-          'relation-id=>tables
-          (lambda (rid=>tables.current)
-            (foldl
-              (lambda (ridts rid=>ts)
-                (let ((rid    (car ridts))
-                      (ts.new (cdr ridts)))
-                  (hash-update
-                    rid=>ts rid
-                    (lambda (ts.current)
-                      ;; TODO: request incremental compaction if appropriate
-                      (append ts.current ts.new)))))
-              rid=>tables.current
-              (hash->list rid=>tables.new))))
-        (hash)))
-    ;; TODO: collect table garbage
-    (stg-update!
-      'pending:relation-id=>indexes
-      (lambda (rid=>orderings.new)
-        (stg-update!
-          'relation-id=>indexes
-          (lambda (rid=>orderings.current)
-            (foldl
-              (lambda (ridos rid=>os)
-                (let ((rid    (car ridos))
-                      (os.new (cdr ridos)))
-                  (hash-update
-                    rid=>os rid
-                    (lambda (os.current)
-                      (hash-union os.current os.new #:combine (lambda (a b) #t))))))
-              rid=>orderings.current
-              (hash->list rid=>orderings.new))))
-        (hash)))
     ;; TODO:
+    ;; - collect table garbage
     ;; - perform compaction and intra-text gc
     ;; - collect index garbage
     ;; - collect text garbage
@@ -268,8 +281,8 @@
       (stg-set! 'relation-id=>name             (hash))
       (stg-set! 'relation-id=>attributes       (hash))
       (stg-set! 'relation-id=>type             (hash))
-      ;; relation-id => (list (cons (OR 'insert 'delete) table-id) ...)
-      (stg-set! 'relation-id=>tables           (hash))
+      ;; relation-id => table-expr
+      (stg-set! 'relation-id=>table-expr       (hash))
       ;; relation-id => (ordering => #t)
       (stg-set! 'relation-id=>indexes          (hash))
       ;; table-id => (list desc.column ...)
@@ -297,10 +310,6 @@
       (stg-set! 'table-id=>text-id             (hash))
       ;; text-id => (hash 'value desc.column 'position desc.column)
       (stg-set! 'text-id=>text                 (hash))
-      ;; relation-id => (list (cons (OR 'insert 'delete) table-id) ...)
-      (stg-set! 'pending:relation-id=>tables   (hash))
-      ;; relation-id => (ordering => #t)
-      (stg-set! 'pending:relation-id=>indexes  (hash))
       ;; relation-id => #t
       (stg-set! 'pending:full-compactions      (hash))
       ;; relation-id => #t
@@ -322,8 +331,8 @@
        (set-add! rids.new id.R)
        (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.R (range (length type)))))
        (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-set rid=>t  id.R type)))
-       (stg-update! 'relation-id=>tables     (lambda (rid=>ts) (hash-set rid=>ts id.R '())))
        (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-set rid=>is id.R (hash))))
+       (R-assign! id.R R.empty)
        (id->R id.R))
       ((trash-empty!) (storage-trash-empty! stg)))))
 
