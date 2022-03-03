@@ -117,6 +117,10 @@
                                   (list (relation-name r))
                                   '()))))))
 
+(define R.empty     '())
+(define (R+ . args) (cons '+ args))
+(define (R- e0 e1)  `(- ,e0 ,e1))
+
 (define (database path.db)
   (define (make-relation id.self)
 
