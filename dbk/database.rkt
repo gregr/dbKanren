@@ -22,6 +22,7 @@
   relation-assign!
   relation-index-add!
   relation-index-remove!
+  relation-compact!
   R.empty R+ R-
   auto-empty-trash?
   current-batch-size)
@@ -101,7 +102,7 @@
 (define (relation-assign!         r expr)  ((wrapped-relation-controller r) 'assign!         expr))
 (define (relation-index-add!      r . ixs) ((wrapped-relation-controller r) 'index-add!      ixs))
 (define (relation-index-remove!   r . ixs) ((wrapped-relation-controller r) 'index-remove!   ixs))
-
+(define (relation-compact!        r)       ((wrapped-relation-controller r) 'compact!))
 
 (struct wrapped-database (controller)
         #:methods gen:custom-write
@@ -183,6 +184,9 @@
                                                          (hash-remove os ordering))
                                                        os
                                                        (map index-signature->ordering ixs)))))
+        ((compact!)
+         (claim-update!)
+         (stg-update! 'relations-to-compact (lambda (rids) (hash-set rids id.self #t))))
         ((delete!)
          (claim-update!)
          (set-remove! rids.new id.self)
@@ -231,6 +235,7 @@
   (define (stg-set!     key value)  (storage-description-set!    stg key value))
   (define (stg-update!  key update) (storage-description-update! stg key update))
   (define (R-anonymous)             (error "anonymous relation has no name"))
+  (define (R-valid?     id)         (hash-has-key? (stg-ref 'relation-id=>type)  id))
   (define (R-has-name?  id)         (hash-has-key? (stg-ref 'relation-id=>name)  id))
   (define (R-name       id)         (hash-ref (stg-ref 'relation-id=>name)       id R-anonymous))
   (define (R-attrs      id)         (hash-ref (stg-ref 'relation-id=>attributes) id))
@@ -285,7 +290,18 @@
   (define (perform-pending-jobs!)
     ;; TODO:
     ;; - collect table garbage
-    ;; - perform compaction and intra-text gc
+    (stg-update! 'relations-to-compact
+                 ;; For now, just remove deleted relations
+                 (lambda (rids)
+                   (foldl
+                     (lambda (rid rids)
+                       (if (R-valid? rid)
+                         rids
+                         (hash-remove rids rid)))
+                     rids
+                     (hash-keys rids))
+                   ;; TODO: perform compaction and intra-text gc
+                   ))
     ;; - collect index garbage
     ;; - collect text garbage
     ;; - checkpoint
@@ -331,9 +347,7 @@
       ;; text-id => (hash 'value desc.column 'position desc.column)
       (stg-set! 'text-id=>text                 (hash))
       ;; relation-id => #t
-      (stg-set! 'pending:full-compactions      (hash))
-      ;; relation-id => #t
-      (stg-set! 'pending:minor-compactions     (hash))
+      (stg-set! 'relations-to-compact          (hash))
       (stg-set! 'next-uid                      0)
       (checkpoint!))
     (perform-pending-jobs!))
