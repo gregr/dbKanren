@@ -6,9 +6,11 @@
   database-relation-names
   database-relation-name?
   database-relation
+  database-relation-builder
   database-relation-new
   database-relation-add!
   database-trash-empty!
+  relation-database
   relation-has-name?
   relation-name
   relation-attributes
@@ -71,20 +73,23 @@
 (define version.current '2022-2-22)
 
 (define auto-empty-trash?  (make-parameter #f))
-(define current-batch-size (make-parameter (expt 2 24)))
+(define current-batch-size (make-parameter (expt 2 26)))
 
-(define (database-path             db)      ((wrapped-database-controller db) 'path))
-(define (database-trash-empty!     db)      ((wrapped-database-controller db) 'trash-empty!))
-(define (database-relation-names   db)      ((wrapped-database-controller db) 'relation-names))
-(define (database-relation-name?   db name) ((wrapped-database-controller db) 'relation-name? name))
-(define (database-relation         db name) ((wrapped-database-controller db) 'relation       name))
-(define (database-relation-new     db type) ((wrapped-database-controller db) 'relation-new   type))
-(define (database-relation-add!    db name attrs type)
-  (let ((r (database-relation-new db type)))
-    (relation-name-set!       r name)
-    (relation-attributes-set! r attrs)
-    r))
+(define (database-path             db)                      ((wrapped-database-controller db) 'path))
+(define (database-trash-empty!     db)                      ((wrapped-database-controller db) 'trash-empty!))
+(define (database-relation-names   db)                      ((wrapped-database-controller db) 'relation-names))
+(define (database-relation-name?   db name)                 ((wrapped-database-controller db) 'relation-name? name))
+(define (database-relation         db name)                 ((wrapped-database-controller db) 'relation       name))
+(define (database-relation-builder db type (batch-size #f)) ((wrapped-database-controller db)
+                                                             'relation-builder type (or batch-size (current-batch-size))))
+(define (database-relation-new     db type)                 (let-values (((_ finish) (database-relation-builder db type 0)))
+                                                              (finish)))
+(define (database-relation-add!    db name attrs type)      (let ((r (database-relation-new db type)))
+                                                              (relation-name-set!       r name)
+                                                              (relation-attributes-set! r attrs)
+                                                              r))
 
+(define (relation-database        r)       ((wrapped-relation-controller r) 'database))
 (define (relation-has-name?       r)       ((wrapped-relation-controller r) 'has-name?))
 (define (relation-name            r)       ((wrapped-relation-controller r) 'name))
 (define (relation-attributes      r)       ((wrapped-relation-controller r) 'attributes))
@@ -141,7 +146,7 @@
     (define self
       (method-lambda
         ((valid?)      #t)
-        ((path)        path.db)
+        ((database)    db)
         ((invalidate!) (invalidate!))
         ((has-name?)   (R-has-name? id.self))
         ((name)        (R-name      id.self))
@@ -194,16 +199,18 @@
         ('()                     '())
         (`(+ ,@rs)               `(+ . ,(map loop rs)))
         (`(- ,r0 ,r1)            `(- ,(loop r0) ,(loop r1)))
-        ((? wrapped-relation? R) (let ((R (wrapped-relation-controller R)))
-                                   (unless (equal? (R 'path) path.db)
+        ((? wrapped-relation? R) (let* ((R    (wrapped-relation-controller R))
+                                        (path (database-path (R 'database))))
+                                   (unless (equal? path (storage-path stg))
                                      (error "cannot combine relations from different databases"
-                                            (R 'path) path.db))
+                                            path (storage-path stg)))
                                    (unless (equal? (R 'type) type)
                                      (error "type mismatch" (R 'type) type))
                                    (R 'table-expr))))))
 
-  (define rids.new (mutable-set))
-  (define id=>R    (make-weak-hash))
+  (define build-invalidators '())
+  (define rids.new           (mutable-set))
+  (define id=>R              (make-weak-hash))
   (define (name->R name)
     (id->R (hash-ref (name=>relation-id) name
                      (lambda () (error "unknown relation" name (storage-path stg))))))
@@ -256,6 +263,8 @@
                               (when R (R 'invalidate!))))
               (set->list rids.new))
     (set-clear! rids.new)
+    (for-each (lambda (invalidate!) (invalidate!)) build-invalidators)
+    (set! build-invalidators '())
     (storage-revert! stg))
   (define (commit!)
     (for-each (lambda (rid)
@@ -265,6 +274,8 @@
               (set->list rids.new))
     (checkpoint!)
     (set-clear! rids.new)
+    (for-each (lambda (invalidate!) (invalidate!)) build-invalidators)
+    (set! build-invalidators '())
     (perform-pending-jobs!))
   (define (perform-pending-jobs!)
     ;; TODO:
@@ -322,23 +333,33 @@
       (checkpoint!))
     (perform-pending-jobs!))
 
-  (wrapped-database
-    (method-lambda
-      ((path)                (storage-path stg))
-      ((relation-names)      (hash-keys (name=>relation-id)))
-      ((relation-name? name) (relation-name? name))
-      ((relation       name) (name->R name))
-      ((relation-new   type)
-       (claim-update!)
-       (valid-relation-type?! type)
-       (define id.R (fresh-uid))
-       (set-add! rids.new id.R)
-       (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.R (range (length type)))))
-       (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-set rid=>t  id.R type)))
-       (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-set rid=>is id.R (hash))))
-       (R-assign! id.R R.empty)
-       (id->R id.R))
-      ((trash-empty!) (storage-trash-empty! stg)))))
+  (define db
+    (wrapped-database
+      (method-lambda
+        ((path)                (storage-path stg))
+        ((relation-names)      (hash-keys (name=>relation-id)))
+        ((relation-name? name) (relation-name? name))
+        ((relation       name) (name->R name))
+        ((relation-builder type batch-size)
+         (claim-update!)
+         (valid-relation-type?! type)
+         (define id.R (fresh-uid))
+         (set-add! rids.new id.R)
+         (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.R (range (length type)))))
+         (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-set rid=>t  id.R type)))
+         (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-set rid=>is id.R (hash))))
+         (R-assign! id.R R.empty)
+         (define (invalidate!) (set! id.R #f))
+         (set! build-invalidators (cons invalidate! build-invalidators))
+         (if (= batch-size 0)
+           (values #f (lambda ()
+                        (unless id.R (error "cannot finish a stale builder"))
+                        (let ((R (id->R id.R)))
+                          (invalidate!)
+                          R)))
+           (error "TODO: implement builder with non-zero batch-size")))
+        ((trash-empty!) (storage-trash-empty! stg)))))
+  db)
 
 (define (valid-attributes?! attrs)
   (unless (list? attrs)
