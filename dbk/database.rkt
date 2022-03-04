@@ -127,9 +127,12 @@
 (define (R+ . args) (cons '+ args))
 (define (R- e0 e1)  `(- ,e0 ,e1))
 
+(define T.empty     '())
+(define (T+ . args) (cons '+ args))
+(define (T- e0 e1)  `(- ,e0 ,e1))
+
 (define (database path.db)
   (define (make-relation id.self)
-
     (define (invalidate!)
       (hash-remove! id=>R (list id.self))
       (set! self #f))
@@ -173,7 +176,7 @@
          (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.self attrs))))
         ((assign! expr)
          (claim-update!)
-         (R-assign! id.self expr))
+         (R-assign-r! id.self expr))
         ((index-add!    ixs) (update-indexes! (lambda (os)
                                                 (foldl (lambda (ordering os)
                                                          (hash-set os ordering #t))
@@ -201,13 +204,31 @@
                                    ((valid?) #f)))
                         args)))
 
+  (define (relation-builder id.R batch-size)
+    (define R (id->R id.R))
+    (define checkpoint.current (storage-checkpoint-count stg))
+    (define (valid?)
+      (and ((wrapped-relation-controller R) 'valid?)
+           (current-update-details)
+           (equal? (storage-checkpoint-count stg) checkpoint.current)))
+    (define (invalidate!) (set! checkpoint.current #f))
+    (cond
+      ((= 0 batch-size)
+       (values #f (lambda ()
+                    (unless (valid?) (error "cannot use a stale builder"))
+                    (invalidate!)
+                    R)))
+      ((< 0 batch-size)
+       (error "TODO: implement relation-builder for (< 0 batch-size)" batch-size))
+      (else (error "invalid batch size" batch-size))))
+
   (define (table-expr type rexpr)
     ;; TODO: simplify and normalize resulting table expression
     (let loop ((rexpr rexpr))
       (match rexpr
-        ('()                     '())
-        (`(+ ,@rs)               `(+ . ,(map loop rs)))
-        (`(- ,r0 ,r1)            `(- ,(loop r0) ,(loop r1)))
+        ('()                     T.empty)
+        (`(+ ,@rs)               (apply T+ (map loop rs)))
+        (`(- ,r0 ,r1)            (T- (loop r0) (loop r1)))
         ((? wrapped-relation? R) (let* ((R    (wrapped-relation-controller R))
                                         (path (database-path (R 'database))))
                                    (unless (equal? path (storage-path stg))
@@ -217,7 +238,6 @@
                                      (error "type mismatch" (R 'type) type))
                                    (R 'table-expr))))))
 
-  (define build-invalidators '())
   (define rids.new           (mutable-set))
   (define id=>R              (make-weak-hash))
   (define (name->R name)
@@ -240,10 +260,9 @@
   (define (R-name       id)         (hash-ref (stg-ref 'relation-id=>name)       id R-anonymous))
   (define (R-attrs      id)         (hash-ref (stg-ref 'relation-id=>attributes) id))
   (define (R-type       id)         (hash-ref (stg-ref 'relation-id=>type)       id))
-  (define (R-assign!    id rexpr)   (stg-update!
-                                      'relation-id=>table-expr
-                                      (lambda (rid=>ts)
-                                        (hash-set rid=>ts id (table-expr (R-type id) rexpr)))))
+  (define (R-assign-t!  id texpr)   (stg-update! 'relation-id=>table-expr
+                                                 (lambda (rid=>ts) (hash-set rid=>ts id texpr))))
+  (define (R-assign-r!  id rexpr)   (R-assign-t! id (table-expr (R-type id) rexpr)))
   (define (name=>relation-id)       (stg-ref 'name=>relation-id))
   (define (relation-name? name)     (hash-has-key? (name=>relation-id) name))
   (define (new-relation?! name)     (when (relation-name? name)
@@ -273,8 +292,6 @@
                               (when R (R 'invalidate!))))
               (set->list rids.new))
     (set-clear! rids.new)
-    (for-each (lambda (invalidate!) (invalidate!)) build-invalidators)
-    (set! build-invalidators '())
     (storage-revert! stg))
   (define (commit!)
     (for-each (lambda (rid)
@@ -284,8 +301,6 @@
               (set->list rids.new))
     (checkpoint!)
     (set-clear! rids.new)
-    (for-each (lambda (invalidate!) (invalidate!)) build-invalidators)
-    (set! build-invalidators '())
     (perform-pending-jobs!))
   (define (perform-pending-jobs!)
     ;; TODO:
@@ -321,31 +336,45 @@
       (stg-set! 'relation-id=>table-expr       (hash))
       ;; relation-id => (ordering => #t)
       (stg-set! 'relation-id=>indexes          (hash))
-      ;; table-id => (list desc.column ...)
-      (stg-set! 'table-id=>columns             (hash))
-      ;; (cons table-id ordering-prefix) => desc.column
-      (stg-set! 'index-prefix=>key-column      (hash))
-      ;; (cons table-id ordering-prefix) => desc.column  ; for forming intervals
-      (stg-set! 'index-prefix=>position-column (hash))
+      ;; table-id => (list column-id ...)
+      (stg-set! 'table-id=>column-ids             (hash))
+      ;; (cons table-id ordering-prefix) => column-id
+      (stg-set! 'index-prefix=>key-column-id      (hash))
+      ;; (cons table-id ordering-prefix) => column-id  ; for forming intervals
+      (stg-set! 'index-prefix=>position-column-id (hash))
       ;; desc.column:
-      ;;  (hash 'type   'line
+      ;;  (hash 'class  'line
       ;;        'count  nat
       ;;        'offset int
       ;;        'step   int)
       ;; OR
-      ;;  (hash 'type      'block   ; implicit block name is (cons table-id column-position)
+      ;;  (hash 'class 'fxvector
+      ;;        'value #fx(int ...)
+      ;;        'min   int
+      ;;        'max   int)
+      ;; OR
+      ;;  (hash 'class 'bigint-vector
+      ;;        'value #(int ...)
+      ;;        'min   int
+      ;;        'max   int)
+      ;; OR
+      ;;  (hash 'class     'block
+      ;;        'name      block-name
       ;;        'bit-width nat
       ;;        'count     nat
       ;;        'offset    int
       ;;        'min       int
       ;;        'max       int)
-      ;; Indirects are optional and provide dictionary compression:
-      ;; table-id => (list (OR #f desc.column) ...)  ; one per column
-      (stg-set! 'table-id=>indirects           (hash))
-      ;; table-id => text-id
-      (stg-set! 'table-id=>text-id             (hash))
-      ;; text-id => (hash 'value desc.column 'position desc.column)
-      (stg-set! 'text-id=>text                 (hash))
+      ;; OR
+      ;;  (hash 'class  'remap      ; monotonic injection from local to global namespace, for compression
+      ;;        'local  column-id
+      ;;        'global column-id)
+      ;; OR
+      ;;  (hash 'class    'text
+      ;;        'position column-id
+      ;;        'value    column-id)
+      ;; column-id => desc.column
+      (stg-set! 'column-id=>column             (hash))
       ;; relation-id => #t
       (stg-set! 'relations-to-compact          (hash))
       (stg-set! 'next-uid                      0)
@@ -367,16 +396,8 @@
          (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.R (range (length type)))))
          (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-set rid=>t  id.R type)))
          (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-set rid=>is id.R (hash))))
-         (R-assign! id.R R.empty)
-         (define (invalidate!) (set! id.R #f))
-         (set! build-invalidators (cons invalidate! build-invalidators))
-         (if (= batch-size 0)
-           (values #f (lambda ()
-                        (unless id.R (error "cannot finish a stale builder"))
-                        (let ((R (id->R id.R)))
-                          (invalidate!)
-                          R)))
-           (error "TODO: implement builder with non-zero batch-size")))
+         (R-assign-t! id.R T.empty)
+         (relation-builder id.R batch-size))
         ((trash-empty!) (storage-trash-empty! stg)))))
   db)
 
@@ -387,6 +408,7 @@
     (error "attributes must be unique" attrs)))
 
 (define (valid-relation-type?! type)
+  (when (null? type) (error "relation must include at least one attribute type"))
   (for-each (lambda (t) (unless (member t '(int text))
                           (error "invalid attribute type" t 'in type)))
             type))
