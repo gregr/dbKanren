@@ -234,57 +234,88 @@
            (finish-batch!)
            (start-batch!)))
        (define (finish!)
-         (finish-batch!)
+         (when (< 0 i.tuple) (finish-batch!))
          (R-assign-t! id.R (apply T+ (reverse tables)))
          (invalidate!)
          R)
        (define (finish-batch!)
          (unless (valid?) (error "cannot use a stale relation builder"))
-         (define width.pos (nat-min-byte-width size.text))
-         (define count.ids (hash-count text=>id))
-         (define id=>id    (make-fxvector count.ids))
-         (let ((text&id*.sorted (sort (hash->list text=>id)
-                                      (lambda (a b) (bytes<? (car a) (car b))))))
-           ;; TODO: check whether we have text before creating these columns
-           (let* ((id.text.value  (fresh-uid))
-                  (id.text.pos    (fresh-uid))
-                  (out.text.value (storage-block-new! stg (cons 'column id.text.value)))
-                  (out.text.pos   (storage-block-new! stg (cons 'column id.text.pos))))
-             (define (write-pos)
-               (write-byte-width-nat out.text.pos (file-position out.text.value) width.pos))
-             (write-pos)
-             (let loop ((i 0) (t&id* text&id*.sorted))
-               (unless (null? t&id*)
-                 (let* ((t&id (car t&id*))
-                        (text (car t&id))
-                        (id   (cdr t&id)))
-                   (write-bytes text out.text.value)
-                   (write-pos)
-                   (unsafe-fxvector-set! id=>id id i)
-                   (loop (+ i 1) (cdr t&id*)))))
-             (close-output-port out.text.value)
-             (close-output-port out.text.pos)
-             ;; TODO: use size.text width.pos count.ids
-             (define desc.text.value 'TODO)
-             (define desc.text.pos   'TODO)
-             (stg-update! 'column-id=>column
-                          (lambda (cid=>desc)
-                            (hash-set* cid=>desc
-                                       id.text.value desc.text.value
-                                       id.text.pos   desc.text.pos)))))
-         (for-each (lambda (type v.col)
-                     (when (eqv? type 'text)
-                       (let loop ((i (unsafe-fx- i.tuple 1)))
-                         (when (<= 0 i)
-                           (unsafe-fxvector-set! v.col i
-                                                 (unsafe-fxvector-ref
-                                                   id=>id
-                                                   (unsafe-fxvector-ref v.col i)))
-                           (loop (unsafe-fx- i 1))))))
-                   column-types vs.col)
+         (define column-id.text
+           (and (ormap (lambda (type.col) (eqv? type.col 'text)) column-types)
+                (let* ((width.pos        (nat-min-byte-width size.text))
+                       (count.ids        (hash-count text=>id))
+                       (id=>id           (make-fxvector count.ids))
+                       (id.text.value    (fresh-uid))
+                       (id.text.pos      (fresh-uid))
+                       (id.text          (fresh-uid))
+                       (bname.text.value (cons 'column id.text.value))
+                       (bname.text.pos   (cons 'column id.text.pos))
+                       (out.text.value   (storage-block-new! stg bname.text.value))
+                       (out.text.pos     (storage-block-new! stg bname.text.pos)))
+                  (define (write-pos)
+                    (write-byte-width-nat out.text.pos (file-position out.text.value) width.pos))
+                  (write-pos)
+                  (let loop ((i 0) (t&id* (sort (hash->list text=>id)
+                                                (lambda (a b) (bytes<? (car a) (car b))))))
+                    (unless (null? t&id*)
+                      (let* ((t&id (car t&id*))
+                             (text (car t&id))
+                             (id   (cdr t&id)))
+                        (write-bytes text out.text.value)
+                        (write-pos)
+                        (unsafe-fxvector-set! id=>id id i)
+                        (loop (+ i 1) (cdr t&id*)))))
+                  (define desc.text.value (hash 'class     'block
+                                                'name      bname.text.value
+                                                'bit-width 8
+                                                'count     size.text
+                                                'offset    0
+                                                'min       0
+                                                'max       255))
+                  (define desc.text.pos   (hash 'class     'block
+                                                'name      bname.text.pos
+                                                'bit-width (* 8 width.pos)
+                                                'count     (+ 1 count.ids)
+                                                'offset    0
+                                                'min       0
+                                                'max       (file-position out.text.value)))
+                  (define desc.text       (hash 'class     'text
+                                                'position  id.text.pos
+                                                'value     id.text.value))
+                  (close-output-port out.text.value)
+                  (close-output-port out.text.pos)
+                  (stg-update! 'column-id=>column
+                               (lambda (cid=>desc)
+                                 (hash-set* cid=>desc
+                                            id.text.value desc.text.value
+                                            id.text.pos   desc.text.pos
+                                            id.text       desc.text)))
+                  (for-each (lambda (type v.col)
+                              (when (eqv? type 'text)
+                                (let loop ((i (unsafe-fx- i.tuple 1)))
+                                  (when (<= 0 i)
+                                    (unsafe-fxvector-set! v.col i
+                                                          (unsafe-fxvector-ref
+                                                            id=>id
+                                                            (unsafe-fxvector-ref v.col i)))
+                                    (loop (unsafe-fx- i 1))))))
+                            column-types vs.col)
+                  id.text)))
          (define count.tuples.unique (table-sort-and-dedup! i.tuple vs.col))
-         ;; TODO: column-ids are just raw columns; need to account for possible remaps before describing table
-         (define column-ids (map (lambda (v.col) (write-fx-column v.col count.tuples.unique)) vs.col))
+         (define column-ids
+           (map (lambda (type.col v.col)
+                  (let ((id.col (write-fx-column v.col count.tuples.unique)))
+                    ;; TODO: also handle possible int-compression remappings
+                    (cond ((eqv? type.col 'text)
+                           (let ((id.remap   (fresh-uid))
+                                 (desc.remap (hash 'class  'remap
+                                                   'local  id.col
+                                                   'global column-id.text)))
+                             (stg-update! 'column-id=>column
+                                          (lambda (cid=>desc)
+                                            (hash-set cid=>desc id.remap desc.remap)))))
+                          (else id.col))))
+                column-types vs.col))
          (stg-update! 'table-id=>column-ids (lambda (tid=>cids) (hash-set tid=>cids table-id column-ids)))
          (set! tables (cons table-id tables)))
        (define (text->id bs)
@@ -315,14 +346,21 @@
     ;; TODO: calculate: offset.col width.col min.col max.col
     (define offset.col 0)
     (define width.col  4)
-    (let* ((id.col  (fresh-uid))
-           (out.col (storage-block-new! stg (cons 'column id.col))))
+    (let* ((id.col     (fresh-uid))
+           (block-name (cons 'column id.col))
+           (out.col    (storage-block-new! stg block-name)))
       (let loop ((i 0))
         (when (unsafe-fx< i count)
           (write-byte-width-nat out.col (- (fxvector-ref vec.col i) offset.col) width.col)
           (loop (unsafe-fx+ i 1))))
       (close-output-port out.col)
-      (define desc.col 'TODO:desc.col)
+      (define desc.col (hash 'class     'block
+                             'name      block-name
+                             'bit-width (* 8 width.col)
+                             'count     count
+                             'offset    'TODO
+                             'min       'TODO
+                             'max       'TODO))
       (stg-update! 'column-id=>column (lambda (cid=>desc) (hash-set cid=>desc id.col desc.col)))
       id.col))
 
