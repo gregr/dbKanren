@@ -415,7 +415,7 @@
                    (let ((n.next (unsafe-fxvector-ref vec.col i)))
                      (loop (unsafe-fx- i 1)
                            (min min.col n.next)
-                           (max min.col n.next)
+                           (max max.col n.next)
                            (and alphabet
                                 (let ((alphabet.next (set-add alphabet n.next)))
                                   (and (unsafe-fx<= (set-count alphabet.next) count.alphabet.max)
