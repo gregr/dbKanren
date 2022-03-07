@@ -284,16 +284,13 @@
                                                 'value     id.text.value))
                   (close-output-port out.text.value)
                   (close-output-port out.text.pos)
-                  (stg-update! 'column-id=>column
-                               (lambda (cid=>desc)
-                                 (hash-set* cid=>desc
-                                            id.text.value desc.text.value
-                                            id.text.pos   desc.text.pos
-                                            id.text       desc.text)))
+                  (add-columns! id.text.value desc.text.value
+                                id.text.pos   desc.text.pos
+                                id.text       desc.text)
                   (for-each (lambda (type v.col)
                               (when (eqv? type 'text)
                                 (let loop ((i (unsafe-fx- i.tuple 1)))
-                                  (when (<= 0 i)
+                                  (when (unsafe-fx<= 0 i)
                                     (unsafe-fxvector-set! v.col i
                                                           (unsafe-fxvector-ref
                                                             id=>id
@@ -305,15 +302,12 @@
          (define column-ids
            (map (lambda (type.col v.col)
                   (let ((id.col (write-fx-column v.col count.tuples.unique)))
-                    ;; TODO: also handle possible int-compression remappings
                     (cond ((eqv? type.col 'text)
-                           (let ((id.remap   (fresh-uid))
-                                 (desc.remap (hash 'class  'remap
-                                                   'local  id.col
-                                                   'global column-id.text)))
-                             (stg-update! 'column-id=>column
-                                          (lambda (cid=>desc)
-                                            (hash-set cid=>desc id.remap desc.remap)))))
+                           (let ((id.remap (fresh-uid)))
+                             (add-columns! id.remap (hash 'class  'remap
+                                                          'local  id.col
+                                                          'global column-id.text))
+                             id.remap))
                           (else id.col))))
                 column-types vs.col))
          (stg-update! 'table-id=>column-ids (lambda (tid=>cids) (hash-set tid=>cids table-id column-ids)))
@@ -342,27 +336,94 @@
       (else (error "invalid batch size" batch-size))))
 
   (define (write-fx-column vec.col count)
-    ;; TODO: check for a line before committing to writing a block
-    ;; TODO: calculate: offset.col width.col min.col max.col
-    (define offset.col 0)
-    (define width.col  4)
-    (let* ((id.col     (fresh-uid))
-           (block-name (cons 'column id.col))
-           (out.col    (storage-block-new! stg block-name)))
-      (let loop ((i 0))
-        (when (unsafe-fx< i count)
-          (write-byte-width-nat out.col (- (fxvector-ref vec.col i) offset.col) width.col)
-          (loop (unsafe-fx+ i 1))))
-      (close-output-port out.col)
-      (define desc.col (hash 'class     'block
-                             'name      block-name
-                             'bit-width (* 8 width.col)
-                             'count     count
-                             'offset    'TODO
-                             'min       'TODO
-                             'max       'TODO))
-      (stg-update! 'column-id=>column (lambda (cid=>desc) (hash-set cid=>desc id.col desc.col)))
-      id.col))
+    (define (write-line count offset step)
+      (let ((id.col (fresh-uid)))
+        (add-columns! id.col (hash 'class  'line
+                                   'count  count
+                                   'offset offset
+                                   'step   step))
+        id.col))
+    (define (write-block min.col max.col)
+      (define-values (width.col offset.col)
+        (let* ((diff.col  (- max.col min.col))
+               (size.diff (nat-min-byte-width diff.col))
+               (size.max  (nat-min-byte-width max.col)))
+          (if (or (< min.col   0)
+                  (< size.diff size.max))
+            (values size.diff min.col)
+            (values size.max  0))))
+      (let* ((id.col     (fresh-uid))
+             (block-name (cons 'column id.col))
+             (out.col    (storage-block-new! stg block-name)))
+        (let loop ((i 0))
+          (when (unsafe-fx< i count)
+            (write-byte-width-nat out.col (- (fxvector-ref vec.col i) offset.col) width.col)
+            (loop (unsafe-fx+ i 1))))
+        (close-output-port out.col)
+        (add-columns! id.col (hash 'class     'block
+                                   'name      block-name
+                                   'bit-width (* 8 width.col)
+                                   'count     count
+                                   'offset    offset.col
+                                   'min       min.col
+                                   'max       max.col))
+        id.col))
+    (define (write-remapped-block min.col max.col alphabet)
+      (let* ((count.alphabet (set-count alphabet))
+             (alphabet       (sort (set->list alphabet) unsafe-fx<))
+             (vec.alphabet   (make-fxvector count.alphabet))
+             (n=>n           (let loop ((i        0)
+                                        (alphabet alphabet)
+                                        (n=>n     (hash)))
+                               (if (unsafe-fx< i count.alphabet)
+                                 (let ((n.next (car alphabet)))
+                                   (fxvector-set! vec.alphabet i n.next)
+                                   (loop (unsafe-fx+ i 1)
+                                         (cdr alphabet)
+                                         (hash-set n=>n n.next i)))
+                                 n=>n)))
+             ;; TODO: using full-blown write-fx-column here is a little wasteful
+             (id.alphabet    (write-fx-column vec.alphabet count.alphabet))
+             (id.remap       (fresh-uid)))
+        (let loop ((i count))
+          (when (unsafe-fx<= 0 i)
+            (unsafe-fxvector-set! vec.col i (hash-ref n=>n (unsafe-fxvector-ref vec.col i)))
+            (loop (unsafe-fx- i 1))))
+        (add-columns! id.remap (hash 'class  'remap
+                                     'local  (write-block 0 (- (set-count alphabet) 1))
+                                     'global id.alphabet))
+        id.remap))
+    (if (= count 1)
+      (write-line 1 (unsafe-fxvector-ref vec.col 0) 0)
+      (let* ((count.alphabet.max (expt 2 (- (nat-min-byte-width count) 1)))
+             (n.0                (unsafe-fxvector-ref vec.col 0))
+             (n.1                (unsafe-fxvector-ref vec.col 1))
+             (offset             n.0)
+             (step               (- n.1 n.0)))
+        (if (let loop ((i      2)
+                       (n.prev n.1))
+              (or (unsafe-fx= i count)
+                  (let ((n.next (unsafe-fxvector-ref vec.col i)))
+                    (and (unsafe-fx= (unsafe-fx- n.next n.prev) step)
+                         (loop (unsafe-fx+ i 1) n.next)))))
+          (write-line count offset step)
+          (let loop ((i        (unsafe-fx- count 1))
+                     (min.col  (min n.0 n.1))
+                     (max.col  (max n.0 n.1))
+                     (alphabet (set n.0 n.1)))
+            (cond ((unsafe-fx< 1 i)
+                   (let ((n.next (unsafe-fxvector-ref vec.col i)))
+                     (loop (unsafe-fx- i 1)
+                           (min min.col n.next)
+                           (max min.col n.next)
+                           (and alphabet
+                                (let ((alphabet.next (set-add alphabet n.next)))
+                                  (and (unsafe-fx<= (set-count alphabet.next) count.alphabet.max)
+                                       alphabet.next))))))
+                  ((and alphabet (< (nat-min-byte-width (- (set-count alphabet) 1))
+                                    (nat-min-byte-width (- max.col min.col))))
+                   (write-remapped-block min.col max.col alphabet))
+                  (else (write-block min.col max.col))))))))
 
   (define (table-expr type rexpr)
     ;; TODO: simplify and normalize resulting table expression
@@ -412,6 +473,9 @@
   (define (fresh-uid)               (let ((uid (stg-ref 'next-uid)))
                                       (stg-set! 'next-uid (+ uid 1))
                                       uid))
+  (define (add-columns! id desc . id&descs)
+    (stg-update! 'column-id=>column
+                 (lambda (cid=>desc) (apply hash-set* cid=>desc id desc id&descs))))
   (define (claim-update!)
     (let* ((details  (or (current-update-details)
                          (error "cannot update database outside of a begin-update context"
