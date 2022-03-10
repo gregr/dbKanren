@@ -5,16 +5,17 @@
   unsafe-bytes-split-tab
   bytes-base10->fxnat
 
-  begin-update
   database
   database-path
+  database-commit!
+  database-revert!
+  database-trash-empty!
   database-relation-names
   database-relation-name?
   database-relation
   database-relation-builder
   database-relation-new
   database-relation-add!
-  database-trash-empty!
   relation-database
   relation-has-name?
   relation-name
@@ -122,6 +123,8 @@
 (define current-batch-size (make-parameter (expt 2 26)))
 
 (define (database-path             db)                      ((wrapped-database-controller db) 'path))
+(define (database-commit!          db)                      ((wrapped-database-controller db) 'commit!))
+(define (database-revert!          db)                      ((wrapped-database-controller db) 'revert!))
 (define (database-trash-empty!     db)                      ((wrapped-database-controller db) 'trash-empty!))
 (define (database-relation-names   db)                      ((wrapped-database-controller db) 'relation-names))
 (define (database-relation-name?   db name)                 ((wrapped-database-controller db) 'relation-name? name))
@@ -191,7 +194,6 @@
                               (if i i (error "invalid index attribute" attr ix attrs))))
              ix)))
     (define (update-indexes! update)
-      (claim-update!)
       (stg-update! 'relation-id=>indexes (lambda (rid=>os) (hash-update rid=>os id.self update))))
     (define self
       (method-lambda
@@ -205,14 +207,12 @@
         ((table-expr)             (hash-ref (stg-ref 'relation-id=>table-expr) id.self))
         ((indexes)     (hash-keys (hash-ref (stg-ref 'relation-id=>indexes)    id.self)))
         ((name-set! name)
-         (claim-update!)
          (unless (and (R-has-name? id.self) (equal? (R-name id.self) name))
            (new-relation?! name)
            (remove-name!)
            (stg-update! 'name=>relation-id (lambda (n=>rid) (hash-set n=>rid name id.self)))
            (stg-update! 'relation-id=>name (lambda (rid=>n) (hash-set rid=>n id.self name)))))
         ((attributes-set! attrs)
-         (claim-update!)
          (valid-attributes?! attrs)
          (let ((type (R-type id.self)))
            (unless (= (length attrs) (length type))
@@ -220,7 +220,6 @@
                     attrs type)))
          (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.self attrs))))
         ((assign! expr)
-         (claim-update!)
          (R-assign-r! id.self expr))
         ((index-add!    ixs) (update-indexes! (lambda (os)
                                                 (foldl (lambda (ordering os)
@@ -233,10 +232,8 @@
                                                        os
                                                        (map index-signature->ordering ixs)))))
         ((compact!)
-         (claim-update!)
          (stg-update! 'relations-to-compact (lambda (rids) (hash-set rids id.self #t))))
         ((delete!)
-         (claim-update!)
          (set-remove! rids.new id.self)
          (remove-name!)
          (stg-update! 'relation-id=>name       (lambda (rid=>n)  (hash-remove rid=>n  id.self)))
@@ -254,7 +251,6 @@
     (define checkpoint.current (storage-checkpoint-count stg))
     (define (valid?)
       (and ((wrapped-relation-controller R) 'valid?)
-           (current-update-details)
            (equal? (storage-checkpoint-count stg) checkpoint.current)))
     (define (invalidate!) (set! checkpoint.current #f))
     (cond
@@ -525,17 +521,6 @@
   (define (add-columns! id desc . id&descs)
     (stg-update! 'column-id=>column
                  (lambda (cid=>desc) (apply hash-set* cid=>desc id desc id&descs))))
-  (define (claim-update!)
-    (let* ((details  (or (current-update-details)
-                         (error "cannot update database outside of a begin-update context"
-                                (storage-path stg))))
-           (commit!? (hash-ref details 'commit!)))
-      (if (not commit!?)
-        (current-update-details (hash-set* details
-                                           'commit! commit!
-                                           'revert! revert!))
-        (unless (equal? commit!? commit!)
-          (error "cannot update multiple databases simultaneously" (storage-path stg))))))
   (define (checkpoint!)
     (when (storage-checkpoint-pending? stg)
       (storage-checkpoint! stg))
@@ -644,7 +629,6 @@
         ((relation-name? name) (relation-name? name))
         ((relation       name) (name->R name))
         ((relation-builder type batch-size)
-         (claim-update!)
          (valid-relation-type?! type)
          (define id.R (fresh-relation-id))
          (set-add! rids.new id.R)
@@ -653,6 +637,8 @@
          (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-set rid=>is id.R (hash))))
          (R-assign-t! id.R T.empty)
          (relation-builder id.R batch-size))
+        ((commit!)      (commit!))
+        ((revert!)      (revert!))
         ((trash-empty!) (storage-trash-empty! stg)))))
   db)
 
@@ -667,23 +653,6 @@
   (for-each (lambda (t) (unless (member t '(int text))
                           (error "invalid attribute type" t 'in type)))
             type))
-
-(define current-update-details (make-parameter #f))
-
-(define-syntax-rule (begin-update body ...)
-  (let ((k (lambda () body ...)))
-    (if (current-update-details)
-      (k)
-      (parameterize ((current-update-details (hash 'commit! #f
-                                                   'revert! #f)))
-        (with-handlers (((lambda (_) #t)
-                         (lambda (e)
-                           (let ((revert! (hash-ref (current-update-details) 'revert!)))
-                             (when revert! (revert!)))
-                           (raise e))))
-          (k)
-          (let ((commit! (hash-ref (current-update-details) 'commit!)))
-            (when commit! (commit!))))))))
 
 (define (int-tuple<? a b)
   (let loop ((a a) (b b))
