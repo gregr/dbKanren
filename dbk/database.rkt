@@ -1,5 +1,10 @@
 #lang racket/base
 (provide
+  ;; TODO: move these
+  build-tsv-relation
+  unsafe-bytes-split-tab
+  bytes-base10->fxnat
+
   begin-update
   database
   database-path
@@ -29,6 +34,45 @@
 (require "logging.rkt" "misc.rkt" "storage.rkt"
          racket/fixnum racket/hash racket/list racket/match racket/set
          racket/struct racket/unsafe/ops racket/vector)
+
+;; TODO: move these
+(define (build-tsv-relation db type file-name)
+  (let-values (((insert! finish) (database-relation-builder db '(int text text))))
+    (call-with-input-file
+      file-name
+      (lambda (in)
+        (read-bytes-line in 'any)  ; drop header line
+        (time
+          (let tuple-loop ((i.tuple 0))
+            (let ((line (read-bytes-line in 'any)))
+              (unless (eof-object? line)
+                (insert! (let ((fields (unsafe-bytes-split-tab line)))
+                           (cons (bytes-base10->fxnat (car fields)) (cdr fields))))
+                (tuple-loop (unsafe-fx+ i.tuple 1))))))
+        (time (finish))))))
+
+(define (unsafe-bytes-split-tab bs)
+  (let loop ((end    (unsafe-bytes-length bs))
+             (i      (unsafe-fx- (unsafe-bytes-length bs) 1))
+             (fields '()))
+    (cond ((unsafe-fx< i 0)                       (cons (subbytes bs 0 end) fields))
+          ((unsafe-fx= (unsafe-bytes-ref bs i) 9) (loop i   (unsafe-fx- i 1) (cons (subbytes bs i end) fields)))
+          (else                                   (loop end (unsafe-fx- i 1) fields)))))
+
+(define (bytes-base10->fxnat bs)
+  (define len (bytes-length bs))
+  (unless (< 0 len 19)
+    (when (= len 0)  (error "natural number must contain at least one digit" bs))
+    (when (< 18 len) (error "natural number must contain at most 18 digits (to safely fit in a fixnum)" bs)))
+  (let loop ((i 0) (n 0))
+    (if (unsafe-fx< i len)
+      (let ((b (unsafe-bytes-ref bs i)))
+        (unless (unsafe-fx<= 48 b 57)
+          (error "natural number must contain only base10 digits" bs))
+        (loop (unsafe-fx+ i 1)
+              (unsafe-fx+ (unsafe-fx* n 10)
+                          (unsafe-fx- b 48))))
+      n)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Persistent databases ;;;
@@ -311,6 +355,8 @@
                           (else id.col))))
                 column-types vs.col))
          (stg-update! 'table-id=>column-ids (lambda (tid=>cids) (hash-set tid=>cids table-id column-ids)))
+         (pretty-log `(inserted batch of ,count.tuples.unique unique tuples)
+                     `(,size.text bytes for ,(hash-count text=>id) unique text values))
          (set! tables (cons table-id tables)))
        (define (text->id bs)
          (or (hash-ref text=>id bs #f)
