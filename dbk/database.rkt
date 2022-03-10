@@ -268,7 +268,7 @@
          (hash-clear! text=>id)
          (set! i.tuple   0)
          (set! size.text 0)
-         (set! table-id  (fresh-uid)))
+         (set! table-id  (fresh-table-id)))
        (define (insert! tuple)
          (for-each (lambda (field proj v.col)
                      (fxvector-set! v.col i.tuple (proj field)))
@@ -289,9 +289,9 @@
                 (let* ((width.pos        (nat-min-byte-width size.text))
                        (count.ids        (hash-count text=>id))
                        (id=>id           (make-fxvector count.ids))
-                       (id.text.value    (fresh-uid))
-                       (id.text.pos      (fresh-uid))
-                       (id.text          (fresh-uid))
+                       (id.text.value    (fresh-column-id))
+                       (id.text.pos      (fresh-column-id))
+                       (id.text          (fresh-column-id))
                        (bname.text.value (cons 'column id.text.value))
                        (bname.text.pos   (cons 'column id.text.pos))
                        (out.text.value   (storage-block-new! stg bname.text.value))
@@ -347,7 +347,7 @@
            (map (lambda (type.col v.col)
                   (let ((id.col (write-fx-column v.col count.tuples.unique)))
                     (cond ((eqv? type.col 'text)
-                           (let ((id.remap (fresh-uid)))
+                           (let ((id.remap (fresh-column-id)))
                              (add-columns! id.remap (hash 'class  'remap
                                                           'local  id.col
                                                           'global column-id.text))
@@ -383,7 +383,7 @@
 
   (define (write-fx-column vec.col count)
     (define (write-line count offset step)
-      (let ((id.col (fresh-uid)))
+      (let ((id.col (fresh-column-id)))
         (add-columns! id.col (hash 'class  'line
                                    'count  count
                                    'offset offset
@@ -398,7 +398,7 @@
                   (< size.diff size.max))
             (values size.diff min.col)
             (values size.max  0))))
-      (let* ((id.col     (fresh-uid))
+      (let* ((id.col     (fresh-column-id))
              (block-name (cons 'column id.col))
              (out.col    (storage-block-new! stg block-name)))
         (let loop ((i 0))
@@ -430,7 +430,7 @@
                                  n=>n)))
              ;; TODO: using full-blown write-fx-column here is a little wasteful
              (id.alphabet    (write-fx-column vec.alphabet count.alphabet))
-             (id.remap       (fresh-uid)))
+             (id.remap       (fresh-column-id)))
         (let loop ((i count))
           (when (unsafe-fx<= 0 i)
             (unsafe-fxvector-set! vec.col i (hash-ref n=>n (unsafe-fxvector-ref vec.col i)))
@@ -516,6 +516,9 @@
   (define (relation-name? name)     (hash-has-key? (name=>relation-id) name))
   (define (new-relation?! name)     (when (relation-name? name)
                                       (error "relation already exists" name (storage-path stg))))
+  (define (fresh-relation-id)       (fresh-uid))
+  (define (fresh-table-id)          (fresh-uid))
+  (define (fresh-column-id)         (fresh-uid))
   (define (fresh-uid)               (let ((uid (stg-ref 'next-uid)))
                                       (stg-set! 'next-uid (+ uid 1))
                                       uid))
@@ -643,7 +646,7 @@
         ((relation-builder type batch-size)
          (claim-update!)
          (valid-relation-type?! type)
-         (define id.R (fresh-uid))
+         (define id.R (fresh-relation-id))
          (set-add! rids.new id.R)
          (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.R (range (length type)))))
          (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-set rid=>t  id.R type)))
