@@ -102,8 +102,8 @@
 ;; attributes.  An index provides an efficient way to filter and enumerate a subset of the
 ;; relation's tuples.  To filter the tuples, constraints are applied to a subset of the relation's
 ;; attributes, eliminating tuples that do not satisfy the constraints.  The index's attribute
-;; permutation is the order in which attributes will be constrained.  This order of constraining
-;; attributes is efficient due to the representation of the index, which is the result of sorting
+;; permutation is the order in which attributes will be constrained.  Constraining attributes in
+;; this order is efficient due to the representation of the index, which is the result of sorting
 ;; the relation's tuples lexicographically according to the attribute permutation.
 
 ;; Databases and relations can be modified:
@@ -111,11 +111,11 @@
 ;; - Relations and their attributes can be renamed.
 ;; - Indexes can be added to, or removed from, a relation.
 ;; - Tuples can be inserted into, or deleted from, a relation.
-;; Database and relation modifications always occur in the context of an atomic database update, and
-;; multiple such modifications can be performed as part of the same update.  This means that
-;; multiple relations can be modified simultaneously, each being modified in one or more ways,
-;; during such update.  Updates are atomic in the sense that they never partially succeed: either
-;; all specified modifications are performed, or none are performed.
+;; - Relations may be compacted to improve lookup efficiency.
+
+;; Modifications to a database and its relations can be used immediately, but will not persist until
+;; they are explicitly committed.  Uncommitted modifications can be reverted, restoring the most
+;; recently committed version of the database.
 
 (define version.current '2022-2-22)
 
