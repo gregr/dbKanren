@@ -189,10 +189,14 @@
         (stg-update! 'name=>relation-id (lambda (n=>rid) (hash-remove n=>rid (R-name id.self))))))
     (define (index-signature->ordering ix)
       (valid-attributes?! ix)
-      (let ((attrs (R-attrs id.self)))
-        (map (lambda (attr) (let ((i (index-of attrs attr)))
-                              (if i i (error "invalid index attribute" attr ix attrs))))
-             ix)))
+      (let* ((attrs (R-attrs id.self))
+             (ord.0 (map (lambda (attr) (let ((i (index-of attrs attr)))
+                                          (unless i (error "invalid index attribute" attr ix attrs))
+                                          (+ i 1)))
+                         ix)))
+        (if (= (length ix) (length attrs))
+          ord.0  ; index signature mentions all attributes, so no primary key needed
+          (append ord.0 '(0)))))
     (define (update-indexes! update)
       (stg-update! 'relation-id=>indexes (lambda (rid=>os) (hash-update rid=>os id.self update))))
     (define self
@@ -222,13 +226,11 @@
         ((assign! expr)
          (R-assign-r! id.self expr))
         ((index-add!    ixs) (update-indexes! (lambda (os)
-                                                (foldl (lambda (ordering os)
-                                                         (hash-set os ordering #t))
+                                                (foldl (lambda (ordering os) (hash-set os ordering #t))
                                                        os
                                                        (map index-signature->ordering ixs)))))
         ((index-remove! ixs) (update-indexes! (lambda (os)
-                                                (foldl (lambda (ordering os)
-                                                         (hash-remove os ordering))
+                                                (foldl (lambda (ordering os) (hash-remove os ordering))
                                                        os
                                                        (map index-signature->ordering ixs)))))
         ((compact!)
@@ -340,7 +342,12 @@
                             column-types vs.col)
                   id.text)))
          (define count.tuples.unique (table-sort-and-dedup! i.tuple vs.col))
-         (define column-ids
+         (define id.primary-key      (fresh-column-id))
+         (add-columns! id.primary-key (hash 'class  'line
+                                            'count  count.tuples.unique
+                                            'offset 0
+                                            'step   1))
+         (define column-ids.attrs
            (map (lambda (type.col v.col)
                   (let ((id.col (write-fx-column v.col count.tuples.unique)))
                     (cond ((eqv? type.col 'text)
@@ -351,6 +358,7 @@
                              id.remap))
                           (else id.col))))
                 column-types vs.col))
+         (define column-ids (cons id.primary-key column-ids.attrs))
          (stg-update! 'table-id=>column-ids (lambda (tid=>cids) (hash-set tid=>cids table-id column-ids)))
          (pretty-log `(inserted batch of ,count.tuples.unique unique tuples)
                      `(,size.text bytes for ,(hash-count text=>id) unique text values))
