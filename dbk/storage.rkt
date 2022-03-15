@@ -18,8 +18,7 @@
   storage-block-name?
   storage-block-id
   storage-block-out
-  storage-block-out-close!
-  storage-block-data
+  storage-block-path
   storage-block-new!
   storage-block-add-names!
   storage-block-remove-names!
@@ -116,8 +115,7 @@
 (define (storage-block-name?         s name)                 ((wrapped-storage-controller s) 'block-name?         name))
 (define (storage-block-id            s name)                 ((wrapped-storage-controller s) 'block-id            name))
 (define (storage-block-out           s name)                 ((wrapped-storage-controller s) 'block-output-port   name))
-(define (storage-block-out-close!    s name)                 (close-output-port (storage-block-out s name)))
-(define (storage-block-data          s name)                 ((wrapped-storage-controller s) 'block-data          name))
+(define (storage-block-path          s name)                 ((wrapped-storage-controller s) 'block-path          name))
 (define (storage-block-new!          s         name . names) ((wrapped-storage-controller s) 'block-new!          (cons name names)))
 (define (storage-block-add-names!    s name.current . names) ((wrapped-storage-controller s) 'block-add-names!    name.current names))
 (define (storage-block-remove-names! s              . names) ((wrapped-storage-controller s) 'block-remove-names! names))
@@ -239,12 +237,11 @@
     ((block-output-port              name) (let ((id (block-id name)))
                                              (or (hash-ref id=>out id #f)
                                                  (error "cannot write to committed storage block" name path.storage))))
-    ((block-data                     name) (let* ((id  (block-id name))
+    ((block-path                     name) (let* ((id  (block-id name))
                                                   (out (hash-ref id=>out id #f)))
                                              (when (and out (not (port-closed? out)))
                                                (error "cannot read from open, uncommitted storage block" name path.storage))
-                                             (let ((path.id (build-path path.block (number->string id))))
-                                               (lambda () (open-input-file path.id)))))
+                                             (build-path path.block (number->string id))))
     ((block-new!                    names) (define b (block))
                                            (for-each (lambda (name)
                                                        (when (hash-has-key? b name)
