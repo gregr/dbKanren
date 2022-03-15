@@ -36,6 +36,11 @@
          racket/fixnum racket/hash racket/list racket/match racket/set
          racket/struct racket/unsafe/ops racket/vector)
 
+;(define-syntax-rule (performance-log description body ...) (let () body ...))
+(define-syntax-rule (performance-log description body ...) (let ()
+                                                             (pretty-log description)
+                                                             (time/pretty-log body ...)))
+
 ;; TODO: move these
 (define (build-tsv-relation db type file-name)
   (let-values (((insert! finish) (database-relation-builder db '(int text text))))
@@ -298,17 +303,22 @@
                        (out.text.pos     (storage-block-new! stg bname.text.pos)))
                   (define (write-pos)
                     (write-byte-width-nat out.text.pos (file-position out.text.value) width.pos))
-                  (write-pos)
-                  (let loop ((i 0) (t&id* (sort (hash->list text=>id)
-                                                (lambda (a b) (bytes<? (car a) (car b))))))
-                    (unless (null? t&id*)
-                      (let* ((t&id (car t&id*))
-                             (text (car t&id))
-                             (id   (cdr t&id)))
-                        (write-bytes text out.text.value)
-                        (write-pos)
-                        (unsafe-fxvector-set! id=>id id i)
-                        (loop (+ i 1) (cdr t&id*)))))
+                  (let ((t&id* (performance-log
+                                 `(sorting ,(hash-count text=>id) text values)
+                                 (sort (hash->list text=>id)
+                                       (lambda (a b) (bytes<? (car a) (car b)))))))
+                    (performance-log
+                      `(writing text column: ,size.text bytes)
+                      (write-pos)
+                      (let loop ((i 0) (t&id* t&id*))
+                        (unless (null? t&id*)
+                          (let* ((t&id (car t&id*))
+                                 (text (car t&id))
+                                 (id   (cdr t&id)))
+                            (write-bytes text out.text.value)
+                            (write-pos)
+                            (unsafe-fxvector-set! id=>id id i)
+                            (loop (+ i 1) (cdr t&id*)))))))
                   (define desc.text.value (hash 'class     'block
                                                 'name      bname.text.value
                                                 'bit-width 8
@@ -342,7 +352,8 @@
                                     (loop (unsafe-fx- i 1))))))
                             column-types vs.col)
                   id.text)))
-         (define count.tuples.unique (table-sort-and-dedup! i.tuple vs.col))
+         (define count.tuples.unique (performance-log `(sorting ,i.tuple tuples)
+                                                      (table-sort-and-dedup! i.tuple vs.col)))
          (define id.primary-key      (fresh-column-id))
          (add-columns! id.primary-key (hash 'class  'line
                                             'count  count.tuples.unique
@@ -350,7 +361,8 @@
                                             'step   1))
          (define column-ids.attrs
            (map (lambda (type.col v.col)
-                  (let ((id.col (write-fx-column v.col count.tuples.unique)))
+                  (let ((id.col (performance-log `(writing column: ,count.tuples.unique values)
+                                                 (write-fx-column v.col count.tuples.unique))))
                     (cond ((eqv? type.col 'text)
                            (let ((id.remap (fresh-column-id)))
                              (add-columns! id.remap (hash 'class  'remap
