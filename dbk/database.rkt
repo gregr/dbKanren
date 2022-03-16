@@ -28,7 +28,8 @@
   relation-assign!
   relation-index-add!
   relation-index-remove!
-  relation-compact!
+  relation-full-compact!
+  relation-incremental-compact!
   R.empty R+ R-
   auto-empty-trash?
   current-batch-size)
@@ -155,7 +156,8 @@
 (define (relation-assign!         r expr)  ((wrapped-relation-controller r) 'assign!         expr))
 (define (relation-index-add!      r . ixs) ((wrapped-relation-controller r) 'index-add!      ixs))
 (define (relation-index-remove!   r . ixs) ((wrapped-relation-controller r) 'index-remove!   ixs))
-(define (relation-compact!        r)       ((wrapped-relation-controller r) 'compact!))
+(define (relation-full-compact!        r)  ((wrapped-relation-controller r) 'full-compact!))
+(define (relation-incremental-compact! r)  ((wrapped-relation-controller r) 'incremental-compact!))
 
 (struct wrapped-database (controller)
         #:methods gen:custom-write
@@ -229,8 +231,7 @@
              (error "number of attributes must match the relation type arity"
                     attrs type)))
          (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.self attrs))))
-        ((assign! expr)
-         (R-assign-r! id.self expr))
+        ((assign! expr)      (R-assign-r! id.self expr))
         ((index-add!    ixs) (update-indexes! (lambda (os)
                                                 (foldl (lambda (ordering os) (hash-set os ordering #t))
                                                        os
@@ -239,8 +240,10 @@
                                                 (foldl (lambda (ordering os) (hash-remove os ordering))
                                                        os
                                                        (map index-signature->ordering ixs)))))
-        ((compact!)
-         (stg-update! 'relations-to-compact (lambda (rids) (hash-set rids id.self #t))))
+        ((full-compact!)        (stg-update! 'relations-to-fully-compact
+                                             (lambda (rids) (hash-set rids id.self #t))))
+        ((incremental-compact!) (stg-update! 'relations-to-incrementally-compact
+                                             (lambda (rids) (hash-set rids id.self #t))))
         ((delete!)
          (set-remove! rids.new id.self)
          (remove-name!)
@@ -675,18 +678,21 @@
   (define (perform-pending-jobs!)
     ;; TODO:
     ;; - collect table garbage
-    (stg-update! 'relations-to-compact
+    (define (rids-remove-invalid rids)
+      (foldl (lambda (rid rids)
+               (if (R-valid? rid)
+                 rids
+                 (hash-remove rids rid)))
+             rids
+             (hash-keys rids)))
+    (stg-update! 'relations-to-fully-compact
+                 ;; TODO: perform full compaction with text gc
                  ;; For now, just remove deleted relations
-                 (lambda (rids)
-                   (foldl
-                     (lambda (rid rids)
-                       (if (R-valid? rid)
-                         rids
-                         (hash-remove rids rid)))
-                     rids
-                     (hash-keys rids))
-                   ;; TODO: perform compaction and intra-text gc
-                   ))
+                 rids-remove-invalid)
+    (stg-update! 'relations-to-incrementally-compact
+                 ;; TODO: perform incremental compaction
+                 ;; For now, just remove deleted relations
+                 rids-remove-invalid)
     ;; - collect index garbage
     ;; - collect text garbage
     (checkpoint!)
@@ -706,21 +712,21 @@
   (let ((version (storage-description-ref stg 'database-format-version #f)))
     (unless (equal? version version.current)
       (when version (error "unknown version" version))
-      (stg-set! 'database-format-version       version.current)
-      (stg-set! 'name=>relation-id             (hash))
-      (stg-set! 'relation-id=>name             (hash))
-      (stg-set! 'relation-id=>attributes       (hash))
-      (stg-set! 'relation-id=>type             (hash))
+      (stg-set! 'database-format-version            version.current)
+      (stg-set! 'name=>relation-id                  (hash))
+      (stg-set! 'relation-id=>name                  (hash))
+      (stg-set! 'relation-id=>attributes            (hash))
+      (stg-set! 'relation-id=>type                  (hash))
       ;; relation-id => table-expr
-      (stg-set! 'relation-id=>table-expr       (hash))
+      (stg-set! 'relation-id=>table-expr            (hash))
       ;; relation-id => (ordering => #t)
-      (stg-set! 'relation-id=>indexes          (hash))
+      (stg-set! 'relation-id=>indexes               (hash))
       ;; table-id => (list column-id ...)
-      (stg-set! 'table-id=>column-ids             (hash))
+      (stg-set! 'table-id=>column-ids               (hash))
       ;; (cons table-id ordering-prefix) => column-id
-      (stg-set! 'index-prefix=>key-column-id      (hash))
+      (stg-set! 'index-prefix=>key-column-id        (hash))
       ;; (cons table-id ordering-prefix) => column-id  ; for forming intervals
-      (stg-set! 'index-prefix=>position-column-id (hash))
+      (stg-set! 'index-prefix=>position-column-id   (hash))
       ;; desc.column:
       ;;  (hash 'class  'line
       ;;        'count  nat
@@ -753,10 +759,12 @@
       ;;        'position column-id
       ;;        'value    column-id)
       ;; column-id => desc.column
-      (stg-set! 'column-id=>column             (hash))
+      (stg-set! 'column-id=>column                  (hash))
       ;; relation-id => #t
-      (stg-set! 'relations-to-compact          (hash))
-      (stg-set! 'next-uid                      0)
+      (stg-set! 'relations-to-fully-compact         (hash))
+      ;; relation-id => #t
+      (stg-set! 'relations-to-incrementally-compact (hash))
+      (stg-set! 'next-uid                           0)
       (checkpoint!))
     (perform-pending-jobs!))
 
