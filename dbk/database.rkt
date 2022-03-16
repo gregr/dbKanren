@@ -298,27 +298,33 @@
                        (id.text.pos      (fresh-column-id))
                        (id.text          (fresh-column-id))
                        (bname.text.value (cons 'column id.text.value))
-                       (bname.text.pos   (cons 'column id.text.pos))
-                       (out.text.value   (storage-block-new! stg bname.text.value))
-                       (out.text.pos     (storage-block-new! stg bname.text.pos)))
-                  (define (write-pos)
-                    (write-byte-width-nat out.text.pos (file-position out.text.value) width.pos))
-                  (let ((t&id* (performance-log
-                                 `(sorting ,(hash-count text=>id) text values)
-                                 (sort (hash->list text=>id)
-                                       (lambda (a b) (bytes<? (car a) (car b)))))))
-                    (performance-log
-                      `(writing text column: ,size.text bytes)
-                      (write-pos)
-                      (let loop ((i 0) (t&id* t&id*))
-                        (unless (null? t&id*)
-                          (let* ((t&id (car t&id*))
-                                 (text (car t&id))
-                                 (id   (cdr t&id)))
-                            (write-bytes text out.text.value)
-                            (write-pos)
-                            (unsafe-fxvector-set! id=>id id i)
-                            (loop (+ i 1) (cdr t&id*)))))))
+                       (bname.text.pos   (cons 'column id.text.pos)))
+                  (define pos.final
+                    (call-with-output-file
+                      (storage-block-new! stg bname.text.value)
+                      (lambda (out.text.value)
+                        (call-with-output-file
+                          (storage-block-new! stg bname.text.pos)
+                          (lambda (out.text.pos)
+                            (define (write-pos)
+                              (write-byte-width-nat width.pos out.text.pos (file-position out.text.value)))
+                            (let ((t&id* (performance-log
+                                           `(sorting ,(hash-count text=>id) text values)
+                                           (sort (hash->list text=>id)
+                                                 (lambda (a b) (bytes<? (car a) (car b)))))))
+                              (performance-log
+                                `(writing text column: ,size.text bytes)
+                                (write-pos)
+                                (let loop ((i 0) (t&id* t&id*))
+                                  (unless (null? t&id*)
+                                    (let* ((t&id (car t&id*))
+                                           (text (car t&id))
+                                           (id   (cdr t&id)))
+                                      (write-bytes text out.text.value)
+                                      (write-pos)
+                                      (unsafe-fxvector-set! id=>id id i)
+                                      (loop (unsafe-fx+ i 1) (cdr t&id*)))))
+                                (file-position out.text.value))))))))
                   (define desc.text.value (hash 'class     'block
                                                 'name      bname.text.value
                                                 'bit-width 8
@@ -332,12 +338,10 @@
                                                 'count     (+ 1 count.ids)
                                                 'offset    0
                                                 'min       0
-                                                'max       (file-position out.text.value)))
+                                                'max       pos.final))
                   (define desc.text       (hash 'class     'text
                                                 'position  id.text.pos
                                                 'value     id.text.value))
-                  (close-output-port out.text.value)
-                  (close-output-port out.text.pos)
                   (add-columns! id.text.value desc.text.value
                                 id.text.pos   desc.text.pos
                                 id.text       desc.text)
@@ -417,13 +421,14 @@
             (values size.diff min.col)
             (values size.max  0))))
       (let* ((id.col     (fresh-column-id))
-             (block-name (cons 'column id.col))
-             (out.col    (storage-block-new! stg block-name)))
-        (let loop ((i 0))
-          (when (unsafe-fx< i count)
-            (write-byte-width-nat out.col (- (fxvector-ref vec.col i) offset.col) width.col)
-            (loop (unsafe-fx+ i 1))))
-        (close-output-port out.col)
+             (block-name (cons 'column id.col)))
+        (call-with-output-file
+          (storage-block-new! stg block-name)
+          (lambda (out.col)
+            (let loop ((i 0))
+              (when (unsafe-fx< i count)
+                (write-byte-width-nat out.col (- (fxvector-ref vec.col i) offset.col) width.col)
+                (loop (unsafe-fx+ i 1))))))
         (add-columns! id.col (hash 'class     'block
                                    'name      block-name
                                    'bit-width (* 8 width.col)

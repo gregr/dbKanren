@@ -16,8 +16,6 @@
   storage-description-remove!
   storage-block-names
   storage-block-name?
-  storage-block-id
-  storage-block-out
   storage-block-path
   storage-block-new!
   storage-block-add-names!
@@ -113,8 +111,6 @@
 
 (define (storage-block-names         s)                      ((wrapped-storage-controller s) 'block-names))
 (define (storage-block-name?         s name)                 ((wrapped-storage-controller s) 'block-name?         name))
-(define (storage-block-id            s name)                 ((wrapped-storage-controller s) 'block-id            name))
-(define (storage-block-out           s name)                 ((wrapped-storage-controller s) 'block-output-port   name))
 (define (storage-block-path          s name)                 ((wrapped-storage-controller s) 'block-path          name))
 (define (storage-block-new!          s         name . names) ((wrapped-storage-controller s) 'block-new!          (cons name names)))
 (define (storage-block-add-names!    s name.current . names) ((wrapped-storage-controller s) 'block-add-names!    name.current names))
@@ -164,16 +160,15 @@
   (define (block-id? name)      (hash-ref (block) name #f))
   (define (block-id  name)      (or (block-id? name)
                                     (error "storage block name does not exist" name path.storage)))
+  (define (id->path id)         (build-path path.block (number->string id)))
   (define (unique-block-id)     (+ (apply max
-                                          (apply max 0 (hash-keys id=>out))
+                                          (apply max 0 (set->list ids.new))
                                           (hash-values (hash-ref previous 'block)))
                                    1))
-  (define (checkpoint-pending?) (not (and (hash-empty? id=>out)
+  (define (checkpoint-pending?) (not (and (set-empty? ids.new)
                                           (equal? current previous))))
-  (define (clear-output-ports!)
-    (for-each close-output-port (hash-values id=>out))
-    (hash-clear! id=>out))
   (define (collect-garbage!)
+    (set-clear! ids.new)
     (define lpaths.all         (list->set (map path->string (directory-list path.block))))
     (define lpaths.reachable   (list->set (map number->string (hash-values (block)))))
     (define lpaths.unreachable (set->list (set-subtract lpaths.all lpaths.reachable)))
@@ -218,7 +213,7 @@
         (error "storage state format version mismatch" `(found: ,version expected: ,version.current) path.storage))
       (values (hash-ref state 'checkpoint-count) (hash-ref state 'data))))
   (define current previous)
-  (define id=>out (make-hash))
+  (define ids.new (mutable-set))
   (pretty-log `(loaded storage state ,checkpoint-count for) path.storage)
   (collect-garbage!)
 
@@ -233,26 +228,17 @@
                                                                    (foldl (lambda (key d) (hash-remove d key)) (desc) keys))))
     ((block-names)                         (hash-keys (block)))
     ((block-name?                    name) (hash-has-key? (block) name))
-    ((block-id                       name) (block-id name))
-    ((block-output-port              name) (let ((id (block-id name)))
-                                             (or (hash-ref id=>out id #f)
-                                                 (error "cannot write to committed storage block" name path.storage))))
-    ((block-path                     name) (let* ((id  (block-id name))
-                                                  (out (hash-ref id=>out id #f)))
-                                             (when (and out (not (port-closed? out)))
-                                               (error "cannot read from open, uncommitted storage block" name path.storage))
-                                             (build-path path.block (number->string id))))
+    ((block-path                     name) (id->path (block-id name)))
     ((block-new!                    names) (define b (block))
                                            (for-each (lambda (name)
                                                        (when (hash-has-key? b name)
                                                          (error "cannot create new block with existing name" name path.storage)))
                                                      names)
-                                           (define id  (unique-block-id))
-                                           (define out (open-output-file (build-path path.block (number->string id))))
-                                           (hash-set! id=>out id out)
+                                           (define id (unique-block-id))
+                                           (set-add! ids.new id)
                                            (set! current (hash-set current 'block
                                                                    (foldl (lambda (name b) (hash-set b name id)) b names)))
-                                           out)
+                                           (id->path id))
     ((block-add-names! name.current names) (define b  (block))
                                            (define id (block-id name.current))
                                            (for-each (lambda (name)
@@ -274,13 +260,11 @@
                            (rename-file-or-directory path.state.next    path.state.current)
                            (set! previous current)
                            (pretty-log `(committed checkpoint ,checkpoint-count))
-                           (clear-output-ports!)
                            (collect-garbage!))
                           (else (pretty-log '(no checkpoint necessary: storage has not been modified)))))
     ((revert!)      (cond ((checkpoint-pending?)
                            (set! current previous)
                            (pretty-log `(reverted to checkpoint ,checkpoint-count))
-                           (clear-output-ports!)
                            (collect-garbage!))
                           (else (pretty-log '(no revert necessary: storage has not been modified)))))
     ((trash-empty?) (null? (directory-list path.trash #:build? #t)))
