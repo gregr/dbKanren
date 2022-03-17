@@ -33,7 +33,7 @@
   R.empty R+ R-
   auto-empty-trash?
   current-batch-size)
-(require "logging.rkt" "misc.rkt" "storage.rkt"
+(require "heap.rkt" "logging.rkt" "misc.rkt" "storage.rkt" "stream.rkt"
          racket/file racket/fixnum racket/hash racket/list racket/match
          racket/set racket/struct racket/unsafe/ops racket/vector)
 
@@ -297,11 +297,11 @@
                 (let* ((width.pos        (nat-min-byte-width size.text))
                        (count.ids        (hash-count text=>id))
                        (id=>id           (make-fxvector count.ids))
-                       (id.text.value    (fresh-column-id))
-                       (id.text.pos      (fresh-column-id))
-                       (id.text          (fresh-column-id))
-                       (bname.text.value (cons 'column id.text.value))
-                       (bname.text.pos   (cons 'column id.text.pos)))
+                       (cid.text.value   (fresh-column-id))
+                       (cid.text.pos     (fresh-column-id))
+                       (cid.text         (fresh-column-id))
+                       (bname.text.value (cons 'column cid.text.value))
+                       (bname.text.pos   (cons 'column cid.text.pos)))
                   (define pos.final
                     (call-with-output-file
                       (storage-block-new! stg bname.text.value)
@@ -328,26 +328,23 @@
                                       (unsafe-fxvector-set! id=>id id i)
                                       (loop (unsafe-fx+ i 1) (cdr t&id*)))))
                                 (file-position out.text.value))))))))
-                  (define desc.text.value (hash 'class     'block
-                                                'name      bname.text.value
-                                                'bit-width 8
-                                                'count     size.text
-                                                'offset    0
-                                                'min       0
-                                                'max       255))
-                  (define desc.text.pos   (hash 'class     'block
-                                                'name      bname.text.pos
-                                                'bit-width (* 8 width.pos)
-                                                'count     (+ 1 count.ids)
-                                                'offset    0
-                                                'min       0
-                                                'max       pos.final))
-                  (define desc.text       (hash 'class     'text
-                                                'position  id.text.pos
-                                                'value     id.text.value))
-                  (add-columns! id.text.value desc.text.value
-                                id.text.pos   desc.text.pos
-                                id.text       desc.text)
+                  (add-columns! cid.text.value (hash 'class     'block
+                                                     'name      bname.text.value
+                                                     'bit-width 8
+                                                     'count     size.text
+                                                     'offset    0
+                                                     'min       0
+                                                     'max       255)
+                                cid.text.pos   (hash 'class     'block
+                                                     'name      bname.text.pos
+                                                     'bit-width (* 8 width.pos)
+                                                     'count     (+ 1 count.ids)
+                                                     'offset    0
+                                                     'min       0
+                                                     'max       pos.final)
+                                cid.text       (hash 'class     'text
+                                                     'position  cid.text.pos
+                                                     'value     cid.text.value))
                   (for-each (lambda (type v.col)
                               (when (eqv? type 'text)
                                 (let loop ((i (unsafe-fx- i.tuple 1)))
@@ -358,7 +355,7 @@
                                                             (unsafe-fxvector-ref v.col i)))
                                     (loop (unsafe-fx- i 1))))))
                             column-types vs.col)
-                  id.text)))
+                  cid.text)))
          (define count.tuples.unique (performance-log `(sorting ,i.tuple tuples)
                                                       (table-sort-and-dedup! i.tuple vs.col)))
          (define id.primary-key      (fresh-column-id))
@@ -477,15 +474,131 @@
             (checkpoint!)))
         tids)))
 
+  (define (merge-text-columns descs.text)
+    (define custodian.gs (make-custodian))
+    (define *g&count&id=>id
+      (parameterize ((current-custodian custodian.gs))
+        (map (lambda (desc.text)
+               (define count  (column-count desc.text))
+               (define s      ((column->start->s desc.text) 0))
+               (define id=>id (make-fxvector count))
+               (list (and (< 0 count)
+                          (let loop ((id 0) (s s))
+                            (match (s) ; assume uniform stream
+                              ((cons value s) (cons value (lambda (i)
+                                                            (unsafe-fxvector-set! id=>id id i)
+                                                            (loop (unsafe-fx+ id 1) s))))
+                              (_              #f))))
+                     count
+                     id=>id))
+             descs.text)))
+    (define gs               (map car   *g&count&id=>id))
+    (define counts           (map cadr  *g&count&id=>id))
+    (define id=>ids          (map caddr *g&count&id=>id))
+    (define vec.pos          (make-fxvector (foldl + 0 counts)))
+    (define cid.text.value   (fresh-column-id))
+    (define cid.text         (fresh-column-id))
+    (define bname.text.value (cons 'column cid.text.value))
+    (define count.ids        (let ((i.pos 0))
+                               (call-with-output-file
+                                 (storage-block-new! stg bname.text.value)
+                                 (lambda (out)
+                                   (define (write-pos)
+                                     (fxvector-set! vec.pos i.pos (file-position out))
+                                     (set! i.pos (unsafe-fx+ i.pos 1)))
+                                   (write-pos)
+                                   (performance-log
+                                     `(merging text columns with counts: . ,counts)
+                                     ((unsafe-multi-merge (lambda (g.0 g.1) (bytes<? (car g.0) (car g.1)))
+                                                          (filter-not not gs)
+                                                          not
+                                                          car
+                                                          (lambda (g i) ((cdr g) i)))
+                                      (lambda (value)
+                                        (write-bytes value out)
+                                        (write-pos))))))))
+    (custodian-shutdown-all custodian.gs) ; close all block file ports
+    (add-columns! cid.text.value (hash 'class     'block
+                                       'name      bname.text.value
+                                       'bit-width 8
+                                       'count     (fxvector-ref vec.pos count.ids)
+                                       'offset    0
+                                       'min       0
+                                       'max       255)
+                  cid.text       (hash 'class     'text
+                                       'position  (write-fx-column vec.pos (+ count.ids 1))
+                                       'value     cid.text.value))
+    (hash 'text       cid.text
+          'remappings id=>ids))
+
+  (define (column-count desc.col)
+    (case (hash-ref desc.col 'class)
+      ((line block) (hash-ref desc.col 'count))
+      ((text)       (column-count (hash-ref (stg-ref 'column-id=>column) (hash-ref desc.col 'position))))
+      ((remap)      (column-count (hash-ref (stg-ref 'column-id=>column) (hash-ref desc.col 'local))))
+      (else         (error "column-count unimplemented for column class" desc.col))))
+
+  (define ((column->start->s desc.col) start)
+    (case (hash-ref desc.col 'class)
+      ((line)  (let* ((count (max (- (hash-ref desc.col 'count) start) 0))
+                      (step  (hash-ref desc.col 'step)))
+                 (let loop ((i 0) (value (+ (hash-ref desc.col 'offset) (* step start))))
+                   (lambda ()
+                     (if (unsafe-fx< i count)
+                       (cons value (loop (unsafe-fx+ i 1) (unsafe-fx+ value step)))
+                       '())))))
+      ((block) (let* ((count.0 (hash-ref desc.col 'count))
+                      (count   (max (- count.0 start) 0))
+                      (width   (unsafe-fxrshift (hash-ref desc.col 'bit-width) 3))
+                      (offset  (hash-ref desc.col 'offset))
+                      (in      (open-input-file (storage-block-path stg (hash-ref desc.col 'name)))))
+                 (file-position in (* width (min count.0 start)))
+                 (let loop ((i 0))
+                   (lambda ()
+                     (if (unsafe-fx< i count)
+                       (cons (unsafe-bytes-nat-ref width (read-bytes width in) 0)
+                             (loop (unsafe-fx+ i 1)))
+                       '())))))
+      ((text)  (let* ((cid=>c (stg-ref 'column-id=>column))
+                      (s.pos  ((column->start->s (hash-ref cid=>c (hash-ref desc.col 'position)))
+                               (+ start 1)))
+                      (in     (open-input-file (storage-block-path stg (hash-ref cid=>c (hash-ref desc.col 'value))))))
+                 (let loop ((s.pos s.pos) (pos.current 0))
+                   (lambda ()
+                     (match (s.pos) ; assume uniform stream
+                       ((cons pos.next s.pos) (cons (read-bytes (unsafe-fx- pos.next pos.current) in)
+                                                    (loop s.pos pos.next)))
+                       (_                     '()))))))
+      ((remap) (let ((s   ((column->start->s (hash-ref (stg-ref 'column-id=>column) (hash-ref desc.col 'local)))
+                           start))
+                     (ref (column->ref (hash-ref (stg-ref 'column-id=>column) (hash-ref desc.col 'global)))))
+                 (values count (s-map ref s))))
+      (else    (error "column->start->s unimplemented for column class" desc.col))))
+
+  (define (column->ref desc.col)
+    (case (hash-ref desc.col 'class)
+      ((line)  (let ((step   (hash-ref desc.col 'step))
+                     (offset (hash-ref desc.col 'offset)))
+                 (lambda (i) (unsafe-fx+ (unsafe-fx* step i) offset))))
+      ((block) (let ((width  (unsafe-fxrshift (hash-ref desc.col 'bit-width) 3))
+                     (offset (hash-ref desc.col 'offset))
+                     (in     (open-input-file (storage-block-path stg (hash-ref desc.col 'name)))))
+                 (lambda (i)
+                   (file-position in (* width i))
+                   (unsafe-bytes-nat-ref width (read-bytes width in) 0))))
+      ((text)  (column-count (hash-ref (stg-ref 'column-id=>column) (hash-ref desc.col 'position))))
+      ((remap) (column-count (hash-ref (stg-ref 'column-id=>column) (hash-ref desc.col 'local))))
+      (else    (error "column-count unimplemented for column class" desc.col))))
+
   (define (read-fx-column desc.col)
     (case (hash-ref desc.col 'class)
       ((line)  (let* ((count   (hash-ref desc.col 'count))
                       (step    (hash-ref desc.col 'step))
                       (vec.col (make-fxvector count)))
                  (let loop ((i 0) (value (hash-ref desc.col 'offset)))
-                   (when (< i count)
+                   (when (unsafe-fx< i count)
                      (unsafe-fxvector-set! vec.col i value)
-                     (loop (+ i 1) (+ value step))))
+                     (loop (unsafe-fx+ i 1) (unsafe-fx+ value step))))
                  vec.col))
       ((block) (let* ((count   (hash-ref desc.col 'count))
                       (width   (unsafe-fxrshift (hash-ref desc.col 'bit-width) 3))
@@ -949,3 +1062,55 @@
                     (cond ((= o 0)                      (+ i 1))
                           ((and (< next end) (i< next)) (loop next o))
                           (else                         (loop i    o)))))))))
+
+(define ((unsafe-multi-merge <? gens gen-empty? gen-first gen-rest) yield)
+  (define h   (list->vector gens))
+  (define end (vector-length h))
+  (heap! <? h end)
+  (define (re-insert end gen)
+    (cond ((gen-empty? gen) (heap-remove!  <? h end)
+                            (unsafe-fx- end 1))
+          (else             (heap-replace! <? h end gen)
+                            end)))
+  (if (unsafe-fx< 0 end)
+    (let ((g.top (heap-top h)))
+      (let loop.new ((g.top g.top)
+                     (x     (gen-first g.top))
+                     (i     0)
+                     (end   end))
+        (yield x)
+        (let loop.duplicate ((end (re-insert end (gen-rest g.top i))))
+          (if (unsafe-fx< 0 end)
+            (let* ((g.top (heap-top h))
+                   (y     (gen-first g.top)))
+              (if (equal? x y)
+                (loop.duplicate (re-insert end (gen-rest g.top i)))
+                (loop.new       g.top y (unsafe-fx+ i 1) end)))
+            (unsafe-fx+ i 1)))))
+    0))
+
+(define ((multi-merge <? gens gen-empty? gen-first gen-rest) yield)
+  (define h   (list->vector gens))
+  (define end (vector-length h))
+  (heap! <? h end)
+  (define (re-insert end gen)
+    (cond ((gen-empty? gen) (heap-remove!  <? h end)
+                            (- end 1))
+          (else             (heap-replace! <? h end gen)
+                            end)))
+  (if (< 0 end)
+    (let ((g.top (heap-top h)))
+      (let loop.new ((g.top g.top)
+                     (x     (gen-first g.top))
+                     (i     0)
+                     (end   end))
+        (yield x)
+        (let loop.duplicate ((end (re-insert end (gen-rest g.top i))))
+          (if (< 0 end)
+            (let* ((g.top (heap-top h))
+                   (y     (gen-first g.top)))
+              (if (equal? x y)
+                (loop.duplicate (re-insert end (gen-rest g.top i)))
+                (loop.new       g.top y (+ i 1) end)))
+            (+ i 1)))))
+    0))
