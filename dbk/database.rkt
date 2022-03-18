@@ -673,6 +673,16 @@
                                      'local  (write-block 0 (- (set-count alphabet) 1))
                                      'global id.alphabet))
         id.remap))
+    ;; TODO: (define count.alphabet.max (max-global-count 2/3 (nat-min-byte-width (- max.col min.col)) count))
+    ;; So we must compute min.col and max.col before attempting remapping.
+    (define (max-global-count scale.max width.local count.local)
+      (let loop ((width.global (- width.local 1)) (count.max 0))
+        (if (= width.global 0)
+          count.max
+          (let ((count.candidate (min (expt 256 width.global)
+                                      (floor (/ (* count.local (- (* scale.max width.local) width.global))
+                                                width.local)))))
+            (loop (- width.global 1) (max count.max count.candidate))))))
     (if (= count 1)
       (write-line 1 (unsafe-fxvector-ref vec.col 0) 0)
       (let* ((count.alphabet.max (expt 2 (- (nat-min-byte-width count) 1)))
