@@ -43,6 +43,8 @@
                                                              (time/pretty-log body ...)))
 
 ;; TODO: move these
+(define (bytes<=? a b) (not (bytes<? b a)))
+
 (define (build-tsv-relation db type file-name)
   (let-values (((insert! finish) (database-relation-builder db '(int text text))))
     (call-with-input-file
@@ -1072,6 +1074,16 @@
                     (cond ((= o 0)                      (+ i 1))
                           ((and (< next end) (i< next)) (loop next o))
                           (else                         (loop i    o)))))))))
+(define (bisect-prev start end i>)
+  (define i end)
+  (let loop ((offset 1))
+    (define next (- i offset))
+    (cond ((and (>= next start) (i> next)) (loop (arithmetic-shift offset 1)))
+          (else (let loop ((i i) (o offset))
+                  (let* ((o (arithmetic-shift o -1)) (n (- i o)))
+                    (cond ((= o 0)                   i)
+                          ((and (>= n start) (i> n)) (loop n o))
+                          (else                      (loop i o)))))))))
 
 (define ((unsafe-multi-merge <? gens gen-empty? gen-first gen-rest) yield)
   (define h   (list->vector gens))
@@ -1124,3 +1136,94 @@
                 (loop.new       g.top y (+ i 1) end)))
             (+ i 1)))))
     0))
+
+(struct monovec (ref unref-next unref-prev) #:prefab)
+
+(define ((ref-map   ref f)      i) (f                          (ref i)))
+(define ((ref-remap ref id=>id) i) (unsafe-fxvector-ref id=>id (ref i)))
+
+(define ((find-next:ref ref <? <=?) inclusive? i.start i.end v)
+  (let ((<? (if inclusive? <? <=?)))
+    (bisect-next i.start i.end (lambda (i) (<? (ref i) v)))))
+(define ((find-prev:ref ref <? <=?) inclusive? i.start i.end v)
+  (let ((<? (if inclusive? <? <=?)))
+    (bisect-prev i.start i.end (lambda (i) (<? v (ref i))))))
+
+(define ((find-next:line offset step) inclusive? i.start i.end v)
+  (let* ((i.0 (/ (- v offset) step))
+         (i.1 (ceiling i.0))
+         (i   (if (and (not inclusive?) (eqv? i.0 i.1))
+                (+ i.1 1)
+                i.1)))
+    (max i.start (min i.end i))))
+(define ((find-prev:line offset step) inclusive? i.start i.end v)
+  (let* ((i.0 (/ (- v offset) step))
+         (i.1 (floor   i.0))
+         (i   (if (and (not inclusive?) (eqv? i.0 i.1))
+                (- i.1 1)
+                i.1)))
+    (max i.start (min i.end i))))
+
+(define (dict-count     d)                 (d 'count))
+(define (dict-min       d)                 (d 'min))
+(define (dict-min-value d)                 (d 'min-value))
+(define (dict-min-pop   d)                 (d 'min-pop))
+(define (dict-min-find  d inclusive? key)  (d 'min-find inclusive? key))
+;; TODO: is it reasonable for dict:union and dict:diff to implement these? should be
+(define (dict-max       d)                 (d 'max))
+(define (dict-max-find  d inclusive? key)  (d 'max-find inclusive? key))
+(define (dict-empty?    d)                 (eqv? 0 (dict-count d)))
+(define (dict->=        d key)             (dict-min-find d #t key))
+(define (dict->         d key)             (dict-min-find d #f key))
+(define (dict-<=        d key)             (dict-max-find d #t key))
+(define (dict-<         d key)             (dict-max-find d #f key))
+(define (dict-ref d key k.found k.missing) (let ((d (dict->= d key)))
+                                             (if (or (dict-empty? d)
+                                                     (not (equal? (dict-min d) key)))
+                                               (k.missing)
+                                               (k.found (dict-min-value d)))))
+(define ((dict-enumerator     d) yield)    (let loop ((d d))
+                                             (unless (dict-empty? d)
+                                               (yield (dict-min d) (dict-min-value d))
+                                               (loop (dict-min-pop d)))))
+(define ((dict-key-enumerator d) yield)    (let loop ((d d))
+                                             (unless (dict-empty? d)
+                                               (yield (dict-min d))
+                                               (loop (dict-min-pop d)))))
+
+(define dict.empty
+  (method-lambda
+    ((count)                   0)
+    ((min-find inclusive? key) dict.empty)
+    ((max-find inclusive? key) dict.empty)))
+
+(define (dict:monovec monovec.key ref.value start end)
+  (match-define (monovec ref.key find-next find-prev) monovec.key)
+  (dict:basic ref.key find-next find-prev ref.value start end))
+
+(define (dict:ref ref.key <?.key <=?.key ref.value start end)
+  (dict:basic ref.key
+              (find-next:ref ref.key <?.key <=?.key)
+              (find-prev:ref ref.key <?.key <=?.key)
+              ref.value
+              start end))
+
+(define (dict:basic ref.key find-next find-prev ref.value start end)
+  (let loop ((start start) (end end))
+    (if (unsafe-fx<= end start)
+      dict.empty
+      (method-lambda
+        ((count)                   (unsafe-fx- end start))
+        ((min)                     (ref.key   start))
+        ((min-value)               (ref.value start))
+        ((min-pop)                 (loop (unsafe-fx+ start 1) end))
+        ((max)                     (ref.key   (unsafe-fx- end 1)))
+        ((min-find inclusive? key) (loop (find-next inclusive? start end key) end))
+        ((max-find inclusive? key) (loop start (find-prev inclusive? start end key)))))))
+
+;; TODO:
+;(define (dict:union . ds)
+  ;)
+
+;(define (dict:diff count.keys d0 d1)
+  ;)
