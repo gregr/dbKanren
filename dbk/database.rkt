@@ -533,6 +533,44 @@
     (hash 'text       cid.text
           'remappings id=>ids))
 
+  (define (compact-relations! rids)
+    ;; TODO: consolidate all text columns reachable from relation ids into one shared text column, and apply remappings
+    (for-each compact-relation-fully! rids)
+    ;; TODO: garbage collect unreachable shared text values
+    ;; TODO: after text value gc and applying remappings, eliminate those remappings by rewriting the affected columns
+    )
+
+  (define (compact-relation-fully! rid)
+    ;; TODO:
+    ;; - merge tables and update table-expr
+    (void))
+
+  (define (compact-relation-incrementally! rid)
+    ;; TODO:
+    ;; - identify portion of table-expr to compact
+    ;; - consolidate relevant text columns into one shared text column
+    ;; - merge tables and update table-expr
+    (void))
+
+  (define (collect-garbage!)
+    ;; TODO:
+    ;; - collect table garbage
+    ;; - collect index garbage
+    ;; - collect column garbage
+    ;; - the process:
+    ;;   - scan relation-id=>tables for set of reachable table-ids
+    ;;   - remove table-ids from table-id=>column-ids that do not appear in reachable set
+    ;;   - scan relation-id=>indexes and combine with relation-id=>tables to build set of reachable index-prefixes
+    ;;     - not all of these index-prefixes may exist yet
+    ;;   - remove index-prefixes from index-prefix=>key-column-id and index-prefix=>position-column-id that are not in reachable set
+    ;;   - scan for column-ids reachable via remaining table-id=>column-ids, index-prefix=>key-column-id and index-prefix=>position-column
+    ;;     - and transitively via column-id=>column, since some columns may be nested
+    ;;   - remove unreachable column-ids from column-id=>column as usual
+    ;;   - collect block-name from each block-class desc.column remaining
+    ;;   - subtract these reachable block-names from storage-block-names
+    ;;   - deallocate the resulting block-names, which must be unreachable
+    (void))
+
   (define (text-column->text=>id desc) (let ((count (column-count desc)))
                                          (dict:ref (column->ref desc) bytes<? bytes<=?
                                                    (column->ref (hash 'class  'line
@@ -923,25 +961,12 @@
     (set-clear! rids.new)
     (perform-pending-jobs!))
   (define (perform-pending-jobs!)
-    ;; TODO:
-    ;; - collect table garbage
-    (define (rids-remove-invalid rids)
-      (foldl (lambda (rid rids)
-               (if (R-valid? rid)
-                 rids
-                 (hash-remove rids rid)))
-             rids
-             (hash-keys rids)))
-    (stg-update! 'relations-to-fully-compact
-                 ;; TODO: perform full compaction with text gc
-                 ;; For now, just remove deleted relations
-                 rids-remove-invalid)
-    (stg-update! 'relations-to-incrementally-compact
-                 ;; TODO: perform incremental compaction
-                 ;; For now, just remove deleted relations
-                 rids-remove-invalid)
-    ;; - collect index garbage
-    ;; - collect text garbage
+    (compact-relations! (filter R-valid? (hash-keys (stg-ref 'relations-to-fully-compact))))
+    (stg-set! 'relations-to-fully-compact (hash))
+    (checkpoint!)
+    (for-each compact-relation-incrementally!
+              (filter R-valid? (hash-keys (stg-ref 'relations-to-incrementally-compact))))
+    (stg-set! 'relations-to-incrementally-compact (hash))
     (checkpoint!)
     (for-each
       (lambda (rid&texpr)
@@ -953,6 +978,8 @@
             (sort (hash-keys (hash-ref (stg-ref 'relation-id=>indexes) rid))
                   (lambda (o1 o2) (> (length o1) (length o2)))))))
       (hash->list (stg-ref 'relation-id=>table-expr)))
+    (checkpoint!)
+    (collect-garbage!)
     (checkpoint!))
 
   (define stg (storage:filesystem path.db))
@@ -1357,8 +1384,8 @@
         ((max-find inclusive? key) (loop start (find-prev inclusive? start end key)))))))
 
 ;; TODO:
-;(define (dict:union . ds)
-  ;)
+(define (dict:union . ds)
+  (error "TODO: dict:union" ds))
 
-;(define (dict:diff count.keys d0 d1)
-  ;)
+(define (dict:diff count.keys d0 d1)
+  (error "TODO: dict:diff" count.keys d0 d1))
