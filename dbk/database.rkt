@@ -476,62 +476,66 @@
             (checkpoint!)))
         tids)))
 
-  (define (merge-text-columns descs.text)
-    (define custodian.gs (make-custodian))
-    (define *g&count&id=>id
-      (parameterize ((current-custodian custodian.gs))
-        (map (lambda (desc.text)
-               (define count  (column-count desc.text))
-               (define s      ((column->start->s desc.text) 0))
-               (define id=>id (make-fxvector count))
-               (list (and (< 0 count)
-                          (let loop ((id 0) (s s))
-                            (match (s) ; assume uniform stream
-                              ((cons text s)  (cons text (lambda (i)
-                                                           (unsafe-fxvector-set! id=>id id i)
-                                                           (loop (unsafe-fx+ id 1) s))))
-                              (_              #f))))
-                     count
-                     id=>id))
-             descs.text)))
-    (define gs               (map car   *g&count&id=>id))
-    (define counts           (map cadr  *g&count&id=>id))
-    (define id=>ids          (map caddr *g&count&id=>id))
-    (define vec.pos          (make-fxvector (foldl + 0 counts)))
-    (define cid.text.value   (fresh-column-id))
-    (define cid.text         (fresh-column-id))
-    (define bname.text.value (cons 'column cid.text.value))
-    (define count.ids        (let ((i.pos 0))
-                               (call-with-output-file
-                                 (storage-block-new! stg bname.text.value)
-                                 (lambda (out)
-                                   (define (write-pos)
-                                     (fxvector-set! vec.pos i.pos (file-position out))
-                                     (set! i.pos (unsafe-fx+ i.pos 1)))
-                                   (write-pos)
-                                   (performance-log
-                                     `(merging text columns with counts: . ,counts)
-                                     ((unsafe-multi-merge (lambda (g.0 g.1) (bytes<? (car g.0) (car g.1)))
-                                                          (filter-not not gs)
-                                                          not
-                                                          car
-                                                          (lambda (g i) ((cdr g) i)))
-                                      (lambda (text)
-                                        (write-bytes text out)
-                                        (write-pos))))))))
-    (custodian-shutdown-all custodian.gs) ; close all block file ports
-    (add-columns! cid.text.value (hash 'class     'block
-                                       'name      bname.text.value
-                                       'bit-width 8
-                                       'count     (fxvector-ref vec.pos count.ids)
-                                       'offset    0
-                                       'min       0
-                                       'max       255)
-                  cid.text       (hash 'class     'text
-                                       'position  (write-fx-column vec.pos (+ count.ids 1))
-                                       'value     cid.text.value))
-    (hash 'text       cid.text
-          'remappings id=>ids))
+  (define (merge-text-columns cids.text.original)
+    (match cids.text.original
+      ('()             (values #f       (hash)))
+      ((list cid.text) (values cid.text (hash)))
+      (_ (define custodian.gs (make-custodian))
+         (define *g&count&id=>id
+           (let ((cid=>c (stg-ref 'column-id=>column)))
+             (parameterize ((current-custodian custodian.gs))
+               (map (lambda (cid)
+                      (define desc.text (hash-ref cid=>c cid))
+                      (define count     (column-count desc.text))
+                      (define s         ((column->start->s desc.text) 0))
+                      (define id=>id    (make-fxvector count))
+                      (list (and (< 0 count)
+                                 (let loop ((id 0) (s s))
+                                   (match (s) ; assume uniform stream
+                                     ((cons text s)  (cons text (lambda (i)
+                                                                  (unsafe-fxvector-set! id=>id id i)
+                                                                  (loop (unsafe-fx+ id 1) s))))
+                                     (_              #f))))
+                            count
+                            id=>id))
+                    cids.text.original))))
+         (define gs               (map car   *g&count&id=>id))
+         (define counts           (map cadr  *g&count&id=>id))
+         (define id=>ids          (map caddr *g&count&id=>id))
+         (define vec.pos          (make-fxvector (foldl + 0 counts)))
+         (define cid.text.value   (fresh-column-id))
+         (define cid.text         (fresh-column-id))
+         (define bname.text.value (cons 'column cid.text.value))
+         (define count.ids        (let ((i.pos 0))
+                                    (call-with-output-file
+                                      (storage-block-new! stg bname.text.value)
+                                      (lambda (out)
+                                        (define (write-pos)
+                                          (fxvector-set! vec.pos i.pos (file-position out))
+                                          (set! i.pos (unsafe-fx+ i.pos 1)))
+                                        (write-pos)
+                                        (performance-log
+                                          `(merging text columns with counts: . ,counts)
+                                          ((unsafe-multi-merge (lambda (g.0 g.1) (bytes<? (car g.0) (car g.1)))
+                                                               (filter-not not gs)
+                                                               not
+                                                               car
+                                                               (lambda (g i) ((cdr g) i)))
+                                           (lambda (text)
+                                             (write-bytes text out)
+                                             (write-pos))))))))
+         (custodian-shutdown-all custodian.gs) ; close all block file ports
+         (add-columns! cid.text.value (hash 'class     'block
+                                            'name      bname.text.value
+                                            'bit-width 8
+                                            'count     (fxvector-ref vec.pos count.ids)
+                                            'offset    0
+                                            'min       0
+                                            'max       255)
+                       cid.text       (hash 'class     'text
+                                            'position  (write-fx-column vec.pos (+ count.ids 1))
+                                            'value     cid.text.value))
+         (values cid.text (make-immutable-hash (map cons cids.text.original id=>ids))))))
 
   (define (compact-relations! rids)
     ;; TODO: consolidate all text columns reachable from relation ids into one shared text column, and apply remappings
