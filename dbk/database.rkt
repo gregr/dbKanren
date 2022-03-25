@@ -537,6 +537,59 @@
                                             'value     cid.text.value))
          (values cid.text (make-immutable-hash (map cons cids.text.original id=>ids))))))
 
+  (define (merge-text-columns/tables tids.original)
+    (define (cid->text-cid cid) (column->text-cid (hash-ref cid=>c cid)))
+    (define tid=>cids (stg-ref 'table-id=>column-ids))
+    (define cid=>c    (stg-ref 'column-id=>column))
+    (define cids.text.original
+      (set->list
+        (list->set
+          (append*
+            (map (lambda (tid)
+                   (filter-not not (map cid->text-cid (hash-ref tid=>cids tid))))
+                 tids.original)))))
+    (define-values (cid.text.new cid.text=>id=>id) (merge-text-columns cids.text.original))
+    (define cid.text=>cid.global.new
+      (make-immutable-hash
+        (hash-map cid.text=>id=>id
+                  (lambda (cid.text id=>id)
+                    (cons cid.text
+                          (let ((cid.global.new (fresh-column-id)))
+                            (add-columns! cid.global.new
+                                          (hash 'class  'remap
+                                                'local  (write-fx-column id=>id (fxvector-length id=>id))
+                                                'global cid.text.new))
+                            cid.global.new))))))
+    (make-immutable-hash
+      (map (lambda (tid)
+             (let* ((cids.original (hash-ref tid=>cids tid))
+                    (cids.new
+                      (map (lambda (cid.original)
+                             (or (let ((desc.original (hash-ref cid=>c cid.original)))
+                                   (let loop ((desc desc.original))
+                                     (case (hash-ref desc 'class)
+                                       ((remap) (let* ((cid.global  (hash-ref desc 'global))
+                                                       (desc.global (hash-ref cid=>c cid.global)))
+                                                  (let ((cid.global.new
+                                                          (case (hash-ref desc.global 'class)
+                                                            ((text) (hash-ref cid.text=>cid.global.new cid.global #f))
+                                                            (else   (loop desc.global)))))
+                                                    (and cid.global.new
+                                                         (let ((cid.new (fresh-column-id)))
+                                                           (add-columns! cid.new (hash 'class  'remap
+                                                                                       'local  (hash-ref desc 'local)
+                                                                                       'global cid.global.new))
+                                                           cid.new)))))
+                                       (else    #f))))
+                                 cid.original))
+                           cids.original)))
+               (if (equal? cids.original cids.new)
+                 tid
+                 (let ((tid.new (fresh-table-id)))
+                   (stg-update! 'table-id=>column-ids (lambda (tid=>cids) (hash-set tid=>cids tid.new cids.new)))
+                   tid.new))))
+           tids.original)))
+
   (define (compact-relations! rids)
     ;; TODO: consolidate all text columns reachable from relation ids into one shared text column, and apply remappings
     (for-each compact-relation-fully! rids)
