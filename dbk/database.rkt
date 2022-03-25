@@ -593,6 +593,64 @@
                    tid.new))))
            tids.original)))
 
+  (define (merge-table-expr type.table texpr)
+    (let* ((cid=>c    (stg-ref 'column-id=>column))
+           (tid=>cids (stg-ref 'table-id=>column-ids))
+           (cid.text  ; All tables must depend on the same text value column, if any
+             (let ((i.text-col (ormap (lambda (type.col i) (and (eqv? type.col 'text) i))
+                                      type.table (range (length type.table)))))
+               (and i.text-col
+                    (let loop ((texpr texpr) (cid.text #f))
+                      (match texpr
+                        ('()          cid.text)
+                        (`(+ . ,ts)   (loop (car ts)))
+                        (`(- ,t0 ,t1) (loop t0))
+                        (table-id     (column->text-cid
+                                        (hash-ref cid=>c (list-ref (hash-ref tid=>cids table-id)
+                                                                   i.text-col)))))))))
+           (dict.tuples
+             (let loop ((texpr texpr))
+               (match texpr
+                 ('()          dict.empty)
+                 (`(+ . ,ts)   (apply dict:union (map loop ts)))
+                 (`(- ,t0 ,t1) (dict:diff (length type.table) (loop t0) (loop t1)))
+                 (table-id     (let ((cids   (hash-ref tid=>cids table-id)))
+                                 (dict:monovec (table->monovec
+                                                 (map (lambda (cid) (hash-ref cid=>c cid))
+                                                      (cdr cids))) ; (car cids) is the row id, not tuple data
+                                               (lambda (_) '())
+                                               0
+                                               (column-count (hash-ref cid=>c (car cids)))))))))
+           (count.worst-case
+             (let loop ((texpr texpr))
+               (match texpr
+                 ('()          0)
+                 (`(+ . ,ts)   (foldl + 0 (map loop ts)))
+                 (`(- ,t0 ,t1) (loop t0))
+                 (table-id     (column-count (hash-ref cid=>c (car (hash-ref tid=>cids table-id))))))))
+           (vecs.col (map (lambda (_) (make-fxvector count.worst-case))
+                          type.table))
+           (i.tuple  0))
+      ((dict-key-enumerator dict.tuples)
+       (lambda (tuple)
+         ;; TODO: work with vectors instead of lists, for efficiency: see table->monovec
+         (for-each (lambda (vec.col value) (unsafe-fxvector-set! vec.col i.tuple value))
+                   vecs.col tuple)
+         (set! i.tuple (unsafe-fx+ i.tuple 1))))
+      (build-table type.table cid.text vecs.col i.tuple)))
+
+    ;; TODO: test these
+    ;; - merge text columns, producing id=>id remappings
+    ;; - apply each id=>id remapping to columns and rebuilt original tables
+    ;; - merge the rebuilt tables (according to a table-expr)
+    ;; TODO: implement these operations:
+    ;; - text value gc
+    ;;   - compute a table's reachable text ids
+    ;;     - treat each text column as a 1-column table, merge those, and enumerate the sorted/deduped ids
+    ;;   - drop ids from a text column
+    ;;     - (text-remove-ids desc.text ids)  ==>  desc.text.new
+    ;;       - id=>id remapping is implied by the set of removed ids
+
   (define (compact-relations! rids)
     (let ((tid=>tid (merge-text-columns/tables
                       (set->list
@@ -609,9 +667,8 @@
     )
 
   (define (compact-relation-fully! rid)
-    ;; TODO:
-    ;; - merge tables and update table-expr
-    (void))
+    (R-assign-t! rid (merge-table-expr (R-type rid) (R-texpr rid)))
+    (checkpoint!))
 
   (define (compact-relation-incrementally! rid)
     ;; TODO:
