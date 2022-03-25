@@ -218,7 +218,7 @@
         ((name)        (R-name      id.self))
         ((attributes)  (R-attrs     id.self))
         ((type)        (R-type      id.self))
-        ((table-expr)             (hash-ref (stg-ref 'relation-id=>table-expr) id.self))
+        ((table-expr)  (R-texpr     id.self))
         ((indexes)     (hash-keys (hash-ref (stg-ref 'relation-id=>indexes)    id.self)))
         ((name-set! name)
          (unless (and (R-has-name? id.self) (equal? (R-name id.self) name))
@@ -591,7 +591,15 @@
            tids.original)))
 
   (define (compact-relations! rids)
-    ;; TODO: consolidate all text columns reachable from relation ids into one shared text column, and apply remappings
+    (let ((tid=>tid (merge-text-columns/tables
+                      (set->list
+                        (list->set
+                          (append* (map (lambda (rid) (table-expr->table-ids (R-texpr rid)))
+                                        rids)))))))
+      (for-each (lambda (rid) (R-assign-t! rid (table-expr-map (lambda (tid) (hash-ref tid=>tid tid))
+                                                               (R-texpr rid))))
+                rids))
+    (checkpoint!)
     (for-each compact-relation-fully! rids)
     ;; TODO: garbage collect unreachable shared text values
     ;; TODO: after text value gc and applying remappings, eliminate those remappings by rewriting the affected columns
@@ -958,6 +966,14 @@
         (`(- ,t0 ,t1) (loop t1 (loop t0 tids)))
         (table-id     (cons table-id tids)))))
 
+  (define (table-expr-map tid->tid texpr)
+    (let loop ((texpr texpr))
+      (match texpr
+        ('()          '())
+        (`(+ . ,ts)   `(+ . ,(map loop ts)))
+        (`(- ,t0 ,t1) `(- ,(loop t0) ,(loop t1)))
+        (table-id     (tid->tid table-id)))))
+
   (define rids.new           (mutable-set))
   (define id=>R              (make-weak-hash))
   (define (name->R name)
@@ -980,6 +996,7 @@
   (define (R-name       id)         (hash-ref (stg-ref 'relation-id=>name)       id R-anonymous))
   (define (R-attrs      id)         (hash-ref (stg-ref 'relation-id=>attributes) id))
   (define (R-type       id)         (hash-ref (stg-ref 'relation-id=>type)       id))
+  (define (R-texpr      id)         (hash-ref (stg-ref 'relation-id=>table-expr) id))
   (define (R-assign-t!  id texpr)   (stg-update! 'relation-id=>table-expr
                                                  (lambda (rid=>ts) (hash-set rid=>ts id texpr))))
   (define (R-assign-r!  id rexpr)   (R-assign-t! id (table-expr (R-type id) rexpr)))
