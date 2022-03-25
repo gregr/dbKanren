@@ -683,23 +683,57 @@
     (void))
 
   (define (collect-garbage!)
-    ;; TODO:
-    ;; - collect table garbage
-    ;; - collect index garbage
-    ;; - collect column garbage
-    ;; - the process:
-    ;;   - scan relation-id=>tables for set of reachable table-ids
-    ;;   - remove table-ids from table-id=>column-ids that do not appear in reachable set
-    ;;   - scan relation-id=>indexes and combine with relation-id=>tables to build set of reachable index-prefixes
-    ;;     - not all of these index-prefixes may exist yet
-    ;;   - remove index-prefixes from index-prefix=>key-column-id and index-prefix=>position-column-id that are not in reachable set
-    ;;   - scan for column-ids reachable via remaining table-id=>column-ids, index-prefix=>key-column-id and index-prefix=>position-column
-    ;;     - and transitively via column-id=>column, since some columns may be nested
-    ;;   - remove unreachable column-ids from column-id=>column as usual
-    ;;   - collect block-name from each block-class desc.column remaining
-    ;;   - subtract these reachable block-names from storage-block-names
-    ;;   - deallocate the resulting block-names, which must be unreachable
-    (void))
+    (define (remove-unreachable! stg-key reachable)
+      (stg-update! stg-key
+                   (lambda (h)
+                     (foldl (lambda (k h) (hash-remove h k))
+                            h
+                            (set->list (set-subtract (list->set (hash-keys h)) reachable))))))
+    (let* ((cid=>c (stg-ref 'column-id=>column))
+           (table-ids.reachable
+             (list->set (append* (map table-expr->table-ids (hash-values (stg-ref 'relation-id=>table-expr))))))
+           (index-prefixes.reachable
+             (list->set (append* (hash-map (stg-ref 'relation-id=>indexes)
+                                           (lambda (rid indexes)
+                                             (let ((ordering-prefixes
+                                                     (append* (map ordering->prefixes (hash-keys indexes)))))
+                                               (append* (map (lambda (tid)
+                                                               (map (lambda (oprefix) (cons tid oprefix))
+                                                                    ordering-prefixes))
+                                                             (table-expr->table-ids (R-texpr rid))))))))))
+           (column-ids.reachable
+             (set-fixed-point
+               (set-union
+                 (list->set (append* (set-map table-ids.reachable
+                                              (lambda (tid) (hash-ref 'table-id=>column-ids tid)))))
+                 (list->set (set-map index-prefixes.reachable
+                                     (lambda (iprefix) (hash-ref 'index-prefix=>key-column-id iprefix))))
+                 (list->set (set-map index-prefixes.reachable
+                                     (lambda (iprefix) (hash-ref 'index-prefix=>position-column-id iprefix)))))
+               (lambda (cids) (apply set-union (set)
+                                     (set-map cids (lambda (cid)
+                                                     (let loop ((cid cid))
+                                                       (let ((desc (hash-ref cid=>c cid)))
+                                                         (case (hash-ref desc 'class)
+                                                           ((remap) (set-union (set cid)
+                                                                               (loop (hash-ref desc 'local))
+                                                                               (loop (hash-ref desc 'global))))
+                                                           (else    (set cid))))))))))))
+      (remove-unreachable! 'table-id=>column-ids             table-ids.reachable)
+      (remove-unreachable! 'index-prefix=>key-column-id      index-prefixes.reachable)
+      (remove-unreachable! 'index-prefix=>position-column-id index-prefixes.reachable)
+      (remove-unreachable! 'column-id=>column                column-ids.reachable)
+      (storage-block-remove-names!
+        stg
+        (set->list (set-subtract (list->set (storage-block-names stg))
+                                 (apply set-union (set)
+                                        (set-map column-ids.reachable
+                                                 (lambda (cid)
+                                                   (let ((desc (hash-ref cid=>c cid)))
+                                                     (case (hash-ref desc 'class)
+                                                       ((block) (set (hash-ref desc 'name)))
+                                                       (else    (set)))))))))))
+    (checkpoint!))
 
   (define (text-column->text=>id desc) (let ((count (column-count desc)))
                                          (dict:ref (column->ref desc) bytes<? bytes<=?
