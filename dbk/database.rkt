@@ -409,12 +409,7 @@
       table-id))
 
   (define (build-table-indexes! ordering tids)
-    (let ((prefixes (let ((rcols (reverse ordering))) ; prefixes ordered from longest to shortest
-                      (let loop ((c0 (car rcols)) (rcols (cdr rcols)))
-                        (if (null? rcols)
-                          (list (list c0))
-                          (cons (reverse (cons c0 rcols))
-                                (loop (car rcols) (cdr rcols))))))))
+    (let ((prefixes (ordering->prefixes ordering)))
       (for-each
         (lambda (tid)
           (define (has-index-prefix? prefix)
@@ -1104,7 +1099,7 @@
     (for-each
       (lambda (rid&texpr)
         (match-define (cons rid texpr) rid&texpr)
-        (let ((tids (table-expr->table-ids texpr)))
+        (let ((tids (set->list (list->set (table-expr->table-ids texpr)))))
           (for-each
             (lambda (ordering) (build-table-indexes! ordering tids))
             ;; sorting by descending-length makes it easier to share common index building work
@@ -1112,8 +1107,7 @@
                   (lambda (o1 o2) (> (length o1) (length o2)))))))
       (hash->list (stg-ref 'relation-id=>table-expr)))
     (checkpoint!)
-    (collect-garbage!)
-    (checkpoint!))
+    (collect-garbage!))
 
   (define stg (storage:filesystem path.db))
   (let ((version (storage-description-ref stg 'database-format-version #f)))
@@ -1197,6 +1191,14 @@
   (for-each (lambda (t) (unless (member t '(int text))
                           (error "invalid attribute type" t 'in type)))
             type))
+
+(define (ordering->prefixes ordering)
+  (let ((rcols (reverse ordering))) ; prefixes ordered from longest to shortest
+    (let loop ((c0 (car rcols)) (rcols (cdr rcols)))
+      (if (null? rcols)
+        (list (list c0))
+        (cons (reverse (cons c0 rcols))
+              (loop (car rcols) (cdr rcols)))))))
 
 (define (int-tuple<? a b)
   (let loop ((a a) (b b))
