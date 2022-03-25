@@ -276,8 +276,7 @@
        (define (start-batch!)
          (hash-clear! text=>id)
          (set! i.tuple   0)
-         (set! size.text 0)
-         (set! table-id  (fresh-table-id)))
+         (set! size.text 0))
        (define (insert! tuple)
          (for-each (lambda (field proj v.col)
                      (fxvector-set! v.col i.tuple (proj field)))
@@ -360,28 +359,10 @@
                   cid.text)))
          (define count.tuples.unique (performance-log `(sorting ,i.tuple tuples)
                                                       (table-sort-and-dedup! i.tuple vs.col)))
-         (define id.primary-key      (fresh-column-id))
-         (add-columns! id.primary-key (hash 'class  'line
-                                            'count  count.tuples.unique
-                                            'offset 0
-                                            'step   1))
-         (define column-ids.attrs
-           (map (lambda (type.col v.col)
-                  (let ((id.col (performance-log `(writing column: ,count.tuples.unique values)
-                                                 (write-fx-column v.col count.tuples.unique))))
-                    (cond ((eqv? type.col 'text)
-                           (let ((id.remap (fresh-column-id)))
-                             (add-columns! id.remap (hash 'class  'remap
-                                                          'local  id.col
-                                                          'global column-id.text))
-                             id.remap))
-                          (else id.col))))
-                column-types vs.col))
-         (define column-ids (cons id.primary-key column-ids.attrs))
-         (stg-update! 'table-id=>column-ids (lambda (tid=>cids) (hash-set tid=>cids table-id column-ids)))
-         (pretty-log `(inserted batch of ,count.tuples.unique unique tuples)
-                     `(,size.text bytes for ,(hash-count text=>id) unique text values))
-         (set! tables (cons table-id tables)))
+         (let ((table-id (build-table column-types column-id.text vs.col count.tuples.unique)))
+           (pretty-log `(inserted batch of ,count.tuples.unique unique tuples)
+                       `(,size.text bytes for ,(hash-count text=>id) unique text values))
+           (set! tables (cons table-id tables))))
        (define (text->id bs)
          (or (hash-ref text=>id bs #f)
              (let ((id (hash-count text=>id)))
@@ -392,7 +373,6 @@
        (define column-types (relation-type R))
        (define column-size  (max (quotient batch-size.bytes (* (length column-types) 8)) 2))
        (define tables       '())
-       (define table-id     #f)
        (define i.tuple      0)
        (define size.text    0)
        (define text=>id     (make-hash))
@@ -404,6 +384,29 @@
        (start-batch!)
        (values insert! finish!))
       (else (error "invalid batch size" batch-size.bytes))))
+
+  (define (build-table column-types column-id.text vecs.col row-count)
+    (let ((table-id        (fresh-table-id))
+          (cid.primary-key (fresh-column-id)))
+      (add-columns! cid.primary-key (hash 'class  'line
+                                          'count  row-count
+                                          'offset 0
+                                          'step   1))
+      (let ((cids.attrs (map (lambda (type.col vec.col)
+                               (let ((id.col (performance-log `(writing column: ,row-count values)
+                                                              (write-fx-column vec.col row-count))))
+                                 (cond ((eqv? type.col 'text)
+                                        (let ((id.remap (fresh-column-id)))
+                                          (add-columns! id.remap (hash 'class  'remap
+                                                                       'local  id.col
+                                                                       'global column-id.text))
+                                          id.remap))
+                                       (else id.col))))
+                             column-types vecs.col)))
+        (stg-update! 'table-id=>column-ids
+                     (lambda (tid=>cids)
+                       (hash-set tid=>cids table-id (cons cid.primary-key cids.attrs)))))
+      table-id))
 
   (define (build-table-indexes! ordering tids)
     (let ((prefixes (let ((rcols (reverse ordering))) ; prefixes ordered from longest to shortest
