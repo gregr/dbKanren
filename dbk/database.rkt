@@ -1,6 +1,7 @@
 #lang racket/base
 (provide
   ;; TODO: move these
+  set-fixed-point
   build-tsv-relation
   unsafe-bytes-split-tab
   bytes-base10->fxnat
@@ -44,6 +45,15 @@
 
 ;; TODO: move these
 (define (bytes<=? a b) (not (bytes<? b a)))
+
+(define (set-fixed-point xs.initial step)
+  (let loop ((current (set))
+             (next    xs.initial))
+    (let ((new (set-subtract next current)))
+      (if (set-empty? new)
+        current
+        (loop (set-union current new)
+              (step      new))))))
 
 (define (build-tsv-relation db type file-name)
   (let-values (((insert! finish) (database-relation-builder db '(int text text))))
