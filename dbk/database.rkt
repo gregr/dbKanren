@@ -820,8 +820,7 @@
                            (case (hash-ref desc 'class)
                              ((text) cid)
                              (else   (column->text-cid desc)))))
-      ((line block text) #f)
-      (else              (error "column->text-cid unimplemented for column class" desc))))
+      (else              #f)))
 
   (define (column->ref desc)
     (case (hash-ref desc 'class)
@@ -1141,16 +1140,6 @@
       ;;        'offset int
       ;;        'step   int)
       ;; OR
-      ;;  (hash 'class 'fxvector
-      ;;        'value #fx(int ...)
-      ;;        'min   int
-      ;;        'max   int)
-      ;; OR
-      ;;  (hash 'class 'bigint-vector
-      ;;        'value #(int ...)
-      ;;        'min   int
-      ;;        'max   int)
-      ;; OR
       ;;  (hash 'class     'block
       ;;        'name      block-name
       ;;        'bit-width nat
@@ -1159,7 +1148,7 @@
       ;;        'min       int
       ;;        'max       int)
       ;; OR
-      ;;  (hash 'class  'remap      ; monotonic injection from local to global namespace, for compression
+      ;;  (hash 'class  'remap  ; monotonic injection from local to global namespace, possibly for compression
       ;;        'local  column-id
       ;;        'global column-id)
       ;; OR
