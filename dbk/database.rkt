@@ -642,7 +642,9 @@
          (for-each (lambda (vec.col value) (unsafe-fxvector-set! vec.col i.tuple value))
                    vecs.col tuple)
          (set! i.tuple (unsafe-fx+ i.tuple 1))))
-      (build-table type.table cid.text vecs.col i.tuple)))
+      (if (< 0 i.tuple)
+        (build-table type.table cid.text vecs.col i.tuple)
+        '())))
 
     ;; TODO: test these
     ;; - merge text columns, producing id=>id remappings
