@@ -1074,19 +1074,19 @@
         (`(- ,t0 ,t1) `(- ,(loop t0) ,(loop t1)))
         (table-id     (tid->tid table-id)))))
 
-  (define rids.new           (mutable-set))
-  (define id=>R              (make-weak-hash))
+  (define rids.new (mutable-set))
+  (define id=>R    (make-weak-hash))
   (define (name->R name)
     (id->R (hash-ref (name=>relation-id) name
                      (lambda () (error "unknown relation" name (storage-path stg))))))
   (define (id->R id.R)
-    (let* ((key.R (list id.R)))
-      (wrapped-relation
-        key.R
-        (or (hash-ref id=>R key.R #f)
-            (let ((R (make-relation id.R)))
-              (hash-set! id=>R key.R R)
-              R)))))
+    (let* ((key.R (list id.R))
+           (R     (hash-ref id=>R key.R #f)))
+      (if R
+        (wrapped-relation (hash-ref-key id=>R key.R) R)
+        (wrapped-relation key.R                      (let ((R (make-relation id.R)))
+                                                       (hash-set! id=>R key.R R)
+                                                       R)))))
   (define (stg-ref      key)        (storage-description-ref     stg key))
   (define (stg-set!     key value)  (storage-description-set!    stg key value))
   (define (stg-update!  key update) (storage-description-update! stg key update))
