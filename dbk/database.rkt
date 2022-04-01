@@ -613,19 +613,6 @@
                         (`(- ,t0 ,t1) (or (loop t0) (loop t1)))
                         (table-id     (column->text-cid (hash-ref cid=>c (list-ref (hash-ref tid=>cids table-id)
                                                                                    i.text-col)))))))))
-           (dict.tuples
-             (let loop ((texpr texpr))
-               (match texpr
-                 ('()          dict.empty)
-                 (`(+ . ,ts)   (apply dict:union unsafe-int-tuple<? (lambda _ '()) (map loop ts)))
-                 (`(- ,t0 ,t1) (dict:diff unsafe-int-tuple<? 1 (loop t0) (loop t1)))
-                 (table-id     (let ((cids (hash-ref tid=>cids table-id)))
-                                 (dict:monovec (table->monovec
-                                                 (map (lambda (cid) (hash-ref cid=>c cid))
-                                                      (cdr cids))) ; (car cids) is the row id, not tuple data
-                                               (lambda (_) '())
-                                               0
-                                               (column-count (hash-ref cid=>c (car cids)))))))))
            (count.worst-case
              (let loop ((texpr texpr))
                (match texpr
@@ -638,7 +625,19 @@
            (i.tuple  0))
       (performance-log
         `(merging table expr: ,texpr)
-        ((dict-key-enumerator dict.tuples)
+        ((dict-key-enumerator
+           (let loop ((texpr texpr))
+             (match texpr
+               ('()          dict.empty)
+               (`(+ . ,ts)   (apply dict:union unsafe-int-tuple<? (lambda _ '()) (map loop ts)))
+               (`(- ,t0 ,t1) (dict:diff unsafe-int-tuple<? 1 (loop t0) (loop t1)))
+               (table-id     (let ((cids (hash-ref tid=>cids table-id)))
+                               (dict:monovec (table->monovec
+                                               (map (lambda (cid) (hash-ref cid=>c cid))
+                                                    (cdr cids))) ; (car cids) is the row id, not tuple data
+                                             (lambda (_) '())
+                                             0
+                                             (column-count (hash-ref cid=>c (car cids)))))))))
          (lambda (tuple)
            ;; TODO: work with vectors instead of lists, for efficiency: see table->monovec
            (for-each (lambda (vec.col value) (unsafe-fxvector-set! vec.col i.tuple value))
@@ -648,10 +647,6 @@
         (build-table type.table cid.text vecs.col i.tuple)
         '())))
 
-    ;; TODO: test these
-    ;; - merge text columns, producing id=>id remappings
-    ;; - apply each id=>id remapping to columns and rebuilt original tables
-    ;; - merge the rebuilt tables (according to a table-expr)
     ;; TODO: implement these operations:
     ;; - text value gc
     ;;   - compute a table's reachable text ids
@@ -662,7 +657,7 @@
 
   (define (compact-relations! rids)
     (unless (null? rids)
-      (pretty-log `(fully compacting ,(length rids) relations))
+      (apply pretty-log `(fully compacting relations) (map R-name rids))
       (let ((tid=>tid (merge-text-columns/tables
                         (set->list
                           (list->set
@@ -680,7 +675,7 @@
   (define (compact-relation-fully! rid)
     (let ((texpr (R-texpr rid)))
       (when (pair? texpr)
-        (when (R-has-name? rid) (pretty-log `(fully compacting relation: ,(R-name rid))))
+        (pretty-log `(fully compacting relation: ,(R-name rid)))
         (R-assign-t! rid (merge-table-expr (R-type rid) texpr))
         (checkpoint!))))
 
@@ -1575,73 +1570,154 @@
         ((max-find inclusive? key) (loop start (find-prev inclusive? start end key)))))))
 
 (define (dict:union <? combine-values . ds)
-  (define (<=? a b) (not (<? b a)))
-  (define (d<? d0 d1) (<? (dict-min d0) (dict-min d1)))
-  (define h (list->vector ds))
-  (heap! d<? h (vector-length h))
-  (let loop.dict ((hcount (vector-length h)))
-    (define (dict:h hcount key.min value.min)
+  (define (<=? a  b)  (not (<? b a)))
+  (define (d<? d0 d1) (let ((min0 (dict-min d0)) (min1 (dict-min d1)))
+                        (or (<? min0 min1)
+                            (and (equal? min0 min1)
+                                 (<? (dict-max d0) (dict-max d1))))))
+  (define (dict:binary-union d.left d.right)
+    (define (less min.left min.right val.left val.right d.left d.right)
       (define self
         (method-lambda
-          ((count)     (let loop ((i (unsafe-fx- hcount 1)) (count 1))
-                         (if (unsafe-fx<= 0 i)
-                           (loop (unsafe-fx- i 1)
-                                 (unsafe-fx+ (dict-count (vector-ref h i)) count))
-                           count)))
-          ((min)       key.min)
-          ((min-value) value.min)
-          ((min-pop)   (loop.dict hcount))
-          ((max)       (let loop ((i (unsafe-fx- hcount 1)) (key.max key.min))
-                         (if (unsafe-fx<= 0 i)
-                           (loop (unsafe-fx- i 1)
-                                 (max (dict-max (vector-ref h i)) key.max))
-                           key.max)))
+          ((count)     (unsafe-fx+ (dict-count d.left) (dict-count d.right) 2))
+          ((min)       min.left)
+          ((min-value) val.left)
+          ((min-pop)   (loop.pop.less min.right val.right d.left d.right))
+          ((max)       (let ((max.left  (if (dict-empty? d.left)  min.left  (dict-max d.left)))
+                             (max.right (if (dict-empty? d.right) min.right (dict-max d.right))))
+                         (if (<? max.left max.right)
+                           max.right
+                           max.left)))
           ((min-find inclusive? key)
            (let ((<? (if inclusive? <=? <?)))
-             (if (<? key key.min)
-               self
-               (let loop ((hcount hcount))
-                 (if (unsafe-fx= hcount 0)
-                   dict.empty
-                   (let ((d.top (heap-top h)))
-                     (if (<? key (dict-min d.top))
-                       (loop.dict hcount)
-                       (let ((d.top (dict-min-find d.top)))
-                         (cond ((dict-empty? d.top) (heap-remove!  d<? h hcount)
-                                                    (loop (unsafe-fx- hcount 1)))
-                               (else                (heap-replace! d<? h hcount d.top)
-                                                    (loop hcount)))))))))))
+             (cond ((<? key min.left)  self)
+                   ((<? key min.right) (loop.pop.less min.right val.right
+                                                      (dict-min-find d.left  inclusive? key)
+                                                      d.right))
+                   (else               (loop.pop.same (dict-min-find d.left  inclusive? key)
+                                                      (dict-min-find d.right inclusive? key))))))
           ((max-find inclusive? key)
-           (if ((if inclusive? <? <=?) key key.min)
-             dict.empty
-             (let* ((ds     (list->vector
-                              (filter-not dict-empty?
-                                          (map (lambda (d) (dict-max-find d inclusive? key))
-                                               (vector->list (vector-copy h 0 hcount))))))
-                    (hcount (vector-length ds)))
-               (vector-fill! h #f)
-               (vector-copy! h 0 ds)
-               (heap! d<? h hcount)
-               (dict:h hcount key.min value.min))))))
+           (let ((<? (if inclusive? <? <=?)))
+             (cond ((<? key min.left)  dict.empty)
+                   ((<? key min.right) (loop.pop.less min.left val.left d.left dict.empty))
+                   (else               (less min.left min.right val.left val.right
+                                             (dict-max-find d.left  inclusive? key)
+                                             (dict-max-find d.right inclusive? key))))))))
       self)
-    (case hcount
-      ((0)  dict.empty)
-      ((1)  (vector-ref h 0))
-      (else (let* ((d.top   (heap-top h))
-                   (key.min (dict-min d.top)))
-              (let loop ((hcount hcount) (vs.min '()))
-                (define (finish) (dict:h hcount key.min (apply combine-values vs.min)))
-                (if (unsafe-fx= hcount 0)
-                  (finish)
-                  (let ((d.top (heap-top h)))
-                    (if (<? key.min (dict-min d.top))
-                      (finish)
-                      (let ((vs.min (cons (dict-min-value d.top) vs.min))
-                            (d.top  (dict-min-pop d.top)))
-                        (cond ((dict-empty? d.top) (heap-remove!  d<? h hcount)
-                                                   (loop (unsafe-fx- hcount 1) vs.min))
-                              (else                (heap-replace! d<? h hcount d.top)
-                                                   (loop hcount                vs.min)))))))))))))
+    (define (same min.left val.left d.left d.right)
+      (define self
+        (method-lambda
+          ((count)     (unsafe-fx+ (dict-count d.left) (dict-count d.right) 1))
+          ((min)       min.left)
+          ((min-value) val.left)
+          ((min-pop)   (loop.pop.same d.left d.right))
+          ((max)       (let ((max.left  (if (dict-empty? d.left)  min.left (dict-max d.left)))
+                             (max.right (if (dict-empty? d.right) min.left (dict-max d.right))))
+                         (if (<? max.left max.right)
+                           max.right
+                           max.left)))
+          ((min-find inclusive? key) (if ((if inclusive? <=? <?) key min.left)
+                                       self
+                                       (loop.pop.same (dict-min-find d.left  inclusive? key)
+                                                      (dict-min-find d.right inclusive? key))))
+          ((max-find inclusive? key) (if ((if inclusive? <? <=?) key min.left)
+                                       dict.empty
+                                       (same min.left
+                                             (dict-max-find d.left  inclusive? key)
+                                             (dict-max-find d.right inclusive? key))))))
+      self)
+    (define (loop.pop.less min.right val.right d.left d.right)
+      (cond ((dict-empty? d.left) (same min.right val.right d.left d.right))
+            (else (let ((min.left (dict-min       d.left))
+                        (val.left (dict-min-value d.left))
+                        (d.left   (dict-min-pop   d.left)))
+                    (cond ((<? min.left min.right) (less min.left  min.right val.left val.right       d.left  d.right))
+                          ((<? min.right min.left) (less min.right min.left  val.right val.left       d.right d.left))
+                          (else                    (same min.left (combine-values val.left val.right) d.left  d.right)))))))
+    (define (loop.pop.same d.left d.right)
+      (cond ((dict-empty? d.left)  d.right)
+            ((dict-empty? d.right) d.left)
+            (else (let ((min.left  (dict-min       d.left))
+                        (min.right (dict-min       d.right))
+                        (val.left  (dict-min-value d.left))
+                        (val.right (dict-min-value d.right))
+                        (d.left    (dict-min-pop   d.left))
+                        (d.right   (dict-min-pop   d.right)))
+                    (cond ((<? min.left min.right) (less min.left  min.right val.left val.right       d.left  d.right))
+                          ((<? min.right min.left) (less min.right min.left  val.right val.left       d.right d.left))
+                          (else                    (same min.left (combine-values val.left val.right) d.left  d.right)))))))
+    (loop.pop.same d.left d.right))
+  (define (dict:disjoint-binary-union d.left d.right)
+    (let loop ((d.left d.left) (d.right d.right) (count.right (dict-count d.right)))
+      (cond ((dict-empty? d.left) d.right)
+            (else (let loop.min ((min.left    (dict-min       d.left))
+                                 (val.left    (dict-min-value d.left))
+                                 (d.left      (dict-min-pop   d.left))
+                                 (d.right     d.right)
+                                 (count.right count.right))
+                    (define self
+                      (method-lambda
+                        ((count)     (unsafe-fx+ (dict-count d.left) count.right 1))
+                        ((min)       min.left)
+                        ((min-value) val.left)
+                        ((min-pop)   (loop d.left d.right count.right))
+                        ((max)       (dict-max d.right))
+                        ((min-find inclusive? key)
+                         (if ((if inclusive? <=? <?) key min.left)
+                           self
+                           (let ((d.left (dict-min-find d.left inclusive? key)))
+                             (if (dict-empty? d.left)
+                               (dict-min-find d.right inclusive? key)
+                               (loop d.left d.right count.right)))))
+                        ((max-find inclusive? key)
+                         (if ((if inclusive? <? <=?) key min.left)
+                           dict.empty
+                           (let* ((d.right     (dict-max-find d.right inclusive? key))
+                                  (count.right (dict-count d.right)))
+                             (loop.min min.left val.left
+                                       (if (unsafe-fx= count.right 0)
+                                         (dict-max-find d.left inclusive? key)
+                                         d.left)
+                                       d.right count.right))))))
+                    self)))))
+  (define (dict:disjoint-union ds)
+    (if (null? ds)
+      dict.empty
+      (let ((ds (reverse ds)))
+        (foldl dict:disjoint-binary-union (car ds) (cdr ds)))))
+  (define (dict:overlapping-union ds)
+    (define (list-odds  xs) (list-evens (cdr xs)))
+    (define (list-evens xs) (cons (car xs)
+                                  (let ((xs (cdr (cdr xs))))
+                                    (if (null? xs)
+                                      '()
+                                      (list-evens xs)))))
+    (cond ((null? ds)       dict.empty)
+          ((null? (cdr ds)) (car ds))
+          (else             (dict:binary-union (dict:overlapping-union (list-evens ds))
+                                               (dict:overlapping-union (list-odds  ds))))))
+  (let ((ds (reverse (sort (filter-not dict-empty? ds) d<?))))
+    (if (null? ds)
+      dict.empty
+      (dict:overlapping-union
+        (map dict:disjoint-union
+             (map cdr (foldl (lambda (d choices.all)
+                               (let ((max.d (dict-max d)))
+                                 (let loop ((choices choices.all) (choices.passed '()))
+                                   (match choices
+                                     ('() (cons (list (dict-min d) d) choices.all))
+                                     ((cons (cons min.choice ds.choice)
+                                            choices)
+                                      (if (<? max.d min.choice)
+                                        (foldl cons
+                                               (cons (cons (dict-min d) (cons d ds.choice))
+                                                     choices)
+                                               choices.passed)
+                                        (loop choices (cons (cons min.choice ds.choice)
+                                                            choices.passed))))))))
+                             (let ((d0 (car ds)))
+                               (list (list (dict-min d0) d0)))
+                             (cdr ds))))))))
 
 (define (dict:diff <? count.keys d.positive d.negative)
   (let loop/count.keys ((count.keys count.keys) (d.pos d.positive) (d.neg d.negative))
@@ -1662,7 +1738,7 @@
             ((min-pop)   (loop (dict-min-pop d.pos d.neg)))
             (else        super))))
       (define (same)
-        (if (= count.keys 1)
+        (if (unsafe-fx= count.keys 1)
           (loop (dict-min-pop d.pos) (dict-min-pop d.neg))
           (let ((d.pos.top (loop/count.keys (unsafe-fx- count.keys 1)
                                             (dict-min-value d.pos)
