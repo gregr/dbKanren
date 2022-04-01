@@ -591,11 +591,12 @@
                                        (else    #f))))
                                  cid.original))
                            cids.original)))
-               (if (equal? cids.original cids.new)
-                 tid
-                 (let ((tid.new (fresh-table-id)))
-                   (stg-update! 'table-id=>column-ids (lambda (tid=>cids) (hash-set tid=>cids tid.new cids.new)))
-                   tid.new))))
+               (cons tid (if (equal? cids.original cids.new)
+                           tid
+                           (let ((tid.new (fresh-table-id)))
+                             (stg-update! 'table-id=>column-ids
+                                          (lambda (tid=>cids) (hash-set tid=>cids tid.new cids.new)))
+                             tid.new)))))
            tids.original)))
 
   (define (merge-table-expr type.table texpr)
@@ -603,23 +604,22 @@
            (tid=>cids (stg-ref 'table-id=>column-ids))
            (cid.text  ; All tables must depend on the same text value column, if any
              (let ((i.text-col (ormap (lambda (type.col i) (and (eqv? type.col 'text) i))
-                                      type.table (range (length type.table)))))
+                                      type.table (range 1 (+ (length type.table) 1)))))
                (and i.text-col
-                    (let loop ((texpr texpr) (cid.text #f))
+                    (let loop ((texpr texpr))
                       (match texpr
-                        ('()          cid.text)
-                        (`(+ . ,ts)   (loop (car ts)))
-                        (`(- ,t0 ,t1) (loop t0))
-                        (table-id     (column->text-cid
-                                        (hash-ref cid=>c (list-ref (hash-ref tid=>cids table-id)
-                                                                   i.text-col)))))))))
+                        ('()          #f)
+                        (`(+ . ,ts)   (ormap loop ts))
+                        (`(- ,t0 ,t1) (or (loop t0) (loop t1)))
+                        (table-id     (column->text-cid (hash-ref cid=>c (list-ref (hash-ref tid=>cids table-id)
+                                                                                   i.text-col)))))))))
            (dict.tuples
              (let loop ((texpr texpr))
                (match texpr
                  ('()          dict.empty)
-                 (`(+ . ,ts)   (apply dict:union int-tuple<? (lambda _ '()) (map loop ts)))
-                 (`(- ,t0 ,t1) (dict:diff int-tuple<? 1 (loop t0) (loop t1)))
-                 (table-id     (let ((cids   (hash-ref tid=>cids table-id)))
+                 (`(+ . ,ts)   (apply dict:union unsafe-int-tuple<? (lambda _ '()) (map loop ts)))
+                 (`(- ,t0 ,t1) (dict:diff unsafe-int-tuple<? 1 (loop t0) (loop t1)))
+                 (table-id     (let ((cids (hash-ref tid=>cids table-id)))
                                  (dict:monovec (table->monovec
                                                  (map (lambda (cid) (hash-ref cid=>c cid))
                                                       (cdr cids))) ; (car cids) is the row id, not tuple data
@@ -711,15 +711,17 @@
                                                                (map (lambda (oprefix) (cons tid oprefix))
                                                                     ordering-prefixes))
                                                              (table-expr->table-ids (R-texpr rid))))))))))
+           (stgkey.ixp=>cid->cids
+             (lambda (stgkey)
+               (list->set (filter-not not (set-map index-prefixes.reachable
+                                                   (lambda (iprefix) (hash-ref (stg-ref stgkey) iprefix #f)))))))
            (column-ids.reachable
              (set-fixed-point
                (set-union
                  (list->set (append* (set-map table-ids.reachable
-                                              (lambda (tid) (hash-ref 'table-id=>column-ids tid)))))
-                 (list->set (set-map index-prefixes.reachable
-                                     (lambda (iprefix) (hash-ref 'index-prefix=>key-column-id iprefix))))
-                 (list->set (set-map index-prefixes.reachable
-                                     (lambda (iprefix) (hash-ref 'index-prefix=>position-column-id iprefix)))))
+                                              (lambda (tid) (hash-ref (stg-ref 'table-id=>column-ids) tid)))))
+                 (stgkey.ixp=>cid->cids 'index-prefix=>key-column-id)
+                 (stgkey.ixp=>cid->cids 'index-prefix=>position-column-id))
                (lambda (cids) (apply set-union (set)
                                      (set-map cids (lambda (cid)
                                                      (let loop ((cid cid))
@@ -728,21 +730,24 @@
                                                            ((remap) (set-union (set cid)
                                                                                (loop (hash-ref desc 'local))
                                                                                (loop (hash-ref desc 'global))))
+                                                           ((text)  (set-union (set cid)
+                                                                               (loop (hash-ref desc 'position))
+                                                                               (loop (hash-ref desc 'value))))
                                                            (else    (set cid))))))))))))
+      (apply storage-block-remove-names!
+             stg
+             (set->list (set-subtract (list->set (storage-block-names stg))
+                                      (apply set-union (set)
+                                             (set-map column-ids.reachable
+                                                      (lambda (cid)
+                                                        (let ((desc (hash-ref cid=>c cid)))
+                                                          (case (hash-ref desc 'class)
+                                                            ((block) (set (hash-ref desc 'name)))
+                                                            (else    (set))))))))))
       (remove-unreachable! 'table-id=>column-ids             table-ids.reachable)
       (remove-unreachable! 'index-prefix=>key-column-id      index-prefixes.reachable)
       (remove-unreachable! 'index-prefix=>position-column-id index-prefixes.reachable)
-      (remove-unreachable! 'column-id=>column                column-ids.reachable)
-      (storage-block-remove-names!
-        stg
-        (set->list (set-subtract (list->set (storage-block-names stg))
-                                 (apply set-union (set)
-                                        (set-map column-ids.reachable
-                                                 (lambda (cid)
-                                                   (let ((desc (hash-ref cid=>c cid)))
-                                                     (case (hash-ref desc 'class)
-                                                       ((block) (set (hash-ref desc 'name)))
-                                                       (else    (set)))))))))))
+      (remove-unreachable! 'column-id=>column                column-ids.reachable))
     (checkpoint!))
 
   (define (text-column->text=>id desc) (let ((count (column-count desc)))
@@ -760,6 +765,8 @@
                                                                   'step   1))
                                            (column->ref desc)
                                            0 count)))
+
+  (define (block-desc->path desc.col) (storage-block-path stg (hash-ref desc.col 'name)))
 
   (define (column-count desc.col)
     (case (hash-ref desc.col 'class)
@@ -781,7 +788,7 @@
                       (count   (max (- count.0 start) 0))
                       (width   (unsafe-fxrshift (hash-ref desc.col 'bit-width) 3))
                       (offset  (hash-ref desc.col 'offset))
-                      (in      (open-input-file (storage-block-path stg (hash-ref desc.col 'name)))))
+                      (in      (open-input-file (block-desc->path desc.col))))
                  (file-position in (* width (min count.0 start)))
                  (let loop ((i 0))
                    (lambda ()
@@ -792,7 +799,7 @@
       ((text)  (let* ((cid=>c (stg-ref 'column-id=>column))
                       (s.pos  ((column->start->s (hash-ref cid=>c (hash-ref desc.col 'position)))
                                (+ start 1)))
-                      (in     (open-input-file (storage-block-path stg (hash-ref cid=>c (hash-ref desc.col 'value))))))
+                      (in     (open-input-file (block-desc->path (hash-ref cid=>c (hash-ref desc.col 'value))))))
                  (let loop ((s.pos s.pos) (pos.current 0))
                    (lambda ()
                      (match (s.pos) ; assume uniform stream
@@ -875,7 +882,7 @@
     (case (hash-ref desc 'class)
       ((text) (let* ((cid=>c  (stg-ref 'column-id=>column))
                      (ref.pos (column->ref (hash-ref cid=>c (hash-ref desc 'position))))
-                     (in      (open-input-file (storage-block-path stg (hash-ref cid=>c (hash-ref desc 'value))))))
+                     (in      (open-input-file (block-desc->path (hash-ref cid=>c (hash-ref desc 'value))))))
                 (lambda (i) (let ((pos.i   (ref.pos i))
                                   (pos.i+1 (ref.pos (unsafe-fx+ i 1))))
                               (file-position in pos.i)
@@ -900,7 +907,7 @@
                             (find-prev:line offset step)))))
       ((block) (let* ((width  (unsafe-fxrshift (hash-ref desc 'bit-width) 3))
                       (offset (hash-ref desc 'offset))
-                      (in     (open-input-file (storage-block-path stg (hash-ref desc 'name))))
+                      (in     (open-input-file (block-desc->path desc)))
                       (ref    (lambda (i)
                                 (file-position in (* width i))
                                 (unsafe-bytes-nat-ref width (read-bytes width in) 0))))
@@ -950,7 +957,7 @@
                       (width   (unsafe-fxrshift (hash-ref desc.col 'bit-width) 3))
                       (offset  (hash-ref desc.col 'offset))
                       (vec.col (make-fxvector count))
-                      (bs      (time (file->bytes (storage-block-path stg (hash-ref desc.col 'name))))))
+                      (bs      (file->bytes (block-desc->path desc.col))))
                  (let loop ((i 0) (j 0))
                    (when (< i count)
                      (unsafe-fxvector-set! vec.col i (+ (unsafe-bytes-nat-ref width bs j) offset))
@@ -1260,6 +1267,12 @@
          (or (< (car a) (car b))
              (and (= (car a) (car b))
                   (loop (cdr a) (cdr b)))))))
+(define (unsafe-int-tuple<? a b)
+  (let loop ((a a) (b b))
+    (and (not (null? a))
+         (or (unsafe-fx< (car a) (car b))
+             (and (unsafe-fx= (car a) (car b))
+                  (loop (cdr a) (cdr b)))))))
 
 (define (table-sort-and-dedup! count.tuples.initial vs.columns)
   (define table (make-vector count.tuples.initial))
@@ -1268,7 +1281,7 @@
       (vector-set! table i (map (lambda (vec.col) (unsafe-fxvector-ref vec.col i))
                                 vs.columns))
       (loop (unsafe-fx- i 1))))
-  (vector-sort! table int-tuple<?)
+  (vector-sort! table unsafe-int-tuple<?)
   (define (columns-set! j tuple) (for-each (lambda (vec.col value.col)
                                              (unsafe-fxvector-set! vec.col j value.col))
                                            vs.columns tuple))
@@ -1563,7 +1576,7 @@
 
 (define (dict:union <? combine-values . ds)
   (define (<=? a b) (not (<? b a)))
-  (define (d<? d0 d1) (unsafe-fx< (dict-min d0) (dict-min d1)))
+  (define (d<? d0 d1) (<? (dict-min d0) (dict-min d1)))
   (define h (list->vector ds))
   (heap! d<? h (vector-length h))
   (let loop.dict ((hcount (vector-length h)))
