@@ -636,12 +636,14 @@
            (vecs.col (map (lambda (_) (make-fxvector count.worst-case))
                           type.table))
            (i.tuple  0))
-      ((dict-key-enumerator dict.tuples)
-       (lambda (tuple)
-         ;; TODO: work with vectors instead of lists, for efficiency: see table->monovec
-         (for-each (lambda (vec.col value) (unsafe-fxvector-set! vec.col i.tuple value))
-                   vecs.col tuple)
-         (set! i.tuple (unsafe-fx+ i.tuple 1))))
+      (performance-log
+        `(merging table expr: ,texpr)
+        ((dict-key-enumerator dict.tuples)
+         (lambda (tuple)
+           ;; TODO: work with vectors instead of lists, for efficiency: see table->monovec
+           (for-each (lambda (vec.col value) (unsafe-fxvector-set! vec.col i.tuple value))
+                     vecs.col tuple)
+           (set! i.tuple (unsafe-fx+ i.tuple 1)))))
       (if (< 0 i.tuple)
         (build-table type.table cid.text vecs.col i.tuple)
         '())))
@@ -659,25 +661,31 @@
     ;;       - id=>id remapping is implied by the set of removed ids
 
   (define (compact-relations! rids)
-    (let ((tid=>tid (merge-text-columns/tables
-                      (set->list
-                        (list->set
-                          (append* (map (lambda (rid) (table-expr->table-ids (R-texpr rid)))
-                                        rids)))))))
-      (for-each (lambda (rid) (R-assign-t! rid (table-expr-map (lambda (tid) (hash-ref tid=>tid tid))
-                                                               (R-texpr rid))))
-                rids))
-    (checkpoint!)
-    (for-each compact-relation-fully! rids)
-    ;; TODO: garbage collect unreachable shared text values
-    ;; TODO: after text value gc and applying remappings, eliminate those remappings by rewriting the affected columns
-    )
+    (unless (null? rids)
+      (pretty-log `(fully compacting ,(length rids) relations))
+      (let ((tid=>tid (merge-text-columns/tables
+                        (set->list
+                          (list->set
+                            (append* (map (lambda (rid) (table-expr->table-ids (R-texpr rid)))
+                                          rids)))))))
+        (for-each (lambda (rid) (R-assign-t! rid (table-expr-map (lambda (tid) (hash-ref tid=>tid tid))
+                                                                 (R-texpr rid))))
+                  rids))
+      (checkpoint!)
+      (for-each compact-relation-fully! rids)
+      ;; TODO: garbage collect unreachable shared text values
+      ;; TODO: after text value gc and applying remappings, eliminate those remappings by rewriting the affected columns
+      ))
 
   (define (compact-relation-fully! rid)
-    (R-assign-t! rid (merge-table-expr (R-type rid) (R-texpr rid)))
-    (checkpoint!))
+    (let ((texpr (R-texpr rid)))
+      (when (pair? texpr)
+        (when (R-has-name? rid) (pretty-log `(fully compacting relation: ,(R-name rid))))
+        (R-assign-t! rid (merge-table-expr (R-type rid) texpr))
+        (checkpoint!))))
 
   (define (compact-relation-incrementally! rid)
+    (when (R-has-name? rid) (pretty-log `(incrementally compacting relation: ,(R-name rid))))
     ;; TODO:
     ;; - identify portion of table-expr to compact
     ;; - consolidate relevant text columns into one shared text column
