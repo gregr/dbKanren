@@ -625,24 +625,27 @@
            (i.tuple  0))
       (performance-log
         `(merging table expr: ,texpr)
-        ((dict-key-enumerator
-           (let loop ((texpr texpr))
-             (match texpr
-               ('()          dict.empty)
-               (`(+ . ,ts)   (apply dict:union unsafe-int-tuple<? (lambda _ '()) (map loop ts)))
-               (`(- ,t0 ,t1) (dict:diff unsafe-int-tuple<? 1 (loop t0) (loop t1)))
-               (table-id     (let ((cids (hash-ref tid=>cids table-id)))
-                               (dict:monovec (table->monovec
-                                               (map (lambda (cid) (hash-ref cid=>c cid))
-                                                    (cdr cids))) ; (car cids) is the row id, not tuple data
-                                             (lambda (_) '())
-                                             0
-                                             (column-count (hash-ref cid=>c (car cids)))))))))
-         (lambda (tuple)
-           ;; TODO: work with vectors instead of lists, for efficiency: see table->monovec
-           (for-each (lambda (vec.col value) (unsafe-fxvector-set! vec.col i.tuple value))
-                     vecs.col tuple)
-           (set! i.tuple (unsafe-fx+ i.tuple 1)))))
+        (let ((custodian.merge (make-custodian)))
+          (parameterize ((current-custodian custodian.merge))
+            ((dict-key-enumerator
+               (let loop ((texpr texpr))
+                 (match texpr
+                   ('()          dict.empty)
+                   (`(+ . ,ts)   (apply dict:union unsafe-int-tuple<? (lambda _ '()) (map loop ts)))
+                   (`(- ,t0 ,t1) (dict:diff unsafe-int-tuple<? 1 (loop t0) (loop t1)))
+                   (table-id     (let ((cids (hash-ref tid=>cids table-id)))
+                                   (dict:monovec (table->monovec
+                                                   (map (lambda (cid) (hash-ref cid=>c cid))
+                                                        (cdr cids))) ; (car cids) is the row id, not tuple data
+                                                 (lambda (_) '())
+                                                 0
+                                                 (column-count (hash-ref cid=>c (car cids)))))))))
+             (lambda (tuple)
+               ;; TODO: work with vectors instead of lists, for efficiency: see table->monovec
+               (for-each (lambda (vec.col value) (unsafe-fxvector-set! vec.col i.tuple value))
+                         vecs.col tuple)
+               (set! i.tuple (unsafe-fx+ i.tuple 1)))))
+          (custodian-shutdown-all custodian.merge))) ; close all block file ports
       (if (< 0 i.tuple)
         (build-table type.table cid.text vecs.col i.tuple)
         '())))
@@ -1686,16 +1689,14 @@
       (let ((ds (reverse ds)))
         (foldl dict:disjoint-binary-union (car ds) (cdr ds)))))
   (define (dict:overlapping-union ds)
-    (define (list-odds  xs) (list-evens (cdr xs)))
-    (define (list-evens xs) (cons (car xs)
-                                  (let ((xs (cdr (cdr xs))))
-                                    (if (null? xs)
-                                      '()
-                                      (list-evens xs)))))
+    (define (list-odds xs)
+      (cond ((null? xs)       '())
+            ((null? (cdr xs)) xs)
+            (else             (cons (car xs) (list-odds (cddr xs))))))
     (cond ((null? ds)       dict.empty)
           ((null? (cdr ds)) (car ds))
-          (else             (dict:binary-union (dict:overlapping-union (list-evens ds))
-                                               (dict:overlapping-union (list-odds  ds))))))
+          (else             (dict:binary-union (dict:overlapping-union (list-odds (cdr ds)))
+                                               (dict:overlapping-union (list-odds      ds))))))
   (let ((ds (reverse (sort (filter-not dict-empty? ds) d<?))))
     (if (null? ds)
       dict.empty
