@@ -418,71 +418,78 @@
                        (hash-set tid=>cids table-id (cons cid.primary-key cids.attrs)))))
       table-id))
 
-  (define (build-table-indexes! ordering tids)
-    (let ((prefixes (ordering->prefixes ordering)))
-      (for-each
-        (lambda (tid)
-          (define (has-index-prefix? prefix)
-            (hash-has-key? (stg-ref 'index-prefix=>key-column-id) (cons tid prefix)))
-          (unless (has-index-prefix? (car prefixes))
-            (define prefixes.needed  (map (lambda (p) (and (not (has-index-prefix? p)) p))
-                                          (reverse prefixes)))
-            (define cid=>desc        (stg-ref 'column-id=>column))
-            (define descs.col        (map (lambda (cid) (hash-ref cid=>desc cid))
-                                          (let ((cids (hash-ref (stg-ref 'table-id=>column-ids) tid)))
-                                            (map (lambda (pos) (list-ref cids pos))
-                                                 (car prefixes)))))
-            (define vs.col           (performance-log `(reading ,(length descs.col) columns)
-                                                      (map read-fx-column descs.col)))
-            (define count.table      (performance-log `(sorting ,(fxvector-length (car vs.col)) tuples)
-                                                      (table-sort-and-dedup! (fxvector-length (car vs.col)) vs.col)))
-            (define vs.pos           (map (lambda (p) (and p (make-fxvector (+ count.table 1))))
-                                          (cdr prefixes.needed)))
-            (for-each (lambda (v.pos) (when v.pos (unsafe-fxvector-set! v.pos 0 0)))
-                      vs.pos)
-            (define counts.key
-              (performance-log
-                `(grouping keys for ,count.table tuples)
-                (let loop.main ((vs.key vs.col)
-                                (vs.pos vs.pos)
-                                (pos*   (make-list (length vs.col) 0))
-                                (start  0)
-                                (end    count.table))
-                  (if (null? vs.pos)
-                    (list (unsafe-fx+ (car pos*) (unsafe-fx- end start)))  ; final key column is already deduplicated
-                    (let ((v.key (car vs.key)) (v.pos (car vs.pos)))
-                      (let loop.key ((pos (car pos*)) (pos* (cdr pos*)) (start start) (end end))
-                        (if (unsafe-fx= start end)
-                          (cons pos pos*)
-                          (let* ((key       (unsafe-fxvector-ref v.key start))
-                                 (start.new (unsafe-bisect-next
-                                              start end (lambda (i) (unsafe-fx<= (unsafe-fxvector-ref v.key i)
-                                                                                 key)))))
-                            (unsafe-fxvector-set! v.key pos key)
-                            (let ((pos* (loop.main (cdr vs.key) (cdr vs.pos) pos* start start.new)))
-                              (when v.pos (unsafe-fxvector-set! v.pos (unsafe-fx+ pos 1) (car pos*)))
-                              (loop.key (unsafe-fx+ pos 1) pos* start.new end))))))))))
-            (for-each
-              (lambda (prefix.needed v.col v.pos count.key)
-                (when prefix.needed
-                  (define iprefix (cons tid prefix.needed))
-                  (stg-update! 'index-prefix=>key-column-id
-                               (lambda (iprefix=>cid)
-                                 (hash-set iprefix=>cid iprefix
-                                           (performance-log
-                                             `(writing key column: ,count.key values)
-                                             (write-fx-column v.col count.key)))))
-                  (when v.pos
-                    (stg-update! 'index-prefix=>position-column-id
-                                 (lambda (iprefix=>cid)
-                                   (hash-set iprefix=>cid iprefix
-                                             (performance-log
-                                               `(writing position column: ,(+ count.key 1) values)
-                                               (write-fx-column v.pos (+ count.key 1)))))))))
-              prefixes.needed vs.col (cons #f vs.pos) counts.key)
-            (pretty-log `(indexed table: ,tid ordering: ,ordering))
-            (checkpoint!)))
-        tids)))
+  (define (build-table-indexes! orderings tids)
+    (for-each
+      (lambda (ordering)
+        (let ((prefixes (ordering->prefixes ordering)))
+          (for-each
+            (lambda (tid)
+              (define (has-index-prefix? prefix)
+                (hash-has-key? (stg-ref 'index-prefix=>key-column-id) (cons tid prefix)))
+              (unless (has-index-prefix? (car prefixes))
+                (define prefixes.needed  (map (lambda (p) (and (not (has-index-prefix? p)) p))
+                                              (reverse prefixes)))
+                (define cid=>desc        (stg-ref 'column-id=>column))
+                (define descs.col        (map (lambda (cid) (hash-ref cid=>desc cid))
+                                              (let ((cids (hash-ref (stg-ref 'table-id=>column-ids) tid)))
+                                                (map (lambda (pos) (list-ref cids pos))
+                                                     (car prefixes)))))
+                ;; TODO: this use of read-fx-column doesn't take possible remappings into account
+                (define vs.col           (performance-log
+                                           `(reading ,(length descs.col) columns)
+                                           (map read-fx-column descs.col)))
+                (define count.table      (performance-log
+                                           `(sorting ,(fxvector-length (car vs.col)) tuples)
+                                           (table-sort-and-dedup! (fxvector-length (car vs.col)) vs.col)))
+                (define vs.pos           (map (lambda (p) (and p (make-fxvector (+ count.table 1))))
+                                              (cdr prefixes.needed)))
+                (for-each (lambda (v.pos) (when v.pos (unsafe-fxvector-set! v.pos 0 0)))
+                          vs.pos)
+                (define counts.key
+                  (performance-log
+                    `(grouping keys for ,count.table tuples)
+                    (let loop.main ((vs.key vs.col)
+                                    (vs.pos vs.pos)
+                                    (pos*   (make-list (length vs.col) 0))
+                                    (start  0)
+                                    (end    count.table))
+                      (if (null? vs.pos)
+                        (list (unsafe-fx+ (car pos*) (unsafe-fx- end start))) ; final key column is already deduplicated
+                        (let ((v.key (car vs.key)) (v.pos (car vs.pos)))
+                          (let loop.key ((pos (car pos*)) (pos* (cdr pos*)) (start start) (end end))
+                            (if (unsafe-fx= start end)
+                              (cons pos pos*)
+                              (let* ((key       (unsafe-fxvector-ref v.key start))
+                                     (start.new (unsafe-bisect-next
+                                                  start end (lambda (i) (unsafe-fx<= (unsafe-fxvector-ref v.key i)
+                                                                                     key)))))
+                                (unsafe-fxvector-set! v.key pos key)
+                                (let ((pos* (loop.main (cdr vs.key) (cdr vs.pos) pos* start start.new)))
+                                  (when v.pos (unsafe-fxvector-set! v.pos (unsafe-fx+ pos 1) (car pos*)))
+                                  (loop.key (unsafe-fx+ pos 1) pos* start.new end))))))))))
+                (for-each
+                  (lambda (prefix.needed v.col v.pos count.key)
+                    (when prefix.needed
+                      (define iprefix (cons tid prefix.needed))
+                      (stg-update! 'index-prefix=>key-column-id
+                                   (lambda (iprefix=>cid)
+                                     (hash-set iprefix=>cid iprefix
+                                               (performance-log
+                                                 `(writing key column: ,count.key values)
+                                                 (write-fx-column v.col count.key)))))
+                      (when v.pos
+                        (stg-update! 'index-prefix=>position-column-id
+                                     (lambda (iprefix=>cid)
+                                       (hash-set iprefix=>cid iprefix
+                                                 (performance-log
+                                                   `(writing position column: ,(+ count.key 1) values)
+                                                   (write-fx-column v.pos (+ count.key 1)))))))))
+                  prefixes.needed vs.col (cons #f vs.pos) counts.key)
+                (pretty-log `(indexed table: ,tid ordering: ,ordering))
+                (checkpoint!)))
+            tids)))
+      ;; sorting by descending-length makes it easier to share common index building work
+      (sort orderings (lambda (o1 o2) (> (length o1) (length o2))))))
 
   (define (merge-text-columns cids.text.original)
     (match cids.text.original
@@ -1171,11 +1178,7 @@
       (lambda (rid&texpr)
         (match-define (cons rid texpr) rid&texpr)
         (let ((tids (set->list (list->set (table-expr->table-ids texpr)))))
-          (for-each
-            (lambda (ordering) (build-table-indexes! ordering tids))
-            ;; sorting by descending-length makes it easier to share common index building work
-            (sort (hash-keys (hash-ref (stg-ref 'relation-id=>indexes) rid))
-                  (lambda (o1 o2) (> (length o1) (length o2)))))))
+          (build-table-indexes! (hash-keys (hash-ref (stg-ref 'relation-id=>indexes) rid)) tids)))
       (hash->list (stg-ref 'relation-id=>table-expr)))
     (checkpoint!)
     (collect-garbage!))
