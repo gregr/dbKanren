@@ -983,8 +983,19 @@
                                     (unsafe-fxvector-set! vec.col i (+ (unsafe-bytes-nat-ref width bs j) offset))
                                     (loop (+ i 1) (+ j width))))
                                 vec.col))
-                     ((remap) (read-fx-column (hash-ref (stg-ref 'column-id=>column)
-                                                        (hash-ref desc.col 'local))))
+                     ((remap) (let* ((cid=>c      (stg-ref 'column-id=>column))
+                                     (desc.global (hash-ref cid=>c (hash-ref desc.col 'global)))
+                                     (vec.local   (read-fx-column (hash-ref cid=>c (hash-ref desc.col 'local)))))
+                                ;; TODO: if global is a line, we should do something more efficient
+                                (unless (eq? (hash-ref desc.global 'class) 'text)
+                                  (let ((vec.global (read-fx-column desc.global)))
+                                    (let loop ((i (unsafe-fx- (fxvector-length vec.local) 1)))
+                                      (when (unsafe-fx<= 0 i)
+                                        (unsafe-fxvector-set!
+                                          vec.local i (unsafe-fxvector-ref
+                                                        vec.global (unsafe-fxvector-ref vec.local i)))
+                                        (loop (unsafe-fx- i 1))))))
+                                vec.local))
                      (else    (error "read-fx-column unimplemented for column class" desc.col)))))
           (hash-set! cdesc=>v desc.col vec)
           vec)))
