@@ -434,10 +434,10 @@
                                               (let ((cids (hash-ref (stg-ref 'table-id=>column-ids) tid)))
                                                 (map (lambda (pos) (list-ref cids pos))
                                                      (car prefixes)))))
-                ;; TODO: this use of read-fx-column doesn't take possible remappings into account
                 (define vs.col           (performance-log
                                            `(reading ,(length descs.col) columns)
                                            (map read-fx-column descs.col)))
+                (clear-column-vector-cache!)
                 (define count.table      (performance-log
                                            `(sorting ,(fxvector-length (car vs.col)) tuples)
                                            (table-sort-and-dedup! (fxvector-length (car vs.col)) vs.col)))
@@ -489,8 +489,7 @@
                 (checkpoint!)))
             tids)))
       ;; sorting by descending-length makes it easier to share common index building work
-      (sort orderings (lambda (o1 o2) (> (length o1) (length o2)))))
-    (clear-column-vectors!))
+      (sort orderings (lambda (o1 o2) (> (length o1) (length o2))))))
 
   (define (merge-text-columns cids.text.original)
     (match cids.text.original
@@ -654,6 +653,7 @@
                          vecs.col tuple)
                (set! i.tuple (unsafe-fx+ i.tuple 1)))))
           (clear-open-input-blocks!)
+          (clear-column-vector-cache!)  ; TODO: move this inside for earlier reclaiming
           (custodian-shutdown-all custodian.merge))) ; close all block file ports
       (if (< 0 i.tuple)
         (build-table type.table cid.text vecs.col i.tuple)
@@ -955,12 +955,12 @@
                                               (fprev.local (or inclusive? (unsafe-fx< (ref.global i.global) v))
                                                            i.start i.end i.global)
                                               i.start)))))))
-                   (else (let ((ref.global (monovec-ref (column->monovec desc.global)))
-                               (ref.local  (monovec-ref monov.local)))
-                           (ref->monovec (lambda (i) (ref.global (ref.local i)))))))))
+                   (else (let ((vec.global (read-fx-column desc.global)))
+                           (match-define (monovec ref.local fnext.local fprev.local) monov.local)
+                           (ref->monovec (lambda (i) (unsafe-fxvector-ref vec.global (ref.local i)))))))))
       (else    (error "column->monovec unimplemented for column class" desc))))
 
-  (define (clear-column-vectors!) (hash-clear! cdesc=>v))
+  (define (clear-column-vector-cache!) (hash-clear! cdesc=>v))
 
   (define (read-fx-column desc.col)
     (or (hash-ref cdesc=>v desc.col #f)
