@@ -1716,42 +1716,18 @@
                                          d.left)
                                        d.right count.right))))))
                     self)))))
-  (define (dict:disjoint-union ds)
+  (let ((ds (sort (filter-not dict-empty? ds) d<?)))
     (if (null? ds)
       dict.empty
-      (let ((ds (reverse ds)))
-        (foldl dict:disjoint-binary-union (car ds) (cdr ds)))))
-  (define (dict:overlapping-union ds)
-    (define (list-odds xs)
-      (cond ((null? xs)       '())
-            ((null? (cdr xs)) xs)
-            (else             (cons (car xs) (list-odds (cddr xs))))))
-    (cond ((null? ds)       dict.empty)
-          ((null? (cdr ds)) (car ds))
-          (else             (dict:binary-union (dict:overlapping-union (list-odds (cdr ds)))
-                                               (dict:overlapping-union (list-odds      ds))))))
-  (let ((ds (reverse (sort (filter-not dict-empty? ds) d<?))))
-    (if (null? ds)
-      dict.empty
-      (dict:overlapping-union
-        (map dict:disjoint-union
-             (map cdr (foldl (lambda (d choices.all)
-                               (let ((max.d (dict-max d)))
-                                 (let loop ((choices choices.all) (choices.passed '()))
-                                   (match choices
-                                     ('() (cons (list (dict-min d) d) choices.all))
-                                     ((cons (cons min.choice ds.choice)
-                                            choices)
-                                      (if (<? max.d min.choice)
-                                        (foldl cons
-                                               (cons (cons (dict-min d) (cons d ds.choice))
-                                                     choices)
-                                               choices.passed)
-                                        (loop choices (cons (cons min.choice ds.choice)
-                                                            choices.passed))))))))
-                             (let ((d0 (car ds)))
-                               (list (list (dict-min d0) d0)))
-                             (cdr ds))))))))
+      (let loop ((d0 (car ds)) (ds (cdr ds)))
+        (if (null? ds)
+          d0
+          (let ((d1 (car ds)))
+            ((if (<? (dict-max d0) (dict-min d1))
+               dict:disjoint-binary-union
+               dict:binary-union)
+             d0
+             (loop d1 (cdr ds)))))))))
 
 (define (dict:diff <? count.keys d.positive d.negative)
   (let loop/count.keys ((count.keys count.keys) (d.pos d.positive) (d.neg d.negative))
