@@ -1370,6 +1370,57 @@
                                         (loop next (unsafe-fx+ i 1) (unsafe-fx+ j 1)))))
             j))))))
 
+(define (table-subtract! vecs.col start mid end)
+  (define (move! i j) (for-each (lambda (vec.col)
+                                  (fxvector-set! vec.col j (fxvector-ref vec.col i)))
+                                vecs.col))
+  (if (or (= start mid) (= mid end))
+    mid
+    (let loop.no-gap ((i start) (k mid))
+      (let loop.compare ((vecs.col vecs.col))
+        (if (null? vecs.col)
+          (let ((i (+ i 1)) (j i) (k (+ k 1)))
+            (if (or (= i mid) (= k end))
+              j
+              (let loop.gap ((i i) (j j) (k k))
+                (let loop.compare ((vecs.col vecs.col))
+                  (if (null? vecs.col)
+                    (let ((i (+ i 1)) (k (+ k 1)))
+                      (if (or (= i mid) (= k end))
+                        j
+                        (loop.gap (+ i 1) j (+ k 1))))
+                    (let* ((vec.col (car vecs.col))
+                           (val.pos (fxvector-ref vec.col i))
+                           (val.neg (fxvector-ref vec.col k)))
+                      (cond ((fx< val.pos val.neg)
+                             (move! i j)
+                             (let ((i (+ i 1)) (j (+ j 1)))
+                               (if (= i mid)
+                                 j
+                                 (loop.gap i j k))))
+                            ((fx< val.neg val.pos)
+                             (let ((k (+ k 1)))
+                               (if (= k end)
+                                 (let loop.copy ((i i) (j j))
+                                   (move! i j)
+                                   (if (= i mid)
+                                     j
+                                     (loop.copy (+ i 1) (+ j 1))))
+                                 (loop.no-gap i j k))))
+                            (else (loop.compare (cdr vecs.col))))))))))
+          (let* ((vec.col (car vecs.col))
+                 (val.pos (fxvector-ref vec.col i))
+                 (val.neg (fxvector-ref vec.col k)))
+            (cond ((fx< val.pos val.neg) (let ((i (+ i 1)))
+                                           (if (= i mid)
+                                             mid
+                                             (loop.no-gap (+ i 1) k))))
+                  ((fx< val.neg val.pos) (let ((k (+ k 1)))
+                                           (if (= k end)
+                                             mid
+                                             (loop.no-gap i k))))
+                  (else                  (loop.compare (cdr vecs.col))))))))))
+
 (define (nat-min-byte-width nat.max) (max (min-bytes nat.max) 1))
 
 (define (max-remap-global-count width.local count.local)
