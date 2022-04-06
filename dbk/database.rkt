@@ -621,43 +621,51 @@
                         (table-id     (column->text-cid (hash-ref cid=>c (list-ref (hash-ref tid=>cids table-id)
                                                                                    i.text-col)))))))))
            (count.worst-case
-             (let loop ((texpr texpr))
-               (match texpr
-                 ('()          0)
-                 (`(+ . ,ts)   (foldl + 0 (map loop ts)))
-                 (`(- ,t0 ,t1) (loop t0))
-                 (table-id     (column-count (hash-ref cid=>c (car (hash-ref tid=>cids table-id))))))))
+             (let-values
+               (((count.current count.max)
+                           (let loop ((texpr texpr) (count.current 0) (count.max 0))
+                             (match texpr
+                               ('()          (values count.current count.max))
+                               (`(+ . ,ts)   (match ts
+                                               ('()             (values count.current count.max))
+                                               ((cons texpr ts) (let-values (((count.current count.max)
+                                                                              (loop texpr count.current count.max)))
+                                                                  (loop `(+ . ,ts) count.current count.max)))))
+                               (`(- ,t0 ,t1) (let-values (((count.current count.max) (loop t0 count.current count.max)))
+                                               (let-values (((_           count.max) (loop t1 count.current count.max)))
+                                                 (values count.current count.max))))
+                               (tid          (let* ((count         (column-count (hash-ref cid=>c (car (hash-ref tid=>cids tid)))))
+                                                    (count.current (+ count.current count)))
+                                               (values count.current (max count.max count.current))))))))
+               count.max))
            (vecs.col (map (lambda (_) (make-fxvector count.worst-case))
-                          type.table))
-           (i.tuple  0))
-      (performance-log
-        `(merging table expr: ,texpr)
+                          type.table)))
         (let ((custodian.merge (make-custodian)))
-          (parameterize ((current-custodian custodian.merge))
-            ((dict-key-enumerator
-               (let loop ((texpr texpr))
-                 (match texpr
-                   ('()          dict.empty)
-                   (`(+ . ,ts)   (apply dict:union unsafe-int-tuple<? (lambda _ '()) (map loop ts)))
-                   (`(- ,t0 ,t1) (dict:diff unsafe-int-tuple<? 1 (loop t0) (loop t1)))
-                   (table-id     (let ((cids (hash-ref tid=>cids table-id)))
-                                   (dict:monovec (table->monovec
-                                                   (map (lambda (cid) (hash-ref cid=>c cid))
-                                                        (cdr cids))) ; (car cids) is the row id, not tuple data
-                                                 (lambda (_) '())
-                                                 0
-                                                 (column-count (hash-ref cid=>c (car cids)))))))))
-             (lambda (tuple)
-               ;; TODO: work with vectors instead of lists, for efficiency: see table->monovec
-               (for-each (lambda (vec.col value) (unsafe-fxvector-set! vec.col i.tuple value))
-                         vecs.col tuple)
-               (set! i.tuple (unsafe-fx+ i.tuple 1)))))
-          (clear-open-input-blocks!)
-          (clear-column-vector-cache!)  ; TODO: move this inside for earlier reclaiming
-          (custodian-shutdown-all custodian.merge))) ; close all block file ports
-      (if (< 0 i.tuple)
-        (build-table type.table cid.text vecs.col i.tuple)
-        '())))
+          (let ((count.final
+                  (performance-log
+                    `(merging table expr: ,texpr)
+                    (parameterize ((current-custodian custodian.merge))
+                      (let loop ((texpr texpr) (start 0))
+                        (match texpr
+                          ('()          start)
+                          (`(+ . ,ts)   (let ((end (foldl loop start ts)))
+                                          (table-sort-and-dedup! vecs.col start end)))
+                          (`(- ,t0 ,t1) (let* ((mid (loop t0 start))
+                                               (end (loop t1 mid)))
+                                          (table-subtract! vecs.col start mid end)))
+                          (tid          (let* ((cids      (cdr (hash-ref tid=>cids tid)))
+                                               (descs.col (map (lambda (cid) (hash-ref cid=>c cid)) cids))
+                                               (count     (column-count (car descs.col))))
+                                          (for-each (lambda (desc.col vec.col)
+                                                      (read-fx-column/vec! desc.col vec.col start))
+                                                    descs.col vecs.col)
+                                          (+ start count)))))))))
+            (clear-open-input-blocks!)
+            (clear-column-vector-cache!)
+            (custodian-shutdown-all custodian.merge)
+            (if (< 0 count.final)
+              (build-table type.table cid.text vecs.col count.final)
+              '())))))
 
     ;; TODO: implement these operations:
     ;; - text value gc
