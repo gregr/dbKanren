@@ -55,8 +55,8 @@
         (loop (set-union current new)
               (step      new))))))
 
-(define (build-tsv-relation db type file-name)
-  (let-values (((insert! finish) (database-relation-builder db '(int text text))))
+(define (build-tsv-relation db type.r file-name)
+  (let-values (((insert! finish) (database-relation-builder db type.r)))
     (call-with-input-file
       file-name
       (lambda (in)
@@ -65,8 +65,10 @@
           (let tuple-loop ((i.tuple 0))
             (let ((line (read-bytes-line in 'any)))
               (unless (eof-object? line)
-                (insert! (let ((fields (unsafe-bytes-split-tab line)))
-                           (cons (bytes-base10->fxnat (car fields)) (cdr fields))))
+                (insert! (map (lambda (type.field field) (if (eq? type.field 'int)
+                                                           (bytes-base10->fxnat field)
+                                                           field))
+                              type.r (unsafe-bytes-split-tab line)))
                 (tuple-loop (unsafe-fx+ i.tuple 1))))))
         (time (finish))))))
 
