@@ -471,15 +471,22 @@
                                   (when v.pos (unsafe-fxvector-set! v.pos pos (car pos*)))
                                   (loop.key pos pos* start.new end))))))))))
                 (for-each
-                  (lambda (prefix.needed v.col v.pos count.key count.pos)
+                  (lambda (prefix.needed desc.key v.key v.pos count.key count.pos)
                     (when prefix.needed
                       (define iprefix (cons tid prefix.needed))
-                      (stg-update! 'index-prefix=>key-column-id
-                                   (lambda (iprefix=>cid)
-                                     (hash-set iprefix=>cid iprefix
-                                               (performance-log
-                                                 `(writing key column: ,count.key values)
-                                                 (write-fx-column v.col count.key)))))
+                      (let* ((cid.text (column->text-cid desc.key))
+                             (cid.key  (performance-log
+                                         `(writing key column: ,count.key values)
+                                         (write-fx-column v.key count.key)))
+                             (cid.key  (if cid.text
+                                         (let ((cid.remap (fresh-column-id)))
+                                           (add-columns! cid.remap (hash 'class  'remap
+                                                                         'local  cid.key
+                                                                         'global cid.text))
+                                           cid.remap)
+                                         cid.key)))
+                        (stg-update! 'index-prefix=>key-column-id
+                                     (lambda (iprefix=>cid) (hash-set iprefix=>cid iprefix cid.key))))
                       (when v.pos
                         (stg-update! 'index-prefix=>position-column-id
                                      (lambda (iprefix=>cid)
@@ -487,7 +494,7 @@
                                                  (performance-log
                                                    `(writing position column: ,count.pos values)
                                                    (write-fx-column v.pos count.pos))))))))
-                  prefixes.needed vs.col (cons #f vs.pos) counts.key (cons #f (reverse (cdr (reverse counts.key)))))
+                  prefixes.needed descs.col vs.col (cons #f vs.pos) counts.key (cons #f (reverse (cdr (reverse counts.key)))))
                 (pretty-log `(indexed table: ,tid ordering: ,ordering))
                 (checkpoint!)))
             tids)))
