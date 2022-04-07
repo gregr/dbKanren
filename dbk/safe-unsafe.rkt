@@ -9,6 +9,7 @@
   unsafe-fxand
   unsafe-fxlshift
   unsafe-fxrshift
+  unsafe-fxquotient
   unsafe-bytes-length
   unsafe-bytes-ref
   unsafe-bytes-set!
@@ -29,6 +30,7 @@
 (define unsafe-fxand           fxand)
 (define unsafe-fxlshift        fxlshift)
 (define unsafe-fxrshift        fxrshift)
+(define unsafe-fxquotient      fxquotient)
 (define unsafe-bytes-length    bytes-length)
 (define unsafe-bytes-ref       bytes-ref)
 (define unsafe-bytes-set!      bytes-set!)
