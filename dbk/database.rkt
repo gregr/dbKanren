@@ -406,7 +406,7 @@
                                           'step   1))
       (let ((cids.attrs (map (lambda (type.col vec.col)
                                (let ((id.col (performance-log `(writing column: ,row-count values)
-                                                              (write-fx-column vec.col row-count))))
+                                                              (write-fx-column vec.col 0 row-count))))
                                  (cond ((eqv? type.col 'text)
                                         (let ((id.remap (fresh-column-id)))
                                           (add-columns! id.remap (hash 'class  'remap
@@ -477,7 +477,7 @@
                       (let* ((cid.text (column->text-cid desc.key))
                              (cid.key  (performance-log
                                          `(writing key column: ,count.key values)
-                                         (write-fx-column v.key count.key)))
+                                         (write-fx-column v.key 0 count.key)))
                              (cid.key  (if cid.text
                                          (let ((cid.remap (fresh-column-id)))
                                            (add-columns! cid.remap (hash 'class  'remap
@@ -493,7 +493,7 @@
                                        (hash-set iprefix=>cid iprefix
                                                  (performance-log
                                                    `(writing position column: ,count.pos values)
-                                                   (write-fx-column v.pos count.pos))))))))
+                                                   (write-fx-column v.pos 0 count.pos))))))))
                   prefixes.needed descs.col vs.col (cons #f vs.pos) counts.key (cons #f (reverse (cdr (reverse counts.key)))))
                 (pretty-log `(indexed table: ,tid ordering: ,ordering))
                 (checkpoint!)))
@@ -558,7 +558,7 @@
                                             'min       0
                                             'max       255)
                        cid.text       (hash 'class     'text
-                                            'position  (write-fx-column vec.pos (+ count.ids 1))
+                                            'position  (write-fx-column vec.pos 0 (+ count.ids 1))
                                             'value     cid.text.value))
          (values cid.text (make-immutable-hash (map cons cids.text.original id=>ids))))))
 
@@ -582,7 +582,7 @@
                           (let ((cid.global.new (fresh-column-id)))
                             (add-columns! cid.global.new
                                           (hash 'class  'remap
-                                                'local  (write-fx-column id=>id (fxvector-length id=>id))
+                                                'local  (write-fx-column id=>id 0 (fxvector-length id=>id))
                                                 'global cid.text.new))
                             cid.global.new))))))
     (make-immutable-hash
@@ -1060,7 +1060,8 @@
                          (loop (unsafe-fx+ j 1))))))))
       (else    (error "read-fx-column/vec! unimplemented for column class" desc.col))))
 
-  (define (write-fx-column vec.col count)
+  (define (write-fx-column vec.col start count)
+    (define end (+ start count))
     (define (write-line count offset step)
       (let ((id.col (fresh-column-id)))
         (add-columns! id.col (hash 'class  'line
@@ -1081,9 +1082,9 @@
              (name.block (cons 'column id.col))
              (path.block (storage-block-new! stg name.block))
              (bs.col     (make-bytes (* count width.col))))
-        (let loop ((i 0) (j 0))
-          (when (unsafe-fx< i count)
-            (unsafe-bytes-nat-set! width.col bs.col j (- (fxvector-ref vec.col i) offset.col))
+        (let loop ((i start) (j 0))
+          (when (unsafe-fx< i end)
+            (unsafe-bytes-nat-set! width.col bs.col j (- (unsafe-fxvector-ref vec.col i) offset.col))
             (loop (unsafe-fx+ i 1) (unsafe-fx+ j width.col))))
         (display-to-file bs.col path.block)
         (add-columns! id.col (hash 'class     'block
@@ -1109,44 +1110,44 @@
                                          (hash-set n=>n n.next i)))
                                  n=>n)))
              ;; TODO: using full-blown write-fx-column here is a little wasteful
-             (id.alphabet    (write-fx-column vec.alphabet count.alphabet))
+             (id.alphabet    (write-fx-column vec.alphabet 0 count.alphabet))
              (id.remap       (fresh-column-id)))
-        (let loop ((i (unsafe-fx- count 1)))
-          (when (unsafe-fx<= 0 i)
+        (let loop ((i start))
+          (when (unsafe-fx< i end)
             (unsafe-fxvector-set! vec.col i (hash-ref n=>n (unsafe-fxvector-ref vec.col i)))
-            (loop (unsafe-fx- i 1))))
+            (loop (unsafe-fx+ i 1))))
         (add-columns! id.remap (hash 'class  'remap
                                      'local  (write-block 0 (- count.alphabet 1))
                                      'global id.alphabet))
         id.remap))
     (if (= count 1)
-      (write-line 1 (unsafe-fxvector-ref vec.col 0) 0)
-      (let* ((n.0                (unsafe-fxvector-ref vec.col 0))
-             (n.1                (unsafe-fxvector-ref vec.col 1))
-             (offset             n.0)
-             (step               (- n.1 n.0)))
-        (if (let loop ((i      2)
+      (write-line 1 (unsafe-fxvector-ref vec.col start) 0)
+      (let* ((n.0    (unsafe-fxvector-ref vec.col start))
+             (n.1    (unsafe-fxvector-ref vec.col (unsafe-fx+ start 1)))
+             (offset n.0)
+             (step   (unsafe-fx- n.1 n.0)))
+        (if (let loop ((i      (unsafe-fx+ start 2))
                        (n.prev n.1))
-              (or (unsafe-fx= i count)
+              (or (unsafe-fx= i end)
                   (let ((n.next (unsafe-fxvector-ref vec.col i)))
                     (and (unsafe-fx= (unsafe-fx- n.next n.prev) step)
                          (loop (unsafe-fx+ i 1) n.next)))))
           (write-line count offset step)
-          (let loop ((i       (unsafe-fx- count 1))
+          (let loop ((i       (unsafe-fx+ start 2))
                      (min.col (min n.0 n.1))
                      (max.col (max n.0 n.1)))
-            (if (unsafe-fx= i 1)
+            (if (unsafe-fx= i end)
               (let ((count.alphabet.max (max-remap-global-count (nat-min-byte-width (- max.col min.col)) count)))
-                (let loop ((i        (unsafe-fx- count 1))
+                (let loop ((i        (unsafe-fx+ start 2))
                            (alphabet (set n.0 n.1)))
-                  (if (unsafe-fx= i 1)
+                  (if (unsafe-fx= i end)
                     (write-remapped-block min.col max.col alphabet)
                     (let ((alphabet (set-add alphabet (unsafe-fxvector-ref vec.col i))))
                       (if (unsafe-fx< count.alphabet.max (set-count alphabet))
                         (write-block min.col max.col)
-                        (loop (unsafe-fx- i 1) alphabet))))))
+                        (loop (unsafe-fx+ i 1) alphabet))))))
               (let ((n.next (unsafe-fxvector-ref vec.col i)))
-                (loop (unsafe-fx- i 1)
+                (loop (unsafe-fx+ i 1)
                       (min min.col n.next)
                       (max max.col n.next)))))))))
 
