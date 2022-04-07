@@ -436,48 +436,60 @@
                                               (let ((cids (hash-ref (stg-ref 'table-id=>column-ids) tid)))
                                                 (map (lambda (pos) (list-ref cids pos))
                                                      (car prefixes)))))
-                (define vs.col           (performance-log
-                                           `(reading ,(length descs.col) columns)
-                                           (map read-fx-column descs.col)))
+                (define count.cols       (length descs.col))
+                (define count.rows       (column-count (car descs.col)))
+                (define vec.cols         (make-fxvector (* count.cols count.rows)))
+                (define vec.rows         (make-fxvector (* count.cols count.rows)))
+                (performance-log
+                  `(reading ,count.cols columns)
+                  (for-each (lambda (i.col desc.col)
+                              (read-fx-column/vec! desc.col vec.cols (* i.col count.rows)))
+                            (range count.cols) descs.col))
                 (clear-column-vector-cache!)
-                (define count.table      (performance-log
-                                           `(sorting ,(fxvector-length (car vs.col)) tuples)
-                                           (table-sort-and-dedup! vs.col 0 (fxvector-length (car vs.col)))))
-                (define vs.pos           (map (lambda (p) (and p (make-fxvector (+ count.table 1))))
+                (time (transpose-col-to-row! vec.cols vec.rows count.cols count.rows))
+                (performance-log
+                  `(sorting ,count.rows tuples)
+                  (row-merge-sort! vec.rows vec.cols count.cols count.rows))
+                (time (transpose-row-to-col! vec.cols vec.rows count.cols count.rows))
+                (define vs.pos           (map (lambda (p) (and p (make-fxvector (+ count.rows 1))))
                                               (cdr prefixes.needed)))
                 (for-each (lambda (v.pos) (when v.pos (unsafe-fxvector-set! v.pos 0 0)))
                           vs.pos)
                 (define counts.key
                   (performance-log
-                    `(grouping keys for ,count.table tuples)
-                    (let loop.main ((vs.key vs.col)
+                    `(grouping keys for ,count.rows tuples)
+                    (let loop.main ((base.col 0)
                                     (vs.pos vs.pos)
-                                    (pos*   (make-list (length vs.col) 0))
+                                    (pos*   (make-list count.cols 0))
                                     (start  0)
-                                    (end    count.table))
+                                    (end    count.rows))
                       (if (null? vs.pos)
                         (list end) ; final key column is already deduplicated
-                        (let ((v.key (car vs.key)) (v.pos (car vs.pos)))
+                        (let ((v.pos (car vs.pos)))
                           (let loop.key ((pos (car pos*)) (pos* (cdr pos*)) (start start) (end end))
                             (if (unsafe-fx= start end)
                               (cons pos pos*)
-                              (let* ((key       (unsafe-fxvector-ref v.key start))
-                                     (start.new (unsafe-bisect-next
-                                                  start end (lambda (i) (unsafe-fx<= (unsafe-fxvector-ref v.key i)
-                                                                                     key)))))
-                                (unsafe-fxvector-set! v.key pos key)
-                                (let ((pos* (loop.main (cdr vs.key) (cdr vs.pos) pos* start start.new))
+                              (let* ((key       (unsafe-fxvector-ref vec.cols (unsafe-fx+ base.col start)))
+                                     (start.new (unsafe-fx-
+                                                  (unsafe-bisect-next
+                                                    (unsafe-fx+ base.col start)
+                                                    (unsafe-fx+ base.col end)
+                                                    (lambda (i) (unsafe-fx<= (unsafe-fxvector-ref vec.cols i) key)))
+                                                  base.col)))
+                                (unsafe-fxvector-set! vec.cols (unsafe-fx+ base.col pos) key)
+                                (let ((pos* (loop.main (unsafe-fx+ base.col count.rows)
+                                                       (cdr vs.pos) pos* start start.new))
                                       (pos  (unsafe-fx+ pos 1)))
                                   (when v.pos (unsafe-fxvector-set! v.pos pos (car pos*)))
                                   (loop.key pos pos* start.new end))))))))))
                 (for-each
-                  (lambda (prefix.needed desc.key v.key v.pos count.key count.pos)
+                  (lambda (prefix.needed desc.key i.key v.pos count.key count.pos)
                     (when prefix.needed
                       (define iprefix (cons tid prefix.needed))
                       (let* ((cid.text (column->text-cid desc.key))
                              (cid.key  (performance-log
                                          `(writing key column: ,count.key values)
-                                         (write-fx-column v.key 0 count.key)))
+                                         (write-fx-column vec.cols (* i.key count.rows) count.key)))
                              (cid.key  (if cid.text
                                          (let ((cid.remap (fresh-column-id)))
                                            (add-columns! cid.remap (hash 'class  'remap
@@ -494,7 +506,12 @@
                                                  (performance-log
                                                    `(writing position column: ,count.pos values)
                                                    (write-fx-column v.pos 0 count.pos))))))))
-                  prefixes.needed descs.col vs.col (cons #f vs.pos) counts.key (cons #f (reverse (cdr (reverse counts.key)))))
+                  prefixes.needed
+                  descs.col
+                  (range count.cols)
+                  (cons #f vs.pos)
+                  counts.key
+                  (cons #f (reverse (cdr (reverse counts.key)))))
                 (pretty-log `(indexed table: ,tid ordering: ,ordering))
                 (checkpoint!)))
             tids)))
