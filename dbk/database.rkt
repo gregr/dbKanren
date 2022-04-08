@@ -290,11 +290,11 @@
          (set! i.tuple   0)
          (set! size.text 0))
        (define (insert! tuple)
-         (for-each (lambda (field proj v.col)
-                     (fxvector-set! v.col i.tuple (proj field)))
-                   tuple projections vs.col)
-         (set! i.tuple (unsafe-fx+ i.tuple 1))
-         (when (or (unsafe-fx=  column-size      i.tuple)
+         (for-each (lambda (field proj col)
+                     (fxvector-set! vec.rows (unsafe-fx+ i.tuple col) (proj field)))
+                   tuple projections cols)
+         (set! i.tuple (unsafe-fx+ i.tuple count.cols))
+         (when (or (unsafe-fx=  full-size        i.tuple)
                    (unsafe-fx<= batch-size.bytes size.text))
            (finish-batch!)
            (start-batch!)))
@@ -306,7 +306,7 @@
        (define (finish-batch!)
          (unless (valid?) (error "cannot use a stale relation builder"))
          (define column-id.text
-           (and (ormap (lambda (type.col) (eqv? type.col 'text)) column-types)
+           (and (ormap (lambda (type.col) (eq? type.col 'text)) column-types)
                 (let* ((width.pos        (nat-min-byte-width size.text))
                        (count.ids        (hash-count text=>id))
                        (id=>id           (make-fxvector count.ids))
@@ -358,23 +358,29 @@
                                 cid.text       (hash 'class     'text
                                                      'position  cid.text.pos
                                                      'value     cid.text.value))
-                  (for-each (lambda (type v.col)
-                              (when (eqv? type 'text)
-                                (let loop ((i (unsafe-fx- i.tuple 1)))
-                                  (when (unsafe-fx<= 0 i)
-                                    (unsafe-fxvector-set! v.col i
+                  (let* ((cols.text (filter-not not (map (lambda (type col)
+                                                           (and (eq? type 'text) col))
+                                                         column-types cols))))
+                    (let loop ((i (unsafe-fx- i.tuple count.cols)))
+                      (when (unsafe-fx<= 0 i)
+                        (for-each (lambda (col)
+                                    (unsafe-fxvector-set! vec.rows (unsafe-fx+ i col)
                                                           (unsafe-fxvector-ref
                                                             id=>id
-                                                            (unsafe-fxvector-ref v.col i)))
-                                    (loop (unsafe-fx- i 1))))))
-                            column-types vs.col)
+                                                            (unsafe-fxvector-ref vec.rows (unsafe-fx+ i col)))))
+                                  cols.text)
+                        (loop (unsafe-fx- i count.cols)))))
                   cid.text)))
-         (define count.tuples.unique (performance-log `(sorting ,i.tuple tuples)
-                                                      (table-sort-and-dedup! vs.col 0 i.tuple)))
-         (let ((table-id (build-table column-types column-id.text vs.col count.tuples.unique)))
-           (pretty-log `(inserted batch of ,count.tuples.unique unique tuples)
-                       `(,size.text bytes for ,(hash-count text=>id) unique text values))
-           (set! tables (cons table-id tables))))
+         (let ((count.tuples.unique (let ((count.rows (quotient i.tuple count.cols)))
+                                      (performance-log
+                                        `(sorting ,count.rows tuples)
+                                        (row-merge-sort! vec.rows vec.cols count.cols count.rows)
+                                        (row-deduplicate! vec.rows count.cols count.rows)))))
+           (time (transpose-row-to-col! vec.cols vec.rows count.cols count.tuples.unique))
+           (let ((table-id (build-table column-types column-id.text vec.cols count.tuples.unique)))
+             (pretty-log `(inserted batch of ,count.tuples.unique unique tuples)
+                         `(,size.text bytes for ,(hash-count text=>id) unique text values))
+             (set! tables (cons table-id tables)))))
        (define (text->id bs)
          (or (hash-ref text=>id bs #f)
              (let ((id (hash-count text=>id)))
@@ -383,13 +389,17 @@
                id)))
        (define (identity x) x)
        (define column-types (relation-type R))
+       (define count.cols   (length column-types))
+       (define cols         (range 0 count.cols))
        (define column-size  (max (quotient batch-size.bytes (* (length column-types) 8)) 2))
+       (define full-size    (unsafe-fx* count.cols column-size))
        (define tables       '())
        (define i.tuple      0)
        (define size.text    0)
        (define text=>id     (make-hash))
-       (define vs.col       (map (lambda (_) (make-fxvector column-size)) column-types))
-       (define projections  (map (lambda (ctype) (if (eqv? ctype 'text)
+       (define vec.rows     (make-fxvector full-size))
+       (define vec.cols     (make-fxvector full-size))
+       (define projections  (map (lambda (ctype) (if (eq? ctype 'text)
                                                    text->id
                                                    identity))
                                  column-types))
@@ -397,7 +407,33 @@
        (values insert! finish!))
       (else (error "invalid batch size" batch-size.bytes))))
 
-  (define (build-table column-types column-id.text vecs.col row-count)
+  (define (build-table column-types column-id.text vec.cols row-count)
+    (let ((count.cols      (length column-types))
+          (table-id        (fresh-table-id))
+          (cid.primary-key (fresh-column-id)))
+      (add-columns! cid.primary-key (hash 'class  'line
+                                          'count  row-count
+                                          'offset 0
+                                          'step   1))
+      (let ((cids.attrs (map (lambda (type.col col)
+                               (let ((id.col (performance-log
+                                               `(writing column: ,row-count values)
+                                               (write-fx-column vec.cols (* row-count col) row-count))))
+                                 (cond ((eq? type.col 'text)
+                                        (let ((id.remap (fresh-column-id)))
+                                          (add-columns! id.remap (hash 'class  'remap
+                                                                       'local  id.col
+                                                                       'global column-id.text))
+                                          id.remap))
+                                       (else id.col))))
+                             column-types (range count.cols))))
+        (stg-update! 'table-id=>column-ids
+                     (lambda (tid=>cids)
+                       (hash-set tid=>cids table-id (cons cid.primary-key cids.attrs)))))
+      table-id))
+
+  ;; TODO: keep this old definition until we update table expr merging
+  (define (build-table.old column-types column-id.text vecs.col row-count)
     (let ((table-id        (fresh-table-id))
           (cid.primary-key (fresh-column-id)))
       (add-columns! cid.primary-key (hash 'class  'line
@@ -407,7 +443,7 @@
       (let ((cids.attrs (map (lambda (type.col vec.col)
                                (let ((id.col (performance-log `(writing column: ,row-count values)
                                                               (write-fx-column vec.col 0 row-count))))
-                                 (cond ((eqv? type.col 'text)
+                                 (cond ((eq? type.col 'text)
                                         (let ((id.remap (fresh-column-id)))
                                           (add-columns! id.remap (hash 'class  'remap
                                                                        'local  id.col
@@ -637,7 +673,7 @@
     (let* ((cid=>c    (stg-ref 'column-id=>column))
            (tid=>cids (stg-ref 'table-id=>column-ids))
            (cid.text  ; All tables must depend on the same text value column, if any
-             (let ((i.text-col (ormap (lambda (type.col i) (and (eqv? type.col 'text) i))
+             (let ((i.text-col (ormap (lambda (type.col i) (and (eq? type.col 'text) i))
                                       type.table (range 1 (+ (length type.table) 1)))))
                (and i.text-col
                     (let loop ((texpr texpr))
@@ -691,7 +727,7 @@
             (clear-column-vector-cache!)
             (custodian-shutdown-all custodian.merge)
             (if (< 0 count.final)
-              (build-table type.table cid.text vecs.col count.final)
+              (build-table.old type.table cid.text vecs.col count.final)
               '())))))
 
     ;; TODO: implement these operations:
