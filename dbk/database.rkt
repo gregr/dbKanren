@@ -1593,6 +1593,45 @@
         start.rows))
     start.rows))
 
+(define (row-subtract! vec.rows count.cols start mid end)
+  (define (move! i j) (unsafe-fxvector-copy! vec.rows j vec.rows i (unsafe-fx+ i count.cols)))
+  (define (tuple-compare a b)
+    (let loop ((i 0))
+      (let ((val.a (unsafe-fxvector-ref vec.rows (unsafe-fx+ i a)))
+            (val.b (unsafe-fxvector-ref vec.rows (unsafe-fx+ i b))))
+        (cond ((unsafe-fx< val.a val.b)  -1)
+              ((unsafe-fx< val.b val.a)   1)
+              ((unsafe-fx= i count.cols)  0)
+              (else                      (loop (unsafe-fx+ i 1)))))))
+  (if (or (unsafe-fx= start mid) (unsafe-fx= mid end))
+    mid
+    (let loop.no-gap ((i start) (k mid))
+      (case (tuple-compare i k)
+        ((-1) (let ((i (unsafe-fx+ i 1))) (if (unsafe-fx= i mid)
+                                            mid
+                                            (loop.no-gap i k))))
+        (( 1) (let ((k (unsafe-fx+ k 1))) (if (unsafe-fx= k end)
+                                            mid
+                                            (loop.no-gap i k))))
+        (else (if (or (unsafe-fx= i mid) (unsafe-fx= k end))
+                i
+                (let loop.gap ((i (unsafe-fx+ i 1)) (j i) (k (unsafe-fx+ k 1)))
+                  (case (tuple-compare i k)
+                    ((-1) (move! i j)
+                          (let ((i (unsafe-fx+ i 1)) (j (unsafe-fx+ j 1)))
+                            (if (unsafe-fx= i mid)
+                              j
+                              (loop.gap i j k))))
+                    (( 1) (let ((k (unsafe-fx+ k 1)))
+                            (if (unsafe-fx= k end)
+                              j
+                              (loop.gap i j k))))
+                    (else (let ((i (unsafe-fx+ i 1)) (k (unsafe-fx+ k 1)))
+                            (cond ((unsafe-fx= i mid) j)
+                                  ((unsafe-fx= k end) (unsafe-fxvector-copy! vec.rows j vec.rows i mid)
+                                                      (unsafe-fx+ j (unsafe-fx- mid i)))
+                                  (else               (loop.gap i j k)))))))))))))
+
 (define (nat-min-byte-width nat.max) (max (min-bytes nat.max) 1))
 
 (define (max-remap-global-count width.local count.local)
