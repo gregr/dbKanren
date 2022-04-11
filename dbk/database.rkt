@@ -684,7 +684,8 @@
                         (`(- ,t0 ,t1) (or (loop t0) (loop t1)))
                         (table-id     (column->text-cid (hash-ref cid=>c (list-ref (hash-ref tid=>cids table-id)
                                                                                    i.text-col)))))))))
-           (count.worst-case
+           (count.cols (length type.table))
+           (count.rows.worst-case
              (let-values
                (((count.current count.max)
                  (let loop ((texpr texpr) (count.current 0) (count.max 0))
@@ -702,29 +703,34 @@
                                           (count.current (+ count.current count)))
                                      (values count.current (max count.max count.current))))))))
                count.max))
-           (vecs.col (map (lambda (_) (make-fxvector count.worst-case))
-                          type.table)))
-      (let ((count.final
-              (performance-log
-                `(merging table expr: ,texpr)
-                (let loop ((texpr texpr) (start 0))
-                  (match texpr
-                    ('()          start)
-                    (`(+ . ,ts)   (let ((end (foldl loop start ts)))
-                                    (table-sort-and-dedup! vecs.col start end)))
-                    (`(- ,t0 ,t1) (let* ((mid (loop t0 start))
-                                         (end (loop t1 mid)))
-                                    (table-subtract! vecs.col start mid end)))
-                    (tid          (let* ((cids      (cdr (hash-ref tid=>cids tid)))
-                                         (descs.col (map (lambda (cid) (hash-ref cid=>c cid)) cids))
-                                         (count     (column-count (car descs.col))))
-                                    (for-each (lambda (desc.col vec.col)
-                                                (read-fx-column/vec! desc.col vec.col start))
-                                              descs.col vecs.col)
-                                    (clear-column-vector-cache!)
-                                    (+ start count))))))))
-        (if (< 0 count.final)
-          (build-table.old type.table cid.text vecs.col count.final)
+           (vec.cols (make-fxvector (* count.cols count.rows.worst-case)))
+           (vec.rows (make-fxvector (* count.cols count.rows.worst-case))))
+      (let ((count.rows.final
+              (unsafe-fxquotient
+                (performance-log
+                  `(merging table expr: ,texpr)
+                  (let loop ((texpr texpr) (start 0))
+                    (match texpr
+                      ('()          start)
+                      (`(+ . ,ts)   (let ((count.rows (unsafe-fxquotient (- (foldl loop start ts) start) count.cols)))
+                                      (time (row-merge-sort!  vec.rows vec.cols start count.cols count.rows))
+                                      (time (row-deduplicate! vec.rows          start count.cols count.rows))))
+                      (`(- ,t0 ,t1) (let* ((mid (loop t0 start))
+                                           (end (loop t1 mid)))
+                                      (row-subtract! vec.rows count.cols start mid end)))
+                      (tid          (let* ((cids      (cdr (hash-ref tid=>cids tid)))
+                                           (descs.col (map (lambda (cid) (hash-ref cid=>c cid)) cids))
+                                           (count     (column-count (car descs.col))))
+                                      (for-each (lambda (i.col desc.col)
+                                                  (read-fx-column/vec! desc.col vec.cols (* i.col count)))
+                                                (range count.cols) descs.col)
+                                      (clear-column-vector-cache!)
+                                      (time (transpose-col-to-row! vec.cols vec.rows start count.cols count))
+                                      (+ start (* count.cols count)))))))
+                count.cols)))
+        (time (transpose-row-to-col! vec.cols vec.rows 0 count.cols count.rows.final))
+        (if (< 0 count.rows.final)
+          (build-table type.table cid.text vec.cols count.rows.final)
           '()))))
 
     ;; TODO: implement these operations:
