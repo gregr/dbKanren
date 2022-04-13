@@ -1324,7 +1324,8 @@
     (error "attributes must be unique" attrs)))
 
 (define (valid-relation-type?! type)
-  (when (null? type) (error "relation must include at least one attribute type"))
+  (unless (list? type) (error "relation type must be a list" type))
+  (when   (null? type) (error "relation must include at least one attribute type"))
   (for-each (lambda (t) (unless (member t '(int text))
                           (error "invalid attribute type" t 'in type)))
             type))
