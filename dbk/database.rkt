@@ -38,7 +38,9 @@
          racket/file racket/fixnum racket/hash racket/list racket/match
          racket/set racket/struct racket/unsafe/ops racket/vector)
 
+;(define-syntax-rule (verbose-log     description)          (void))
 ;(define-syntax-rule (performance-log description body ...) (let () body ...))
+(define-syntax-rule (verbose-log     description)          (pretty-log description))
 (define-syntax-rule (performance-log description body ...) (let ()
                                                              (pretty-log description)
                                                              (time/pretty-log body ...)))
@@ -1038,9 +1040,9 @@
   (define (write-fx-column vec.col start count)
     (define end (+ start count))
     (define (write-line count offset step)
-      (pretty-log `(write-line: offset: ,offset
-                                step:   ,step
-                                count:  ,count))
+      (verbose-log `(write-line: offset: ,offset
+                                 step:   ,step
+                                 count:  ,count))
       (let ((id.col (fresh-column-id)))
         (add-columns! id.col (hash 'class  'line
                                    'count  count
@@ -1056,11 +1058,11 @@
                   (< size.diff size.max))
             (values size.diff min.col)
             (values size.max  0))))
-      (pretty-log `(write-block: min:    ,min.col
-                                 max:    ,max.col
-                                 offset: ,offset.col
-                                 width:  ,width.col
-                                 count:  ,count))
+      (verbose-log `(write-block: min:    ,min.col
+                                  max:    ,max.col
+                                  offset: ,offset.col
+                                  width:  ,width.col
+                                  count:  ,count))
       (let* ((id.col     (fresh-column-id))
              (name.block (cons 'column id.col))
              (path.block (storage-block-new! stg name.block))
@@ -1079,7 +1081,7 @@
                                    'max       max.col))
         id.col))
     (define (write-remapped-block min.col max.col alphabet)
-      (pretty-log `(write-remapped-block: min: ,min.col max: ,max.col))
+      (verbose-log `(write-remapped-block: min: ,min.col max: ,max.col))
       (let* ((count.alphabet (set-count alphabet))
              (alphabet       (sort (set->list alphabet) unsafe-fx<))
              (vec.alphabet   (make-fxvector count.alphabet))
