@@ -111,6 +111,10 @@
 ;; - It is not safe for multiple threads to perform concurrent updates on the same database.
 ;; - While it should be possible to recover from typical process failure and interruption, sudden
 ;;   host system failure and interruption may corrupt data.
+;; - Relations must contain at least one attribute.
+;; - Relation attribute types are limited to integer and text (Racket bytes).
+;;   - Integer values must fit within a Racket fixnum (-2^61 through -2^61 - 1), and the difference
+;;     between the maximum and minimum integer values must be at most 2^61 - 1.
 
 ;; A database is a persistent collection of extensional relations, and is represented as a
 ;; filesystem directory managed by an instance of checkpointing storage.
