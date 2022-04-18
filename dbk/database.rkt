@@ -202,9 +202,74 @@
 (define (R+ . args) (cons '+ args))
 (define (R- e0 e1)  `(- ,e0 ,e1))
 
-(define T.empty     '())
-(define (T+ . args) (cons '+ args))
-(define (T- e0 e1)  `(- ,e0 ,e1))
+;; TODO: support & for set intersection
+(define (rexpr-clean expr)
+  (define (loop.+ es.pending es.seen +s)
+    (if (null? es.pending)
+      (let loop ((es.seen es.seen) (es.done '()) (+s +s))
+        (if (null? es.seen)
+          (match es.done
+            ('()         '())
+            ((list expr) expr)
+            (exprs       `(+ . ,exprs)))
+          (let ((expr (car es.seen)) (es.seen (cdr es.seen)))
+            (let ((expr (match expr
+                          (`(- ,e0 ,e1) (loop.- e0 e1 +s))
+                          (_            expr))))
+              (define (loop/add e.new)
+                (if (set-member? +s e.new)
+                  (loop es.seen            es.done           +s)
+                  (loop es.seen (cons expr es.done) (set-add +s expr))))
+              (match expr
+                (`(- ,e0 ,e1) (loop/add expr))
+                ('()          (loop es.seen            es.done  +s))
+                (`(+ . ,es)   (loop es.seen (append es es.done) +s))
+                (_            (loop es.seen (cons expr es.done) +s)))))))
+      (let ((expr (car es.pending)) (es.pending (cdr es.pending)))
+        (match expr
+          ('()          '())
+          (`(+ . ,es)   (loop.+ (append es es.pending)            es.seen  +s))
+          (`(- ,e0 ,e1) (loop.+            es.pending  (cons expr es.seen) +s))
+          (_            (if (set-member? +s expr)
+                          (loop.+ es.pending            es.seen           +s)
+                          (loop.+ es.pending (cons expr es.seen) (set-add +s expr))))))))
+  (define (loop.- e0 e1 +s)
+    (let* ((e1 (loop.main e1 (set)))
+           (e0 (loop.main e0 (set-union +s (match e1
+                                             ('()        (set))
+                                             (`(+ . ,es) (list->set es))
+                                             (_          (set e1)))))))
+      (cond ((null? e0) '())
+            ((null? e1) e0)
+            (else       `(- ,e0 ,e1)))))
+  (define (loop.main expr +s)
+    (let ((expr (match expr
+                  ('()          '())
+                  (`(+ . ,es)   (loop.+ es '() +s))
+                  (`(- ,e0 ,e1) (loop.- e0 e1 +s))
+                  (_            (if (set-member? +s expr)
+                                  '()
+                                  expr)))))
+      (if (set-member? +s expr)
+        '()
+        expr)))
+  (loop.main expr (set)))
+
+(define (table-expr->table-ids texpr)
+  (let loop ((texpr texpr) (tids '()))
+    (match texpr
+      ('()          tids)
+      (`(+ . ,ts)   (foldl loop tids ts))
+      (`(- ,t0 ,t1) (loop t1 (loop t0 tids)))
+      (table-id     (cons table-id tids)))))
+
+(define (table-expr-map tid->tid texpr)
+  (let loop ((texpr texpr))
+    (match texpr
+      ('()          '())
+      (`(+ . ,ts)   `(+ . ,(map loop ts)))
+      (`(- ,t0 ,t1) `(- ,(loop t0) ,(loop t1)))
+      (table-id     (tid->tid table-id)))))
 
 (define (database path.db)
   (define (make-relation id.self)
@@ -306,7 +371,7 @@
            (start-batch!)))
        (define (finish!)
          (when (< 0 i.tuple) (finish-batch!))
-         (R-assign-t! id.R (apply T+ (reverse tables)))
+         (R-assign-t! id.R (apply R+ (reverse tables)))
          (invalidate!)
          R)
        (define (finish-batch!)
@@ -1142,36 +1207,20 @@
                       (max max.col n.next)))))))))
 
   (define (table-expr type rexpr)
-    ;; TODO: simplify and normalize resulting table expression
-    (let loop ((rexpr rexpr))
-      (match rexpr
-        ('()                     T.empty)
-        (`(+ ,@rs)               (apply T+ (map loop rs)))
-        (`(- ,r0 ,r1)            (T- (loop r0) (loop r1)))
-        ((? wrapped-relation? R) (let* ((R    (wrapped-relation-controller R))
-                                        (path (database-path (R 'database))))
-                                   (unless (equal? path (storage-path stg))
-                                     (error "cannot combine relations from different databases"
-                                            path (storage-path stg)))
-                                   (unless (equal? (R 'type) type)
-                                     (error "type mismatch" (R 'type) type))
-                                   (R 'table-expr))))))
-
-  (define (table-expr->table-ids texpr)
-    (let loop ((texpr texpr) (tids '()))
-      (match texpr
-        ('()          tids)
-        (`(+ . ,ts)   (foldl loop tids ts))
-        (`(- ,t0 ,t1) (loop t1 (loop t0 tids)))
-        (table-id     (cons table-id tids)))))
-
-  (define (table-expr-map tid->tid texpr)
-    (let loop ((texpr texpr))
-      (match texpr
-        ('()          '())
-        (`(+ . ,ts)   `(+ . ,(map loop ts)))
-        (`(- ,t0 ,t1) `(- ,(loop t0) ,(loop t1)))
-        (table-id     (tid->tid table-id)))))
+    (rexpr-clean
+      (let loop ((rexpr (rexpr-clean rexpr)))
+        (match rexpr
+          ('()                     R.empty)
+          (`(+ ,@rs)               (apply R+ (map loop rs)))
+          (`(- ,r0 ,r1)            (R- (loop r0) (loop r1)))
+          ((? wrapped-relation? R) (let* ((R    (wrapped-relation-controller R))
+                                          (path (database-path (R 'database))))
+                                     (unless (equal? path (storage-path stg))
+                                       (error "cannot combine relations from different databases"
+                                              path (storage-path stg)))
+                                     (unless (equal? (R 'type) type)
+                                       (error "type mismatch" (R 'type) type))
+                                     (R 'table-expr)))))))
 
   (define cdesc=>v  (make-hash))
   (define bpath=>in (make-hash))
@@ -1316,7 +1365,7 @@
          (stg-update! 'relation-id=>attributes (lambda (rid=>as) (hash-set rid=>as id.R (range (length type)))))
          (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-set rid=>t  id.R type)))
          (stg-update! 'relation-id=>indexes    (lambda (rid=>is) (hash-set rid=>is id.R (hash))))
-         (R-assign-t! id.R T.empty)
+         (R-assign-t! id.R R.empty)
          (relation-builder id.R batch-size))
         ((commit!)      (commit!))
         ((revert!)      (revert!))
