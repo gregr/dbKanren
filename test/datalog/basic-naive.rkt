@@ -151,10 +151,10 @@
 (define-syntax-rule
   (query          (x ...) fm0 fm ...)
   (quantify query (x ...) fm0 fm ...))
-(define-syntax-rule
-  (run*                        (x ...) fm0 fm ...)
-  (set->list (query-run (query (x ...) fm0 fm ...))))
-
+(define-syntax run*
+  (syntax-rules ()
+    ((_ (x ...) fm0 fm ...) (set->list (query-run (query (x ...) fm0 fm ...))))
+    ((_ x       fm0 fm ...) (map car (run* (x) fm0 fm ...)))))
 (define-syntax-rule
   (define-relation (name attr ...) fm0 fm ...)
   (define name (relation 'name '(attr ...) (box #f)
