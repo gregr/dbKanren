@@ -64,7 +64,7 @@
                                    (unify subst (cdr u) (cdr v))))))
           ((vector? u) (and (vector? v)
                             (unify subst (vector->list u) (vector->list v))))
-          (else        #f))))
+          (else        (equal? u v)))))
 
 (struct relation (name attrs box.current qthunk)
         #:methods gen:custom-write
