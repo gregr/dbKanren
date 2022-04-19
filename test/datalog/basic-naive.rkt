@@ -1,11 +1,11 @@
 #lang racket/base
 (provide
+  facts
   ==
   fresh
   conde
   run*
-  define-relation
-  define-relation/facts)
+  define-relation)
 (require racket/list racket/match racket/set racket/struct)
 
 ;; A naive Datalog implementation that can be used as a baseline
@@ -29,7 +29,7 @@
 
 (define subst.empty (hash))
 (define (unpack subst names)
-  (map (lambda (n) (hash-ref subst n)) names))
+  (map (lambda (n) (hash-ref subst n (lambda () (error "unbound variable" n)))) names))
 (define (shadow subst names)
   (foldl (lambda (n s) (hash-remove s n)) subst names))
 (define (assign subst x t)
@@ -70,7 +70,7 @@
         #:methods gen:custom-write
         ((define write-proc (make-constructor-style-printer
                               (lambda (r) 'relation)
-                              (lambda (r) (relation-attrs r)))))
+                              (lambda (r) (list (cons (relation-name r) (relation-attrs r)))))))
         #:property prop:procedure
         (lambda (r . args)
           (unless (= (length (relation-attrs r)) (length args))
@@ -129,9 +129,13 @@
         (loop)))
     (query-eval q)))
 
-(define (facts names tuples)
-  `(or . ,(map (lambda (tuple) `(== ,(map var names) ,tuple))
-               tuples)))
+;;;;;;;;;;;;;;
+;;; Syntax ;;;
+;;;;;;;;;;;;;;
+
+(define (facts vars tuples)
+  `(or . ,(map (lambda (tuple) `(== ,vars ,tuple)) tuples)))
+
 (define (== u v) `(== ,u ,v))
 
 (define-syntax-rule
@@ -148,13 +152,10 @@
   (query          (x ...) fm0 fm ...)
   (quantify query (x ...) fm0 fm ...))
 (define-syntax-rule
-  (run*             (x ...) fm0 fm ...)
-  (query-run (query (x ...) fm0 fm ...)))
+  (run*                        (x ...) fm0 fm ...)
+  (set->list (query-run (query (x ...) fm0 fm ...))))
 
 (define-syntax-rule
   (define-relation (name attr ...) fm0 fm ...)
   (define name (relation 'name '(attr ...) (box #f)
                          (lambda () (query (attr ...) fm0 fm ...)))))
-(define-syntax-rule
-  (define-relation/facts (name attr ...) expr.tuples)
-  (define-relation       (name attr ...) (facts '(attr ...) expr.tuples)))
