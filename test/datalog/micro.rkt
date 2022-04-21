@@ -2,74 +2,118 @@
 (provide run-datalog)
 (require racket/match)
 
-;; Atom: a predicate constant followed by zero or more terms
-;; Rule: a head atom followed by zero or more body atoms
-;; Fact: a single atom
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Terms and substitution ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Terms in rules may be variables or constants:
-;; - An unquoted symbol is treated as a variable.
-;; - Any quoted value is treated as a constant.
-;; - All other non-pair values are treated as constants.
-;; - Variables cannot appear nested in other terms.
+(struct var (name) #:prefab)
+(define subst.empty '())
 
-;; Terms in facts are always unquoted constants, even symbols or pairs.
+(define (subst-extend S x t)
+  (and (not (occurs? S (walk S x) t))
+       (cons (cons (var-name x) t) S)))
 
-;; There are no queries, just rules and facts.
-;; (run-datalog rules facts) ==> more-facts
+(define (walk S t)
+  (cond ((var? t) (let ((kv (assoc (var-name t) S)))
+                    (if kv (walk S (cdr kv)) t)))
+        (else     t)))
+
+(define (walk* S t)
+  (cond ((var? t)    (let ((kv (assoc (var-name t) S)))
+                       (if kv (walk* S (cdr kv)) t)))
+        ((pair? t)   (cons (walk* S (car t)) (walk* S (cdr t))))
+        ((vector? t) (list->vector (walk* S (vector->list t))))
+        (else        t)))
+
+(define (occurs? S x t)
+  (let ((t (walk S t)))
+    (or (equal? x t)
+        (and (pair? t) (or (occurs? S x (car t)) (occurs? S x (cdr t))))
+        (and (vector? t) (occurs? S x (vector->list t))))))
+
+(define (unify S u v)
+  (let ((u (walk S u)) (v (walk S v)))
+    (cond ((eqv? u v)  S)
+          ((var? u)    (if (and (var? v) (equal? (var-name u) (var-name v)))
+                         S
+                         (subst-extend S u v)))
+          ((var? v)    (subst-extend S v u))
+          ((pair? u)   (and (pair? v)
+                            (let ((S (unify S (car u) (car v))))
+                              (and S
+                                   (unify S (cdr u) (cdr v))))))
+          ((vector? u) (and (vector? v)
+                            (unify S (vector->list u) (vector->list v))))
+          (else        (and (equal? u v) S)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Goals, ambitions, producers ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Goal     = S -> S*
+;; Ambition = F* -> Goal
+;; Producer = F* -> F*
+
+(define (bind S* g) (if (null? S*) '() (append (g (car S*)) (bind (cdr S*) g))))
+
+(define unit         (lambda (F*) (lambda (S) (list S))))
+(define fail         (lambda (F*) (lambda (S) '())))
+(define (== t0 t1)   (lambda (F*) (lambda (S) (let ((S (unify S t0 t1)))
+                                                (if S (list S) '())))))
+(define (conj a0 a1) (lambda (F*) (let ((g0 (a0 F*)) (g1 (a1 F*)))
+                                    (lambda (S) (bind (g0 S) g1)))))
+(define (disj a0 a1) (lambda (F*) (let ((g0 (a0 F*)) (g1 (a1 F*)))
+                                    (lambda (S) (append (g0 S) (g1 S))))))
+(define (conj+ a a*) (if (null? a*) a (conj a (conj+ (car a*) (cdr a*)))))
+(define (disj+ a a*) (if (null? a*) a (disj a (disj+ (car a*) (cdr a*)))))
+(define (conj* a*)   (if (null? a*) unit (conj+ (car a*) (cdr a*))))
+(define (disj* a*)   (if (null? a*) fail (disj+ (car a*) (cdr a*))))
+
+(define (relate atom)
+  (lambda (F*)  ; This staging significantly improves performance.
+    ((disj* (map (lambda (F) (== atom F))
+                 (filter (lambda (F) (unify subst.empty atom F)) F*)))
+     'ignored)))
 
 (define (unique-cons x xs) (if (member x xs) xs (cons x xs)))
-
 (define (unique-append xs ys)
   (if (null? xs)
     ys
     (unique-cons (car xs) (unique-append (cdr xs) ys))))
 
-(struct var (name) #:prefab)
+(define remember         (lambda (F*) F*))
+(define (realize atom a) (lambda (F*) (map (lambda (S) (walk* S atom))
+                                           ((a F*) subst.empty))))
+(define (combine p0 p1)  (lambda (F*) (unique-append (p0 F*) (p1 F*))))
+(define (combine* p*)    (if (null? p*)
+                           remember
+                           (combine (car p*) (combine* (cdr p*)))))
+(define (exhaust p F*)   (let ((F*.new (p F*)))
+                           (if (eq? F* F*.new) F* (exhaust p F*.new))))
 
-(define subst.empty '())
-(define (subst-extend subst x t) (cons (cons (var-name x) t) subst))
+;;;;;;;;;;;;;;;;;;;;;;
+;;; Example syntax ;;;
+;;;;;;;;;;;;;;;;;;;;;;
 
-(define (walk t subst)
-  (if (var? t)
-    (let ((kv (assoc (var-name t) subst))) (if kv (cdr kv) t))
-    t))
+;; This example syntax demonstrates how to use the core concepts.  This is only
+;; one possible syntax.  For instance, you could also implement a Kanren-style
+;; syntax that uses the same core concepts.
 
-(define (atom-walk atom subst) (map (lambda (t) (walk t subst)) atom))
+;; - Programs are made up of rules and facts:
+;;   - Atom: a predicate constant followed by zero or more terms
+;;   - Rule: a head atom followed by zero or more body atoms
+;;   - Fact: a single atom
 
-(define (unify x t subst)
-  (let ((x (walk x subst)))
-    (cond ((var? x)     (subst-extend subst x t))
-          ((pair? x)    (let ((subst (unify (car x) (car t) subst)))
-                          (and subst (unify (cdr x) (cdr t) subst))))
-          ((equal? x t) subst)
-          (else         #f))))
+;; - Terms in rules may be variables or constants:
+;;   - An unquoted symbol is treated as a variable.
+;;   - Any quoted value is treated as a constant.
+;;   - All other non-pair values are treated as constants.
+;;   - Variables cannot appear nested in other terms.
 
-(define (bind substs g)
-  (if (null? substs) '() (append (g (car substs)) (bind (cdr substs) g))))
+;; - Terms in facts are always unquoted constants, including symbols and pairs.
 
-(define (atom-goal atom facts)
-  (lambda (subst) (filter (lambda (subst?) (not (not subst?)))
-                          (map (lambda (fact) (unify atom fact subst)) facts))))
-
-(define (body-goal atoms facts)
-  (if (null? atoms)
-    list
-    (let ((g0 (atom-goal (car atoms) facts)) (g* (body-goal (cdr atoms) facts)))
-      (lambda (subst) (bind (g0 subst) g*)))))
-
-(define (rule-apply rule facts.old facts.new)
-  (let ((head (car rule)) (g.body (body-goal (cdr rule) facts.old)))
-    (unique-append (map (lambda (subst) (atom-walk head subst)) (g.body subst.empty))
-                   facts.new)))
-
-(define (rules-apply rules facts.old facts.new)
-  (if (null? rules)
-    facts.new
-    (rules-apply (cdr rules) facts.old (rule-apply (car rules) facts.old facts.new))))
-
-(define (rules-apply/fix rules facts.old)
-  (let ((facts.new (rules-apply rules facts.old facts.old)))
-    (if (eq? facts.new facts.old) facts.new (rules-apply/fix rules facts.new))))
+;; - There are no queries.  There are only rules and facts.
+;;   - e.g., (run-datalog rules facts) ==> more-facts
 
 (define (atom-vars atom) (filter var? atom))
 
@@ -79,45 +123,19 @@
                                      (error "unsafe rule" rule)))
               (atom-vars (car rule)))))
 
-(define (parse-term term)
-  (match term
-    ((? symbol?) (var term))
+(define (parse-term expr)
+  (match expr
+    ((? symbol?) (var expr))
     (`(quote ,c) c)
-    ((cons _ _)  (error "unsupported function call" term))
-    (_           term)))
+    ((cons _ _)  (error "unsupported function call" expr))
+    (_           expr)))
 
-(define (parse-atom atom) (cons (car atom) (map parse-term (cdr atom))))
-(define (parse-rule rule) (map parse-atom rule))
+(define (parse-atom expr) (cons (car expr) (map parse-term (cdr expr))))
+(define (parse-rule expr) (let ((rule (map parse-atom expr)))
+                            (rule-safe?! rule)
+                            rule))
 
-(define (run-datalog rules facts)
-  (let ((rules (map parse-rule rules)))
-    (for-each rule-safe?! rules)
-    (rules-apply/fix rules (unique-append facts '()))))
+(define (enforce rule) (realize (car rule) (conj* (map relate (cdr rule)))))
 
-
-;;; Alternative implementation of run-datalog using nested loops
-
-;(define (bind* facts atoms)
-  ;(let loop.atom ((atoms atoms) (subst subst.empty))
-    ;(cond ((null? atoms) (list subst))
-          ;(else (let ((atom (car atoms)) (atoms (cdr atoms)))
-                  ;(let loop.fact ((facts facts))
-                    ;(cond ((null? facts) '())
-                          ;(else (let ((subst (unify atom (car facts) subst)))
-                                  ;(append (if subst (loop.atom atoms subst) '())
-                                          ;(loop.fact (cdr facts))))))))))))
-
-;(define (rule-apply rule facts)
-  ;(let ((head.rule (car rule)) (body.rule (cdr rule)))
-    ;(map (lambda (subst) (atom-walk head.rule subst)) (bind* facts body.rule))))
-
-;(define (run-datalog rules facts)
-  ;(let ((rules (map parse-rule rules)))
-    ;(for-each rule-safe?! rules)
-    ;(let loop.fix ((facts.old (unique-append facts '())))
-      ;(let ((facts (let loop.rule ((rules rules) (facts facts.old))
-                     ;(match rules
-                       ;('() facts)
-                       ;((cons rule rules)
-                        ;(loop.rule rules (unique-append (rule-apply rule facts.old) facts)))))))
-        ;(if (eq? facts facts.old) facts (loop.fix facts))))))
+(define (run-datalog e*.rules F*)
+  (exhaust (combine* (map enforce (map parse-rule e*.rules))) F*))
