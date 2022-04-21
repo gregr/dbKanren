@@ -49,12 +49,19 @@
                                      (map (lambda (b) `(*o ,a ,b ,(* a b)))
                                           (range 50)))
                                    (range 50))))
+(define facts.< (apply append (map (lambda (a)
+                                     (apply append (map (lambda (b) (if (< a b)
+                                                                      `((<o ,a ,b))
+                                                                      '()))
+                                                        (range 50))))
+                                   (range 50))))
 
 (pretty-results
   (run-queries
     '(((q1 a b) (+o a b 7))
       ((q2 a b) (*o a b 7))
-      ((q3 a b) (*o a b 18)))
+      ((q3 a b) (*o a b 18))
+      ((q4 n)   (<o 0 n) (<o n 6)))
     '()
     (append facts.+ facts.*)))
 
@@ -65,10 +72,12 @@
 (pretty-results
   (run-queries
     '(((q1 s t d) (route s t d))
-      ((q2 d)     (route 'a 'd d)))
+      ((q2 d)     (route 'a 'd d))
+      ((q3 s t d) (<o d 10) (route s t d))
+      ((q4 d)     (route 'a 'd d) (<o d 10)))
     '(((route s t d) (road s t d))
       ((route s t d) (+o d.0 d.rest d) (road s mid d.0) (route mid t d.rest)))
-    (append facts.+
+    (append facts.+ facts.<
             '((road a b 1)
               (road a c 7)
               (road b c 1)

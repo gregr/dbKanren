@@ -16,17 +16,17 @@
 
 (define-relation (edge a b)
   (facts (list a b)
-          '((a b)
-            (b c)
-            (d e)
-            (e f)
-            (b f)
-            (f a)  ; comment this edge for an acyclic graph
-            )))
+         '((a b)
+           (b c)
+           (d e)
+           (e f)
+           (b f)
+           (f a)  ; comment this edge for an acyclic graph
+           )))
 
 (define-relation (path a b)
   (conde ((edge a b))
-          ((fresh (mid)
+         ((fresh (mid)
             (edge a mid)
             (path mid b)))))
 
@@ -55,10 +55,20 @@
                               (range 100)))
                        (range 100)))))
 
+(define-relation (<o a b)
+  (facts (list a b)
+         (append* (map (lambda (a)
+                         (append* (map (lambda (b) (if (< a b)
+                                                     (list (list a b))
+                                                     '()))
+                                       (range 100))))
+                       (range 100)))))
+
 (pretty-results
   (run* (a b) (+o a b 7))
   (run* (a b) (*o a b 7))
-  (run* (a b) (*o a b 18)))
+  (run* (a b) (*o a b 18))
+  (run* n     (<o 0 n) (<o n 6)))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -85,6 +95,8 @@
 (pretty-results
   (run* (s t d) (route s t d))
   (run* d (route 'a 'd d))
+  (run* (s t d) (<o d 10) (route s t d))
+  (run* d (route 'a 'd d) (<o d 10))
   (apply min (run* d (route 'a 'd d))))
 
 
