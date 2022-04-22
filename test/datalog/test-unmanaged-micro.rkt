@@ -63,7 +63,7 @@
       ((q3 a b) (*o a b 18))
       ((q4 n)   (<o 0 n) (<o n 6)))
     '()
-    (append facts.+ facts.*)))
+    (append facts.+ facts.* facts.<)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Finite path length ;;;
@@ -76,7 +76,7 @@
       ((q3 s t d) (<o d 10) (route s t d))
       ((q4 d)     (route 'a 'd d) (<o d 10)))
     '(((route s t d) (road s t d))
-      ((route s t d) (+o d.0 d.rest d) (road s mid d.0) (route mid t d.rest)))
+      ((route s t d) (road s mid d.0) (route mid t d.rest) (+o d.0 d.rest d)))
     (append facts.+ facts.<
             '((road a b 1)
               (road a c 7)

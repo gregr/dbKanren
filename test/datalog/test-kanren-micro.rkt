@@ -78,7 +78,7 @@
                 (a c 7)
                 (b c 1)
                 (c d 1)
-                (d a 50)  ; shrink this distance to illustrate bad performance
+                (d a 25)  ; shrink this distance to illustrate bad performance
                 ))
 
 (define-relation (road source target distance)
