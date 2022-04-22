@@ -45,6 +45,14 @@
 ;;; Syntax ;;;
 ;;;;;;;;;;;;;;
 
+;; TODO: defining facts using == leads to enormous fact production redundancy,
+;; exposing performance problems with unique-append since it is a quadratic
+;; implementation of set union.  Since we want to be able to support large
+;; relation definitions, the right way to fix this is for the core to store
+;; facts in efficient sets instead of lists.  But we could also reduce
+;; redundancy by stratifying the evaluation of relation dependencies.  This
+;; would lead to fact-oriented relations only being evaluated once, at the
+;; start of a run.
 (define (facts vars tuples)
   (fm:or* (map (lambda (tuple) (fm:== vars tuple)) tuples)))
 
