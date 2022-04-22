@@ -90,6 +90,7 @@
                            (combine (car p*) (combine* (cdr p*)))))
 (define (exhaust p F*)   (let ((F*.new (p F*)))
                            (if (eq? F* F*.new) F* (exhaust p F*.new))))
+(define (exhaust* p* F*) (exhaust (combine* p*) F*))
 
 ;;;;;;;;;;;;;;;;;;;;;;
 ;;; Example syntax ;;;
@@ -138,4 +139,4 @@
 (define (enforce rule) (realize (car rule) (conj* (map relate (cdr rule)))))
 
 (define (run-datalog e*.rules F*)
-  (exhaust (combine* (map enforce (map parse-rule e*.rules))) F*))
+  (exhaust* (map enforce (map parse-rule e*.rules)) F*))
