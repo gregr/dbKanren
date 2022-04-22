@@ -1,6 +1,7 @@
 #lang racket/base
 (provide run-datalog)
 (require "micro.rkt" (except-in racket/match ==))
+;(require "micro-with-sets.rkt" (except-in racket/match ==))
 
 ;; This example syntax demonstrates how to use the core concepts.  This is only
 ;; one possible syntax.  For instance, you could also implement a Kanren-style

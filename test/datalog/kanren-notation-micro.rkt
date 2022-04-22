@@ -3,7 +3,8 @@
   facts fresh conde
   define-relation
   run*)
-(require "micro.rkt")
+(require "micro.rkt")  ; Basic micro core with quadratic time fact accumulation
+;(require "micro-with-sets.rkt")  ; A faster version of the micro core
 
 ;;; Formulas are wrapped ambitions which discover their producer dependencies.
 
