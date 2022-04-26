@@ -4,7 +4,7 @@
   unit fail
   conj conj+ conj*
   disj disj+ disj*
-  == relate
+  == relate compute
   realize exhaust*)
 (require racket/set)
 
@@ -83,6 +83,9 @@
                  (filter (lambda (F) (unify subst.empty atom F))
                          (set->list F*))))
      'ignored)))
+
+(define (compute proc args)
+  (lambda (F*) (lambda (S) ((apply proc (walk* S args)) S))))
 
 (define remember         (lambda (F*) F*))
 (define (realize atom a) (lambda (F*)
