@@ -8,7 +8,7 @@
   realize exhaust*)
 (require racket/set)
 
-;; This version of the micro core uses sets to accumulate facts in linear time.
+;; This version of the micro core supports fact merging for monotonic aggregation.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Terms and substitution ;;;
@@ -92,8 +92,47 @@
 (define (combine* p*)    (if (null? p*)
                            remember
                            (combine (car p*) (combine* (cdr p*)))))
-(define (exhaust p F*)   (let ((F*.new (p F*)))
-                           (if (= (set-count F*) (set-count F*.new))
-                             F*
-                             (exhaust p F*.new))))
-(define (exhaust* p* F*) (set->list (exhaust (combine* p*) (list->set F*))))
+
+(define (merge-by-predicate predicate=>merge F*)
+  (let loop ((F*                    (set->list F*))
+             (F*.skipped            '())
+             (predicate=>key=>value (make-immutable-hash
+                                      (map (lambda (key) (cons key (hash)))
+                                           (hash-keys predicate=>merge)))))
+    (if (null? F*)
+      (list->set
+        (apply append
+               F*.skipped
+               (map (lambda (p&k=>v)
+                      (let ((predicate (car p&k=>v)))
+                        (map (lambda (k&v)
+                               (cons predicate
+                                     (reverse (cons (cdr k&v) (car k&v)))))
+                             (hash->list (cdr p&k=>v)))))
+                    (hash->list predicate=>key=>value))))
+      (let* ((F         (car F*))
+             (predicate (car F))
+             (merge     (hash-ref predicate=>merge predicate #f)))
+        (if merge
+          (loop (cdr F*) F*.skipped
+                (hash-update
+                  predicate=>key=>value
+                  predicate
+                  (lambda (key=>value)
+                    (let* ((reversed (reverse (cdr F)))
+                           (key      (cdr reversed))
+                           (value    (car reversed)))
+                      (hash-set key=>value key
+                                (if (hash-has-key? key=>value key)
+                                  (merge (hash-ref key=>value key) value)
+                                  value))))))
+          (loop (cdr F*) (cons F F*.skipped) predicate=>key=>value))))))
+
+(define (exhaust p predicate=>merge F*)
+  (let ((F*.new (merge-by-predicate predicate=>merge (p F*))))
+    (if (set=? F* F*.new)
+      F*
+      (exhaust p predicate=>merge F*.new))))
+
+(define (exhaust* p* predicate=>merge F*)
+  (set->list (exhaust (combine* p*) predicate=>merge (list->set F*))))
