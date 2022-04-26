@@ -1,5 +1,5 @@
 #lang racket/base
-(provide run-stratified)
+(provide run-stratified var? ==)
 (require "micro-with-merging.rkt" (except-in racket/match ==))
 
 (define (atom-vars atom) (filter var? atom))
@@ -22,9 +22,14 @@
                             (rule-safe?! rule)
                             rule))
 
-(define (enforce rule) (realize (car rule) (conj* (map relate (cdr rule)))))
-
-(define (run-stratified predicate=>merge e**.rules F*)
+(define (run-stratified predicate=>proc predicate=>merge e**.rules F*)
+  (define (enforce rule)
+    (define (body atom)
+      (let ((proc (hash-ref predicate=>proc (car atom) #f)))
+        (if proc
+          (compute proc (cdr atom))
+          (relate atom))))
+    (realize (car rule) (conj* (map body (cdr rule)))))
   (foldr (lambda (p* F*) (exhaust* p* predicate=>merge F*))
          F*
          (map (lambda (e*.rules) (map enforce (map parse-rule e*.rules)))

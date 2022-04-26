@@ -12,14 +12,15 @@
            (pretty-write result)
            (newline)) ...))
 
-(define (run-stratified-queries predicate=>merge rules.query rule** facts)
-  (let ((facts (run-stratified predicate=>merge (cons rules.query rule**) facts)))
+(define (run-stratified-queries predicate=>compute predicate=>merge rules.query rule** facts)
+  (let ((facts (run-stratified predicate=>compute predicate=>merge
+                               (cons rules.query rule**) facts)))
     (map (lambda (predicate.query)
            (filter (lambda (fact) (eq? (car fact) predicate.query)) facts))
          (map caar rules.query))))
 
 (define (run-queries rules.query rules facts)
-  (run-stratified-queries (hash) rules.query (list rules) facts))
+  (run-stratified-queries (hash) (hash) rules.query (list rules) facts))
 
 ;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Graph traversal ;;;
@@ -75,21 +76,35 @@
 
 (pretty-results
   (run-stratified-queries
-    (hash 'shortest-route min)
-    '(((q1 s t d) (shortest-route s t d))
-      ((q2 d)     (shortest-route 'a 'd d))
-      ((q3 s t d) (road  s t d)))
-    '((((shortest-route s t d) (road s t d))
-       ((shortest-route s t d) (road s mid d.0)
-                               (shortest-route mid t d.rest)
-                               (+o d.0 d.rest d))))
+    (hash 'conso (lambda (a d ad)
+                   (when (and (or (var? a) (var? d)) (var? ad))
+                     (error "unsupported mode for conso" a d ad))
+                   ((== (cons a d) ad) 'ignored)))
+    (hash 'shortest-route-distance min)
+    '(((q0 s t d)   (road  s t d))
+      ((q1 s t d)   (shortest-route-distance s t d))
+      ((q2 d)       (shortest-route-distance 'a 'd d))
+      ((q3 s t d p) (shortest-route s t d p))
+      ((q4 d p)     (shortest-route 'a 'd d p)))
+    '((((shortest-route s t d p) (shortest-route-distance s t d)
+                                 (road s t d)
+                                 (conso t '() p.t)
+                                 (conso s p.t p))
+       ((shortest-route s t d p) (shortest-route-distance s t d)
+                                 (road s mid d.0)
+                                 (shortest-route mid t d.rest p.rest)
+                                 (+o d.0 d.rest d)
+                                 (conso s p.rest p)))
+      (((shortest-route-distance s t d) (road s t d))
+       ((shortest-route-distance s t d) (road s mid d.0)
+                                        (shortest-route-distance mid t d.rest)
+                                        (+o d.0 d.rest d))))
     (append facts.+ facts.<
             '((road a b 1)
               (road a c 7)
               (road b c 1)
               (road c d 1)
-              (road d a 25)  ; shrink this distance to illustrate bad performance
-              ))))
+              (road d a 5)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Mutable counter ;;;
@@ -98,7 +113,7 @@
 (define count.current 0)
 (define rules.count '(((next-count next) (+o current 1 next) (count current))))
 (define (current-count-state)
-  (run-stratified (hash) (list rules.count)
+  (run-stratified (hash) (hash) (list rules.count)
                   (append facts.+
                           `((count ,count.current)))))
 (define (state-extract facts.count predicate)
