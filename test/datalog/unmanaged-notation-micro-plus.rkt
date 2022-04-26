@@ -1,6 +1,6 @@
 #lang racket/base
 (provide run-stratified var? ==)
-(require "micro-with-merging.rkt" (except-in racket/match ==))
+(require "micro-plus.rkt" (except-in racket/match ==))
 
 (define (atom-vars atom) (filter var? atom))
 

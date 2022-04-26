@@ -1,5 +1,5 @@
 #lang racket/base
-(require "unmanaged-notation-micro-with-merging-and-stratification.rkt"
+(require "unmanaged-notation-micro-plus.rkt"
          racket/list racket/pretty)
 (print-as-expression #f)
 ;(pretty-print-abbreviate-read-macros #f)
