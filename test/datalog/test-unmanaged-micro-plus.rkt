@@ -106,6 +106,55 @@
               (road c d 1)
               (road d a 5)))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Equivalence classes ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(pretty-results
+  (run-stratified-queries
+    (hash '<o (lambda (a b)
+                (when (or (var? a) (var? b))
+                  (error "unsupported mode for <o" a b))
+                (lambda (S) (if (< a b) (list S) '()))))
+    (hash 'eq min)
+    '(((q0 x y) (same x y))
+      ((q1 x y) (eq x y)))
+    '((((eq a b) (same a b)
+                 (<o b a))
+       ((eq a b) (same b a)
+                 (<o b a))
+       ((eq a c) (eq a b)
+                 (eq b c)
+                 (<o c a))))
+    '(;; class 5
+      (same 5  10)
+      (same 15 10)
+      (same 25 10)
+      (same 20 15)
+      (same 25 35)
+      (same 20 30)
+      ;; class 1005
+      (same 1005  10010)
+      (same 10015 10010)
+      (same 10025 10010)
+      (same 10020 10015)
+      (same 10025 10035)
+      (same 10020 10030)
+      ;; class 2005
+      (same 2005  20010)
+      (same 20015 20010)
+      (same 20025 20010)
+      (same 20020 20015)
+      (same 20025 20035)
+      (same 20020 20030)
+      ;; class 3005
+      (same 3005  30010)
+      (same 30015 30010)
+      (same 30025 30010)
+      (same 30020 30015)
+      (same 30025 30035)
+      (same 30020 30030))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Mutable counter ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;
