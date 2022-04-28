@@ -8,7 +8,7 @@
   realize exhaust*)
 (require racket/set)
 
-;; This version of the micro core supports fact merging for monotonic aggregation.
+;; This version of the micro core supports fact merging for aggregation.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Terms and substitution ;;;
@@ -80,39 +80,36 @@
 (define (relate atom)
   (lambda (F*)  ; This staging significantly improves performance.
     ((disj* (map (lambda (F) (== atom F))
-                 (filter (lambda (F) (unify subst.empty atom F))
-                         (set->list F*))))
+                 (filter (lambda (F) (unify subst.empty atom F)) F*)))
      'ignored)))
 
 (define (compute proc args)
   (lambda (F*) (lambda (S) ((apply proc (walk* S args)) S))))
 
 (define remember         (lambda (F*) F*))
-(define (realize atom a) (lambda (F*)
-                           (list->set (map (lambda (S) (walk* S atom))
-                                           ((a F*) subst.empty)))))
-(define (combine p0 p1)  (lambda (F*) (set-union (p0 F*) (p1 F*))))
+(define (realize atom a) (lambda (F*) (map (lambda (S) (walk* S atom))
+                                           ((a F*) subst.empty))))
+(define (combine p0 p1)  (lambda (F*) (append (p0 F*) (p1 F*))))
 (define (combine* p*)    (if (null? p*)
                            remember
                            (combine (car p*) (combine* (cdr p*)))))
 
-(define (merge-by-predicate predicate=>merge F*)
-  (let loop ((F*                    (set->list F*))
+(define (aggregate predicate=>merge F*)
+  (let loop ((F*                    F*)
              (F*.skipped            '())
              (predicate=>key=>value (make-immutable-hash
                                       (map (lambda (key) (cons key (hash)))
                                            (hash-keys predicate=>merge)))))
     (if (null? F*)
-      (list->set
-        (apply append
-               F*.skipped
-               (map (lambda (p&k=>v)
-                      (let ((predicate (car p&k=>v)))
-                        (map (lambda (k&v)
-                               (cons predicate
-                                     (reverse (cons (cdr k&v) (car k&v)))))
-                             (hash->list (cdr p&k=>v)))))
-                    (hash->list predicate=>key=>value))))
+      (apply append
+             F*.skipped
+             (map (lambda (p&k=>v)
+                    (let ((predicate (car p&k=>v)))
+                      (map (lambda (k&v)
+                             (cons predicate
+                                   (reverse (cons (cdr k&v) (car k&v)))))
+                           (hash->list (cdr p&k=>v)))))
+                  (hash->list predicate=>key=>value)))
       (let* ((F         (car F*))
              (predicate (car F))
              (merge     (hash-ref predicate=>merge predicate #f)))
@@ -131,11 +128,15 @@
                                   value))))))
           (loop (cdr F*) (cons F F*.skipped) predicate=>key=>value))))))
 
-(define (exhaust p predicate=>merge F*)
-  (let ((F*.new (merge-by-predicate predicate=>merge (p F*))))
-    (if (set=? F* F*.new)
-      F*
-      (exhaust p predicate=>merge F*.new))))
+;; NOTE: motonicity filtering will not be necessary with delta-based evaluation
+(define (exhaust p predicate=>merge non-monotonic-predicates F*)
+  (define (monotonic? F) (not (set-member? non-monotonic-predicates (car F))))
+  (define (filter-monotonic F*) (list->set (filter monotonic? (set->list F*))))
+  (let ((F*.new (list->set (aggregate predicate=>merge (p (set->list F*))))))
+    (if (set=? (filter-monotonic F*) (filter-monotonic F*.new))
+      F*.new
+      (exhaust p predicate=>merge non-monotonic-predicates F*.new))))
 
-(define (exhaust* p* predicate=>merge F*)
-  (set->list (exhaust (combine* p*) predicate=>merge (list->set F*))))
+(define (exhaust* p* predicate=>merge non-monotonic-predicates F*)
+  (set->list (exhaust (combine* p*) predicate=>merge non-monotonic-predicates
+                      (list->set F*))))

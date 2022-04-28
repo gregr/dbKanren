@@ -1,6 +1,6 @@
 #lang racket/base
 (require "unmanaged-notation-micro-plus.rkt"
-         racket/list racket/pretty)
+         racket/list racket/pretty racket/set)
 (print-as-expression #f)
 ;(pretty-print-abbreviate-read-macros #f)
 
@@ -12,15 +12,18 @@
            (pretty-write result)
            (newline)) ...))
 
-(define (run-stratified-queries predicate=>compute predicate=>merge rules.query rule** facts)
-  (let ((facts (run-stratified predicate=>compute predicate=>merge
-                               (cons rules.query rule**) facts)))
+(define (run-stratified-queries
+          predicate=>compute predicate=>merge non-monotonic-predicates
+          rules.query rule** facts)
+  (let ((facts (run-stratified
+                 predicate=>compute predicate=>merge non-monotonic-predicates
+                 (cons rules.query rule**) facts)))
     (map (lambda (predicate.query)
            (filter (lambda (fact) (eq? (car fact) predicate.query)) facts))
          (map caar rules.query))))
 
 (define (run-queries rules.query rules facts)
-  (run-stratified-queries (hash) (hash) rules.query (list rules) facts))
+  (run-stratified-queries (hash) (hash) (set) rules.query (list rules) facts))
 
 ;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Graph traversal ;;;
@@ -81,6 +84,7 @@
                      (error "unsupported mode for conso" a d ad))
                    ((== (cons a d) ad) 'ignored)))
     (hash 'shortest-route-distance min)
+    (set)
     '(((q0 s t d)   (road  s t d))
       ((q1 s t d)   (shortest-route-distance s t d))
       ((q2 d)       (shortest-route-distance 'a 'd d))
@@ -106,6 +110,29 @@
               (road c d 1)
               (road d a 5)))))
 
+;;;;;;;;;;;;;;;;;;;
+;;; Aggregation ;;;
+;;;;;;;;;;;;;;;;;;;
+
+(pretty-results
+  (run-stratified-queries
+    (hash)
+    (hash 'cost-by-category + 'total-cost + 'total-cost2 +)
+    (set 'cost-by-category 'total-cost 'total-cost2)
+    '(((q1 category cost) (cost-by-category category cost))
+      ((q2 cost)          (total-cost cost))
+      ((q3 cost)          (total-cost2 cost)))
+    '((((total-cost2 cost) (cost-by-category category cost)))
+      (((cost-by-category category cost) (item category name cost))
+       ((total-cost cost) (item category name cost))))
+    '((item produce broccoli  4)
+      (item produce mushrooms 5)
+      (item produce tomatoes  5)
+      (item dairy   cheese   12)
+      (item dairy   cream     6)
+      (item dairy   eggs      6)
+      (item grain   rice     12))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Equivalence classes ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -117,6 +144,7 @@
                   (error "unsupported mode for <o" a b))
                 (lambda (S) (if (< a b) (list S) '()))))
     (hash 'eq min)
+    (set)
     '(((q0 x y) (same x y))
       ((q1 x y) (eq x y)))
     '((((eq0 a b) (same a b) (<o b a))
@@ -200,7 +228,7 @@
 (define count.current 0)
 (define rules.count '(((next-count next) (+o current 1 next) (count current))))
 (define (current-count-state)
-  (run-stratified (hash) (hash) (list rules.count)
+  (run-stratified (hash) (hash) (set) (list rules.count)
                   (append facts.+
                           `((count ,count.current)))))
 (define (state-extract facts.count predicate)

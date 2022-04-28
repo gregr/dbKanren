@@ -22,7 +22,9 @@
                             (rule-safe?! rule)
                             rule))
 
-(define (run-stratified predicate=>proc predicate=>merge e**.rules F*)
+(define (run-stratified
+          predicate=>proc predicate=>merge non-monotonic-predicates
+          e**.rules F*)
   (define (enforce rule)
     (define (body atom)
       (let ((proc (hash-ref predicate=>proc (car atom) #f)))
@@ -30,7 +32,8 @@
           (compute proc (cdr atom))
           (relate atom))))
     (realize (car rule) (conj* (map body (cdr rule)))))
-  (foldr (lambda (p* F*) (exhaust* p* predicate=>merge F*))
+  (foldr (lambda (p* F*)
+           (exhaust* p* predicate=>merge non-monotonic-predicates F*))
          F*
          (map (lambda (e*.rules) (map enforce (map parse-rule e*.rules)))
               e**.rules)))
