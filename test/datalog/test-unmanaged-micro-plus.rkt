@@ -117,21 +117,106 @@
 (pretty-results
   (run-stratified-queries
     (hash)
-    (hash 'cost-by-category + 'total-cost + 'total-cost2 +)
-    (set 'cost-by-category 'total-cost 'total-cost2)
-    '(((q1 category cost) (cost-by-category category cost))
-      ((q2 cost)          (total-cost cost))
-      ((q3 cost)          (total-cost2 cost)))
-    '((((total-cost2 cost) (cost-by-category category cost)))
-      (((cost-by-category category cost) (item category name cost))
-       ((total-cost cost) (item category name cost))))
-    '((item produce broccoli  4)
-      (item produce mushrooms 5)
-      (item produce tomatoes  5)
-      (item dairy   cheese   12)
-      (item dairy   cream     6)
-      (item dairy   eggs      6)
-      (item grain   rice     12))))
+    (hash 'category-count +
+          'order-total-cost +
+          'order-total-count +
+          'order-category-cost +
+          'order-category-count +
+          'all-sales-total-amount +
+          'all-sales-category-amount +
+          'all-sales-category-count +)
+    (set 'category-count
+         'order-total-cost
+         'order-total-count
+         'order-category-cost
+         'order-category-count
+         'all-sales-total-amount
+         'all-sales-category-amount
+         'all-sales-category-count)
+    '(((q:category-count       'category: category 'count: count)                (category-count category count))
+      ((q:order-total-cost     'order:    order    'cost:  cost)                 (order-total-cost order cost))
+      ((q:order-total-count    'order:    order    'count: count)                (order-total-count order count))
+      ((q:order-category-cost  'order:    order    'category: cat 'cost:  cost)  (order-category-cost order cat cost))
+      ((q:order-category-count 'order:    order    'category: cat 'count: count) (order-category-count order cat count))
+      ((q:all-sales-total-amount    'amount: amount)                (all-sales-total-amount amount))
+      ((q:all-sales-category-amount 'category: cat 'amount: amount) (all-sales-category-amount cat amount))
+      ((q:all-sales-category-count  'category: cat 'count:  count)  (all-sales-category-count  cat count)))
+
+    '((((all-sales-total-amount amount) (all-sales-category-amount cat amount)))
+
+      (((category-count cat 1) (food-category food cat))
+
+       ((order-total-cost order amount) (item order food) (food-price food amount))
+       ((order-total-count order 1)     (item order food))
+       ((order-category-cost order cat amount) (item order food)
+                                               (food-category food cat)
+                                               (food-price food amount))
+       ((order-category-count order cat 1) (item order food)
+                                           (food-category food cat))
+
+       ((all-sales-category-amount cat 0)      (food-category food cat))
+       ((all-sales-category-amount cat amount) (item order food)
+                                               (food-category food cat)
+                                               (food-price food amount))
+       ((all-sales-category-count cat 0) (food-category any cat))
+       ((all-sales-category-count cat 1) (item order food)
+                                         (food-category food cat))))
+
+    '((food-category broccoli  produce)
+      (food-category spinach   produce)
+      (food-category mushrooms produce)
+      (food-category eggplant  produce)
+      (food-category tomatoes  produce)
+      (food-category beans     canned)
+      (food-category peas      canned)
+      (food-category cheese    dairy)
+      (food-category cream     dairy)
+      (food-category butter    dairy)
+      (food-category eggs      dairy)
+      (food-category pizza     frozen)
+      (food-category icecream  frozen)
+      (food-category dosa      frozen)
+      (food-category rice      grain)
+      (food-category millet    grain)
+
+      (food-price broccoli  4)
+      (food-price spinach   3)
+      (food-price mushrooms 5)
+      (food-price eggplant  6)
+      (food-price tomatoes  5)
+      (food-price beans     2)
+      (food-price peas      1)
+      (food-price cheese   12)
+      (food-price cream     6)
+      (food-price butter    5)
+      (food-price eggs      6)
+      (food-price pizza    18)
+      (food-price icecream  9)
+      (food-price dosa      7)
+      (food-price rice     12)
+      (food-price millet    8)
+
+      (item 3 broccoli)
+      (item 3 mushrooms)
+      (item 3 tomatoes)
+      (item 3 cheese)
+      (item 3 cream)
+      (item 3 eggs)
+      (item 3 rice)
+
+      (item 11 spinach)
+      (item 11 eggplant)
+      (item 11 cream)
+      (item 11 millet)
+      (item 11 pizza)
+
+      (item 7 spinach)
+      (item 7 mushrooms)
+      (item 7 eggplant)
+      (item 7 cream)
+      (item 7 eggs)
+      (item 7 millet)
+      (item 7 pizza))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Equivalence classes ;;;
