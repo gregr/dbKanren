@@ -1,14 +1,8 @@
 #lang racket/base
 (provide run-stratified var? ==)
-(require "micro-plus.rkt" (except-in racket/match ==))
+(require "micro-plus.rkt" (except-in racket/match ==) racket/set)
 
-(define (atom-vars atom) (filter var? atom))
-
-(define (rule-safe?! rule)
-  (let ((vars.body (apply append (map atom-vars (cdr rule)))))
-    (for-each (lambda (var.head) (or (member var.head vars.body)
-                                     (error "unsafe rule" rule)))
-              (atom-vars (car rule)))))
+(define (atom-vars atom) (list->set (map var-name (filter var? atom))))
 
 (define (parse-term expr)
   (match expr
@@ -18,18 +12,40 @@
     (_           expr)))
 
 (define (parse-atom expr) (cons (car expr) (map parse-term (cdr expr))))
-(define (parse-rule expr) (let ((rule (map parse-atom expr)))
-                            (rule-safe?! rule)
-                            rule))
+
+(struct rule (head body+ body-) #:prefab)
+
+(define (parse-rule expr)
+  (let ((head (parse-atom (car expr))))
+    (let loop ((e* (cdr expr)) (atoms.+ '()))
+      (define (finish atoms.-)
+        (let ((r (rule head (reverse atoms.+) atoms.-)))
+          (let ((vars.+ (apply set-union (set) (map atom-vars (rule-body+ r))))
+                (vars.- (apply set-union (set) (map atom-vars (rule-body- r)))))
+            (unless (subset? (atom-vars (rule-head r)) vars.+)
+              (error "rule head is not range-restricted" expr))
+            (unless (subset? vars.- vars.+)
+              (error "rule negated body atoms are not range-restricted" expr)))
+          r))
+      (match e*
+        ('()            (finish '()))
+        ((cons 'not e*) (finish (map parse-atom e*)))
+        ((cons e    e*) (loop e* (cons (parse-atom e) atoms.+)))))))
 
 (define (run-stratified predicate=>proc predicate=>merge e**.rules F*)
-  (define (enforce rule)
-    (define (body atom)
+  (define (enforce r)
+    (match-define (rule head atoms.+ atoms.-) r)
+    (define (+atom->a atom)
       (let ((proc (hash-ref predicate=>proc (car atom) #f)))
         (if proc
           (compute proc (cdr atom))
           (relate atom))))
-    (realize (car rule) (conj* (map body (cdr rule)))))
+    (define (-atom->a atom)
+      (let ((proc (hash-ref predicate=>proc (car atom) #f)))
+        (if proc
+          (reject-compute proc (cdr atom))
+          (reject-relate atom))))
+    (realize head (conj* (append (map +atom->a atoms.+) (map -atom->a atoms.-)))))
   (foldr (lambda (c&p* F*)
            (match c&p*
              (`(run-once        . ,p*) (produce-once* p* predicate=>merge F*))

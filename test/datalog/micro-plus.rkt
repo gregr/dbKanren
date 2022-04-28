@@ -4,7 +4,7 @@
   unit fail
   conj conj+ conj*
   disj disj+ disj*
-  == relate compute
+  == relate reject-relate compute reject-compute
   realize produce-once* exhaust*)
 (require racket/set)
 
@@ -68,6 +68,9 @@
 (define fail         (lambda (F*) (lambda (S) '())))
 (define (== t0 t1)   (lambda (F*) (lambda (S) (let ((S (unify S t0 t1)))
                                                 (if S (list S) '())))))
+;; NOTE: use =/= carefully as it currently implements negation-as-failure
+(define (=/= t0 t1)  (lambda (F*) (lambda (S) (let ((S.new (unify S t0 t1)))
+                                                (if S.new '() (list S))))))
 (define (conj a0 a1) (lambda (F*) (let ((g0 (a0 F*)) (g1 (a1 F*)))
                                     (lambda (S) (bind (g0 S) g1)))))
 (define (disj a0 a1) (lambda (F*) (let ((g0 (a0 F*)) (g1 (a1 F*)))
@@ -82,9 +85,20 @@
     ((disj* (map (lambda (F) (== atom F))
                  (filter (lambda (F) (unify subst.empty atom F)) F*)))
      'ignored)))
+(define (reject-relate atom)
+  ;; NOTE: this ambition has a fully-ground mode.
+  (lambda (F*)
+    ((conj* (map (lambda (F) (=/= atom F))
+                 (filter (lambda (F) (unify subst.empty atom F)) F*)))
+     'ignored)))
 
 (define (compute proc args)
   (lambda (F*) (lambda (S) ((apply proc (walk* S args)) S))))
+(define (reject-compute proc args)
+  ;; NOTE: this ambition has a fully-ground mode.
+  (lambda (F*) (lambda (S) (if (null? ((apply proc (walk* S args)) S))
+                             (list S)
+                             '()))))
 
 (define remember         (lambda (F*) F*))
 (define (realize atom a) (lambda (F*) (map (lambda (S) (walk* S atom))
