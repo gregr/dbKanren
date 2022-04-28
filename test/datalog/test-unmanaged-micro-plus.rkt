@@ -119,6 +119,7 @@
           'order-total-count +
           'order-category-cost +
           'order-category-count +
+          'vegan-order-count +
           'all-sales-total-amount +
           'all-sales-category-amount +
           'all-sales-category-count +)
@@ -127,11 +128,16 @@
       ((q:order-total-count    'order:    order    'count: count)                (order-total-count order count))
       ((q:order-category-cost  'order:    order    'category: cat 'cost:  cost)  (order-category-cost order cat cost))
       ((q:order-category-count 'order:    order    'category: cat 'count: count) (order-category-count order cat count))
+      ((q:vegan-orders      order) (order-vegan order))
+      ((q:vegan-order-count count) (vegan-order-count count))
       ((q:all-sales-total-amount    'amount: amount)                (all-sales-total-amount amount))
       ((q:all-sales-category-amount 'category: cat 'amount: amount) (all-sales-category-amount cat amount))
       ((q:all-sales-category-count  'category: cat 'count:  count)  (all-sales-category-count  cat count)))
     '((run-once
-        ((all-sales-total-amount amount) (all-sales-category-amount cat amount)))
+        ((all-sales-total-amount amount) (all-sales-category-amount cat amount))
+        ((vegan-order-count 0))
+        ((vegan-order-count 1) (order-vegan order)))
+      (((order-vegan order) (item order food) not (order-includes-animal-product order)))
       (run-once
         ((category-count cat 1) (food-category food cat))
         ((order-total-cost order amount) (item order food) (food-price food amount))
@@ -147,7 +153,10 @@
                                                 (food-price food amount))
         ((all-sales-category-count cat 0) (food-category any cat))
         ((all-sales-category-count cat 1) (item order food)
-                                          (food-category food cat))))
+                                          (food-category food cat)))
+      (((order-includes-animal-product order) (item order food) (food-category food 'dairy))
+       ((order-includes-animal-product order) (item order 'pizza))
+       ((order-includes-animal-product order) (item order 'icecream))))
     '((food-category broccoli  produce)
       (food-category spinach   produce)
       (food-category mushrooms produce)
@@ -187,6 +196,10 @@
       (item 3 cream)
       (item 3 eggs)
       (item 3 rice)
+      (item 999 tomatoes)
+      (item 999 broccoli)
+      (item 999 dosa)
+      (item 999 rice)
       (item 11 spinach)
       (item 11 eggplant)
       (item 11 cream)
