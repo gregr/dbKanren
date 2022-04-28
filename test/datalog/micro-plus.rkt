@@ -5,7 +5,7 @@
   conj conj+ conj*
   disj disj+ disj*
   == relate compute
-  realize exhaust*)
+  realize produce-once* exhaust*)
 (require racket/set)
 
 ;; This version of the micro core supports fact merging for aggregation.
@@ -128,15 +128,18 @@
                                   value))))))
           (loop (cdr F*) (cons F F*.skipped) predicate=>key=>value))))))
 
-;; NOTE: motonicity filtering will not be necessary with delta-based evaluation
-(define (exhaust p predicate=>merge non-monotonic-predicates F*)
-  (define (monotonic? F) (not (set-member? non-monotonic-predicates (car F))))
-  (define (filter-monotonic F*) (list->set (filter monotonic? (set->list F*))))
-  (let ((F*.new (list->set (aggregate predicate=>merge (p (set->list F*))))))
-    (if (set=? (filter-monotonic F*) (filter-monotonic F*.new))
-      F*.new
-      (exhaust p predicate=>merge non-monotonic-predicates F*.new))))
 
-(define (exhaust* p* predicate=>merge non-monotonic-predicates F*)
-  (set->list (exhaust (combine* p*) predicate=>merge non-monotonic-predicates
-                      (list->set F*))))
+(define (produce-once p predicate=>merge F*)
+  (list->set (aggregate predicate=>merge (p (set->list F*)))))
+
+(define (produce-once* p* predicate=>merge F*)
+  (set->list (produce-once (combine* p*) predicate=>merge (list->set F*))))
+
+(define (exhaust p predicate=>merge F*)
+  (let ((F*.new (produce-once p predicate=>merge F*)))
+    (if (set=? F* F*.new)
+      F*.new
+      (exhaust p predicate=>merge F*.new))))
+
+(define (exhaust* p* predicate=>merge F*)
+  (set->list (exhaust (combine* p*) predicate=>merge (list->set F*))))

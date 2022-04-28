@@ -13,17 +13,15 @@
            (newline)) ...))
 
 (define (run-stratified-queries
-          predicate=>compute predicate=>merge non-monotonic-predicates
-          rules.query rule** facts)
-  (let ((facts (run-stratified
-                 predicate=>compute predicate=>merge non-monotonic-predicates
-                 (cons rules.query rule**) facts)))
+          predicate=>compute predicate=>merge rules.query rule** facts)
+  (let ((facts (run-stratified predicate=>compute predicate=>merge
+                               (cons rules.query rule**) facts)))
     (map (lambda (predicate.query)
            (filter (lambda (fact) (eq? (car fact) predicate.query)) facts))
          (map caar rules.query))))
 
 (define (run-queries rules.query rules facts)
-  (run-stratified-queries (hash) (hash) (set) rules.query (list rules) facts))
+  (run-stratified-queries (hash) (hash) rules.query (list rules) facts))
 
 ;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Graph traversal ;;;
@@ -84,7 +82,6 @@
                      (error "unsupported mode for conso" a d ad))
                    ((== (cons a d) ad) 'ignored)))
     (hash 'shortest-route-distance min)
-    (set)
     '(((q0 s t d)   (road  s t d))
       ((q1 s t d)   (shortest-route-distance s t d))
       ((q2 d)       (shortest-route-distance 'a 'd d))
@@ -125,14 +122,6 @@
           'all-sales-total-amount +
           'all-sales-category-amount +
           'all-sales-category-count +)
-    (set 'category-count
-         'order-total-cost
-         'order-total-count
-         'order-category-cost
-         'order-category-count
-         'all-sales-total-amount
-         'all-sales-category-amount
-         'all-sales-category-count)
     '(((q:category-count       'category: category 'count: count)                (category-count category count))
       ((q:order-total-cost     'order:    order    'cost:  cost)                 (order-total-cost order cost))
       ((q:order-total-count    'order:    order    'count: count)                (order-total-count order count))
@@ -141,27 +130,24 @@
       ((q:all-sales-total-amount    'amount: amount)                (all-sales-total-amount amount))
       ((q:all-sales-category-amount 'category: cat 'amount: amount) (all-sales-category-amount cat amount))
       ((q:all-sales-category-count  'category: cat 'count:  count)  (all-sales-category-count  cat count)))
-
-    '((((all-sales-total-amount amount) (all-sales-category-amount cat amount)))
-
-      (((category-count cat 1) (food-category food cat))
-
-       ((order-total-cost order amount) (item order food) (food-price food amount))
-       ((order-total-count order 1)     (item order food))
-       ((order-category-cost order cat amount) (item order food)
-                                               (food-category food cat)
-                                               (food-price food amount))
-       ((order-category-count order cat 1) (item order food)
-                                           (food-category food cat))
-
-       ((all-sales-category-amount cat 0)      (food-category food cat))
-       ((all-sales-category-amount cat amount) (item order food)
-                                               (food-category food cat)
-                                               (food-price food amount))
-       ((all-sales-category-count cat 0) (food-category any cat))
-       ((all-sales-category-count cat 1) (item order food)
-                                         (food-category food cat))))
-
+    '((run-once
+        ((all-sales-total-amount amount) (all-sales-category-amount cat amount)))
+      (run-once
+        ((category-count cat 1) (food-category food cat))
+        ((order-total-cost order amount) (item order food) (food-price food amount))
+        ((order-total-count order 1)     (item order food))
+        ((order-category-cost order cat amount) (item order food)
+                                                (food-category food cat)
+                                                (food-price food amount))
+        ((order-category-count order cat 1) (item order food)
+                                            (food-category food cat))
+        ((all-sales-category-amount cat 0)      (food-category food cat))
+        ((all-sales-category-amount cat amount) (item order food)
+                                                (food-category food cat)
+                                                (food-price food amount))
+        ((all-sales-category-count cat 0) (food-category any cat))
+        ((all-sales-category-count cat 1) (item order food)
+                                          (food-category food cat))))
     '((food-category broccoli  produce)
       (food-category spinach   produce)
       (food-category mushrooms produce)
@@ -178,7 +164,6 @@
       (food-category dosa      frozen)
       (food-category rice      grain)
       (food-category millet    grain)
-
       (food-price broccoli  4)
       (food-price spinach   3)
       (food-price mushrooms 5)
@@ -195,7 +180,6 @@
       (food-price dosa      7)
       (food-price rice     12)
       (food-price millet    8)
-
       (item 3 broccoli)
       (item 3 mushrooms)
       (item 3 tomatoes)
@@ -203,13 +187,11 @@
       (item 3 cream)
       (item 3 eggs)
       (item 3 rice)
-
       (item 11 spinach)
       (item 11 eggplant)
       (item 11 cream)
       (item 11 millet)
       (item 11 pizza)
-
       (item 7 spinach)
       (item 7 mushrooms)
       (item 7 eggplant)
@@ -229,7 +211,6 @@
                   (error "unsupported mode for <o" a b))
                 (lambda (S) (if (< a b) (list S) '()))))
     (hash 'eq min)
-    (set)
     '(((q0 x y) (same x y))
       ((q1 x y) (eq x y)))
     '((((eq0 a b) (same a b) (<o b a))
@@ -313,7 +294,7 @@
 (define count.current 0)
 (define rules.count '(((next-count next) (+o current 1 next) (count current))))
 (define (current-count-state)
-  (run-stratified (hash) (hash) (set) (list rules.count)
+  (run-stratified (hash) (hash) (list rules.count)
                   (append facts.+
                           `((count ,count.current)))))
 (define (state-extract facts.count predicate)
