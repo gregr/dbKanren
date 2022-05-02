@@ -300,6 +300,93 @@
       (same 10025 10035)
       (same 10020 10030))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Strongly-connected components and stratification ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Downward directed graph with some cycles:
+;      A       B
+;     / \     / \
+;    C   D*  E   F*
+;    |    \ / \  |
+;    J*   GHI  \ KL
+;     \  /  \   X \
+;      M     NO  \P
+;      |       \ / \
+;      Q        R   S
+
+(define facts.dg
+  (append (map (lambda (n) `(node ,n)) '(A B C D E F G H I J K L M N O P Q R S))
+          '((depends A C)
+            (depends A D)
+            (depends B E)
+            (depends B F)
+
+            (depends D D)
+            (depends F F)
+
+            (depends C J)
+            (depends D G)
+            (depends E G)
+            (depends F L)
+
+            (depends J J)
+            (depends G H)
+            (depends G I)
+            (depends H G)
+            (depends I H)
+            (depends K L)
+            (depends L K)
+
+            (depends J M)
+            (depends H M)
+            (depends I N)
+            (depends K N)
+            (depends L P)
+            (depends E P)
+
+            (depends N O)
+            (depends O N)
+
+            (depends M Q)
+            (depends O R)
+            (depends P R)
+            (depends P S))))
+
+(pretty-results
+  (run-stratified-queries
+    (hash 'symbol< (lambda (a b)
+                     (when (or (var? a) (var? b))
+                       (error "unsupported mode for symbol<o" a b))
+                     (lambda (S) (if (or (symbol<? a b)) (list S) '())))
+          '+o       (lambda (a b a+b)
+                      ((cond ((and (rational? a) (rational? b))   (== a+b (+ a b)))
+                             ((and (rational? a) (rational? a+b)) (== b (- a+b a)))
+                             ((and (rational? b) (rational? a+b)) (== a (- a+b b)))
+                             (else (error "unsupported mode for +o" a b a+b)))
+                       'ignored)))
+    (hash 'stratum max)
+    '(((q:scc x y) (scc x y) not (scc-child x))
+      ((q:scc-child x) (scc-child x))
+      ((q:stratum level x) (stratum x level) not (scc-child x)))
+    '((((stratum a 0) (node a) not (dependent a))
+       ((stratum a n) (depends a b)
+                      (stratum b m)
+                      (+o m 1 n)
+                      not
+                      (== a b)
+                      (scc a b)
+                      (scc b a))
+       ((stratum a n) (scc a b) (stratum b n))
+       ((stratum a n) (scc b a) (stratum b n)))
+      (((scc a b) (depends+ a b) (depends+ b a) (symbol< a b))
+       ((scc-child a) (scc b a))
+       ((depends+ a b) (depends a b))
+       ((depends+ a c) (depends a b) (depends+ b c))
+       ((dependent a) (depends a b))
+       ((== a a) (node a))))
+    facts.dg))
+
 ;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Mutable counter ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;
