@@ -18,8 +18,9 @@
 (define subst.empty '())
 
 (define (subst-extend S x t)
-  (and (not (occurs? S (walk S x) t))
-       (cons (cons (var-name x) t) S)))
+  (let ((name.x (var-name x)))
+    (and (not (occurs? S name.x t))
+         (cons (cons name.x t) S))))
 
 (define (walk S t)
   (cond ((var? t) (let ((kv (assoc (var-name t) S)))
@@ -33,11 +34,11 @@
         ((vector? t) (list->vector (walk* S (vector->list t))))
         (else        t)))
 
-(define (occurs? S x t)
+(define (occurs? S name.x t)
   (let ((t (walk S t)))
-    (or (equal? x t)
-        (and (pair? t) (or (occurs? S x (car t)) (occurs? S x (cdr t))))
-        (and (vector? t) (occurs? S x (vector->list t))))))
+    (or (and (var? t) (equal? name.x (var-name t)))
+        (and (pair? t) (or (occurs? S name.x (car t)) (occurs? S name.x (cdr t))))
+        (and (vector? t) (occurs? S name.x (vector->list t))))))
 
 (define (unify S u v)
   (let ((u (walk S u)) (v (walk S v)))
