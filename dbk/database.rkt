@@ -202,6 +202,54 @@
 (define (R+ . args) (cons '+ args))
 (define (R- e0 e1)  `(- ,e0 ,e1))
 
+;;; Some rexpr rewrite rules to consider:
+
+;; easy
+;(&)                ==> #f  ; could allow this temporarily, but it is an error if it is not eliminated; maybe don't allow it here
+;(- X #f)           ==> ()
+;(- #f X)           ==> (~ X)  ; not desirable ...
+;(+ A ... #f B ...) ==> #f
+;(& A ... #f B ...) ==> (& A ... B ...)
+;(+)                ==> ()
+;(- X ())           ==> X
+;(- () X)           ==> ()
+;(+ A ... () B ...) ==> (+ A ... B ...)
+;(& A ... () B ...) ==> ()
+;;; easy
+;(+ A ... (+ B ...) C ...)                 ==> (+ A ... B ... C ...)
+;(+ X ... A Y ... A B ...)                 ==> (+ X ... A Y ... B ...)
+;(+ X ... A Y ... (- (+ A C ...) D) B ...) ==> (+ X ... A Y ... (- (+ C ...) D) B ...)
+;(& A ... (& B ...) C ...)                 ==> (& A ... B ... C ...)
+;(& X ... A Y ... A B ...)                 ==> (& X ... A Y ... B ...)
+;(& X ... A Y ... (- (& A C ...) D) B ...) ==> (& X ... A Y ... (- (& C ...) D) B ...)
+
+;;; doable
+;(& A ... X B ...    (+ C ... X D ...)    E ...) ==> (& A ... X B ... E ...)
+;(+ A ... X B ...    (& C ... X D ...)    E ...) ==> (+ A ... X B ... E ...)
+;(& A ... X B ... (- (+ C ... X D ...) Z) E ...) ==> (& A ... X B ... E ...)
+;(+ A ... X B ... (- (& C ... X D ...) Z) E ...) ==> (+ A ... X B ... E ...)
+;;; doable
+;(-    (+ A ... B C ...)    (+ D ... B E ...)) ==> (-    (+ A ... C ...)    (+ D ... B E ...))
+;(- (- (+ A ... B C ...) F) (+ D ... B E ...)) ==> (- (- (+ A ... C ...) F) (+ D ... B E ...))  ; etc.
+
+
+;(- (& A ... B C ...) (+ D ... B E ...)) ==> (- () (+ D ... B E ...))
+;;; would need us to go backwards too
+;(- A (& B ... A C ...)) ==> (- A (& B ... C ...))
+
+;;; might be expensive to recognize in general, unless we memo-map normalized subexpressions to new uids
+;(- X (- X Y)) ==> (& X Y)
+
+;;; Subsumption maps? Or not because of the differences that can't use them as easily?
+
+;;; doable
+;(+ A ... X B ...    (& C ... (+ F ... X G ...) D ...)    E ...) ==> (+ A ... X B ...    (& C ... (+ F ... G ...) D ...)    E ...)
+;(+ A ... X B ... (- (& C ... (+ F ... X G ...) D ...) Z) E ...) ==> (+ A ... X B ... (- (& C ... (+ F ... G ...) D ...) Z) E ...)
+;;; nothing correct we can do
+;(& A ... X B ...    (+ C ... (& F ... X G ...) D ...)    E ...)
+;(& A ... X B ... (- (+ C ... (& F ... X G ...) D ...) Z) E ...)
+
+
 ;; TODO: support & for set intersection
 (define (rexpr-clean expr)
   (define (loop.+ es.pending es.seen +s)
@@ -1516,6 +1564,11 @@
             end)))
       start.rows)))
 
+;; TODO: row-intersect!
+;; - Binary?  Or multiple ranges simultaneously?
+
+;; TODO: support subtracting from a separate vector?
+;; TODO: Exponential-search/bisect-next at least one side (based on which size is smaller)?
 (define (row-subtract! vec.rows count.cols start mid end)
   (define (move! i j) (unsafe-fxvector-copy! vec.rows j vec.rows i (unsafe-fx+ i count.cols)))
   (define (tuple-compare a b)

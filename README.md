@@ -12,6 +12,77 @@ Typical use:
 
 ## TODO
 
+- Replace higher-order micro implementation with formula building, rewriting, and an interpreter
+
+- Datalog performance improvements
+  - Semi-naive evaluation
+  - Lowering to relational algebra operations
+    - e.g., projecting away irrelevant variables to reduce intermediate duplication
+  - Magic sets transformation
+
+- Relation definitions and queries involving semantic extensions
+  - A relation defined with `define-relation` will raise an error if it does not support a finite mode
+    - For Racket-embedded definitions, the error cannot be issued immediately due to
+      mutually-recursive relations that may not be fully defined.  Instead, the error will be issued
+      at the earliest query or request for compilation.
+    - Use `define-search-relation` to suppress the error
+    - e.g.,
+      - Each pure relation has one finite mode: all attributes can be safely unknown, aka `#f`
+      - `(appendo xs ys xsys)` has two finite modes: `(#t #t #f)` and `(#f #f #t)`
+      - `(membero x xs)` has one finite mode: `(#f #t)`
+      - `(evalo expr env result)` has no finite modes, so it's considered a search-based relation
+        - Because exprs like `((lambda (d) (d d)) (lambda (d) (d d)))` are possible
+  - A query executed with `run` will raise an error if it cannot guarantee termination
+    - It may also provide diagnostics about worst-case behavior and execution progress
+    - Use `run-search` to suppress the error
+
+- Database improvements
+  - Maybe we don't need the augmented 0th column for relations and incomplete indexes
+    - Only index the listed columns?  Consider missing columns to have been projected away.
+  - Try switching from fxvectors to using bytes where possible, and compress fixnums otherwise
+    - `id=>id` remapping, and `col<->row` transposition with varying byte widths: annoying?
+  - Improve checkpointing storage
+    - Consolidate block files to use fewer
+      - Make use of `(file-stream-buffer-mode in 'none)` file ports
+        - `read-bytes` is as efficient as `file->bytes` if you know the `file-size` up front
+      - May need a protocol for scattered/interrupted/fragmented writes to block ids
+      - Will need a compaction protocol
+    - Should we move away from block names and just use block ids?
+  - Vectorized relational operators
+  - Consider radix burst sort for ingesting text more quickly
+    - Also consider alternatives to multi-merge for text
+
+- Data access interface for queries
+  - What form should RA-level (table-like) entities take?
+    - Include database-path and a database-local UID for recognizing identitical entities
+      - Important for using functional dependencies and other optimizations
+    - Relation type (for eliminating pointless joins/unions/differences)
+    - `index-ordering => (cons key-columns position-columns)`
+      - Once a query is planned, this info is used to build the necessary dicts
+
+- Try a simple text search strategy using a triples-containment relation
+  - Don't build this into the database, this can all be user-defined
+  - Filter name text to retain only lower-case alphanumeric (plus an empty value for 37 total values)
+  - Build the relation: `(text-contains text c0 c1 c2)` or `(text-contains text compact-c012)`
+    - Latter approach compacts c0 c1 c2 to a single 2-byte value
+      - c0 c1 c2 are treated as digits
+      - compact-c012 = c0*37^2 + c1*37 + c2
+      - which is < 52059, which is < 2^16
+    - Indexing `"foobar"` would produce these tuples:
+      ```
+      (text-contains "foobar" "f" "o" "o")
+      (text-contains "foobar" "o" "o" "b")
+      (text-contains "foobar" "o" "b" "a")
+      (text-contains "foobar" "b" "a" "r")
+      (text-contains "foobar" "a" "r" "_")
+      (text-contains "foobar" "r" "_" "_")
+      ```
+    - Searching for `"test"` would use this query to produce a tractable number of candidates:
+      ```
+      (run* candidate (text-contains candidate "t" "e" "s") (text-contains candidate "e" "s" "t"))
+      ```
+    - Candidates can then be filtered using arbitrary rules defined in Racket
+
 * a smaller extended syntax
   * logical connectives (not, and, or)
   * apply for relations
