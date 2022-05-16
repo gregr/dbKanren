@@ -184,6 +184,10 @@
                         (cons (rule a.head (cons a.factored (cons a0 a*.reached)))
                               (retry a.factored a*.missed))))))))))))
 
+(define (group x->key x->value xs)
+  (foldl (lambda (x k=>v*) (hash-update k=>v* (x->key x) (lambda (v*) (cons (x->value x) v*)) '()))
+         (hash) xs))
+
 (define (stratify rules)
   (define (search r->r* r* seen)
     (let loop ((r* r*) (seen seen) (finished '()))
