@@ -262,13 +262,32 @@
           prim.vector-list   '((#f #t) (#t #f)))
     list->set))
 
+(define (rule-terms r) (apply append (map atom-args (cons (rule-head r) (rule-body r)))))
+(define (rule-vars  r) (map var-name (filter var? (rule-terms r))))
+
+(define (rule-deduplicate-head-vars r)
+  (parameterize ((current-fresh-variable (+ (apply max -1 (filter integer? (rule-vars r))) 1))
+                 (current-implicit-atoms '()))
+    (let* ((head (rule-head r))
+           (args (map (let ((seen (mutable-set)))
+                        (lambda (t)
+                          (cond ((not (var? t))                  t)
+                                ((set-member? seen (var-name t)) (let ((v.new (fresh-var)))
+                                                                   (implicit-atom! (== v.new t))
+                                                                   v.new))
+                                (else                            (set-add! seen (var-name t)) t))))
+                      (atom-args head))))
+      (rule (atom (atom-relation head) args)
+            (append (current-implicit-atoms) (rule-body r))))))
+
 (define (infer-modes rules R=>mode*)
-  (let loop ((R=>mode*.initial R=>mode*))
-    (let ((R=>mode* (foldl (lambda (r R=>mode*) (rule-infer-modes r R=>mode*))
-                           R=>mode*.initial rules)))
-      (if (equal? R=>mode* R=>mode*.initial)
-        R=>mode*
-        (loop R=>mode*)))))
+  (let ((rules (map rule-deduplicate-head-vars rules)))
+    (let loop ((R=>mode*.initial R=>mode*))
+      (let ((R=>mode* (foldl (lambda (r R=>mode*) (rule-infer-modes r R=>mode*))
+                             R=>mode*.initial rules)))
+        (if (equal? R=>mode* R=>mode*.initial)
+          R=>mode*
+          (loop R=>mode*))))))
 
 (define (rule-infer-modes r R=>mode*)
   (define (consistent-arity?! mode len a)
