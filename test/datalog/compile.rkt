@@ -342,10 +342,11 @@
                  (loop a* (cons a a*.missed) bound))))))))
     (define (merge-modes mode*)
       (define (subsumes? m0 m1) (andmap (lambda (b0? b1?) (or b1? (not b0?))) m0 m1))
+      (define (free-count m)    (length (filter not m)))
       (foldl (lambda (m mode*) (if (ormap (lambda (m0) (subsumes? m0 m)) mode*)
                                  mode*
                                  (cons m mode*)))
-             '() mode*))
+             '() (sort mode* (lambda (a b) (> (free-count a) (free-count b))))))
     (let* ((vars.body   (foldl (lambda (a vars)
                                  (foldl (lambda (t vars)
                                           (if (var? t) (set-add vars (var-name t)) vars))
