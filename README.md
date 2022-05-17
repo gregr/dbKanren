@@ -12,13 +12,24 @@ Typical use:
 
 ## TODO
 
-- Replace higher-order micro implementation with formula building, rewriting, and an interpreter
-
-- Datalog performance improvements
+- Datalog implementation
+  - Optional safety checking (we should still be able to execute unsafe programs)
+    - Total (simple) safety: no function terms or aggregation through recursion
+      - Guarantees safety regardless of evaluation strategy
+    - When total safety fails, could try to determine safety just for top-down or bottom-up evaluation
+    - More advanced checking would support recursion involving function terms and aggregation
+      - Size-based termination checking for top-down recursion using function term arguments
+      - Checking invariants that guarantee convergence for recursive aggregation
+  - Demand transformation
+    - Propagate query constants/bindings to determine needed demand signatures for each relation
+    - For each relation's demand signature, schedule its body order, informed by database statistics
+    - Generate the demand-transformed rules
+    - Adjust naive evaluation to support stratified negation/aggregation w/ demand-transformed program
   - Semi-naive evaluation
+    - Transform a program to use delta-based rules
+    - Fixed-point calculation with 3 variants per recursive relation (old, delta, new)
   - Lowering to relational algebra operations
     - e.g., projecting away irrelevant variables to reduce intermediate duplication
-  - Magic sets transformation
 
 - Relation definitions and queries involving semantic extensions
   - A relation defined with `define-relation` will raise an error if it does not support a finite mode
@@ -28,8 +39,10 @@ Typical use:
     - Use `define-search-relation` to suppress the error
     - e.g.,
       - Each pure relation has one finite mode: all attributes can be safely unknown, aka `#f`
-      - `(appendo xs ys xsys)` has two finite modes: `(#t #t #f)` and `(#f #f #t)`
-      - `(membero x xs)` has one finite mode: `(#f #t)`
+      - Terminating computational relations may have more complex modes
+        - These are recognized automatically by mode inference
+        - `(appendo xs ys xsys)` has two finite modes: `(#t #t #f)` and `(#f #f #t)`
+        - `(membero x xs)` has one finite mode: `(#f #t)`
       - `(evalo expr env result)` has no finite modes, so it's considered a search-based relation
         - Because exprs like `((lambda (d) (d d)) (lambda (d) (d d)))` are possible
   - A query executed with `run` will raise an error if it cannot guarantee termination
@@ -66,8 +79,8 @@ Typical use:
   - Build the relation: `(text-contains text c0 c1 c2)` or `(text-contains text compact-c012)`
     - Latter approach compacts c0 c1 c2 to a single 2-byte value
       - c0 c1 c2 are treated as digits
-      - compact-c012 = c0*37^2 + c1*37 + c2
-      - which is < 52059, which is < 2^16
+      - `compact-c012 = c0*37^2 + c1*37 + c2`
+      - which is `< 52059`, which is `< 2^16`
     - Indexing `"foobar"` would produce these tuples:
       ```
       (text-contains "foobar" "f" "o" "o")
@@ -79,7 +92,9 @@ Typical use:
       ```
     - Searching for `"test"` would use this query to produce a tractable number of candidates:
       ```
-      (run* candidate (text-contains candidate "t" "e" "s") (text-contains candidate "e" "s" "t"))
+      (run* candidate
+        (text-contains candidate "t" "e" "s")
+        (text-contains candidate "e" "s" "t"))
       ```
     - Candidates can then be filtered using arbitrary rules defined in Racket
 
