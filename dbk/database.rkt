@@ -64,14 +64,14 @@
       (lambda (in)
         (read-bytes-line in 'any)  ; drop header line
         (time
-          (let tuple-loop ((i.tuple 0))
+          (let tuple-loop ()
             (let ((line (read-bytes-line in 'any)))
               (unless (eof-object? line)
                 (insert! (map (lambda (type.field field) (if (eq? type.field 'int)
                                                            (bytes-base10->fxnat field)
                                                            field))
                               type.r (unsafe-bytes-split-tab line)))
-                (tuple-loop (unsafe-fx+ i.tuple 1))))))
+                (tuple-loop)))))
         (time (finish))))))
 
 (define (unsafe-bytes-split-tab bs)
@@ -79,7 +79,7 @@
              (i      (unsafe-fx- (unsafe-bytes-length bs) 1))
              (fields '()))
     (cond ((unsafe-fx< i 0)                       (cons (subbytes bs 0 end) fields))
-          ((unsafe-fx= (unsafe-bytes-ref bs i) 9) (loop i   (unsafe-fx- i 1) (cons (subbytes bs i end) fields)))
+          ((unsafe-fx= (unsafe-bytes-ref bs i) 9) (loop i   (unsafe-fx- i 1) (cons (subbytes bs (+ i 1) end) fields)))
           (else                                   (loop end (unsafe-fx- i 1) fields)))))
 
 (define (bytes-base10->fxnat bs)
