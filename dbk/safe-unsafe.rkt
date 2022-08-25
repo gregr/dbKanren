@@ -21,6 +21,9 @@
   unsafe-fxvector-set!)
 (require racket/fixnum)
 
+(define unsafe-list-ref        list-ref)
+(define unsafe-car             car)
+(define unsafe-cdr             cdr)
 (define unsafe-fxmin           fxmin)
 (define unsafe-fx=             fx=)
 (define unsafe-fx<=            fx<=)
