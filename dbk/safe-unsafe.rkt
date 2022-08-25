@@ -21,6 +21,7 @@
   unsafe-fxvector-set!)
 (require racket/fixnum)
 
+(define unsafe-fxmin           fxmin)
 (define unsafe-fx=             fx=)
 (define unsafe-fx<=            fx<=)
 (define unsafe-fx<             fx<)
