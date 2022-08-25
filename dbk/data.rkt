@@ -70,7 +70,8 @@
   relation-compact!
   )
 (require "codec.rkt" "enumerator.rkt" "heap.rkt" "logging.rkt" "misc.rkt" "order.rkt" "stream.rkt"
-         racket/file racket/list racket/match racket/pretty racket/set racket/struct racket/vector)
+         racket/file racket/list racket/match racket/pretty racket/set racket/struct racket/vector
+         racket/unsafe/ops)
 
 ;; TODO:
 ;bscm.rkt
@@ -1282,6 +1283,118 @@
   (write-metadata (build-path apath.out fn.metadata.initial) desc.table-index.out)
   desc.table-index.out)
 
+;; 2-3 tree
+(define (make-btree) (vector 0 #f))
+
+(define (bytes-compare a b)
+  (let* ((len.a (unsafe-bytes-length a)) (len.b (unsafe-bytes-length b)) (end (unsafe-fxmin len.a len.b)))
+    (let loop ((i 0))
+      (if (unsafe-fx= i end)
+          (cond ((unsafe-fx< len.a len.b) -1)
+                ((unsafe-fx< len.b len.a)  1)
+                (else                      0))
+          (let ((x.a (unsafe-bytes-ref a i)) (x.b (unsafe-bytes-ref b i)))
+            (cond ((unsafe-fx< x.a x.b) -1)
+                  ((unsafe-fx< x.b x.a)  1)
+                  (else                 (loop (unsafe-fx+ i 1)))))))))
+
+(define (btree-count bt) (unsafe-vector*-ref bt 0))
+
+(define (make-btree-2 key                leaf                 l r)   (vector key                leaf                 l r))
+(define (make-btree-3 left-key right-key left-leaf right-leaf l m r) (vector left-key right-key left-leaf right-leaf l m r))
+
+(define (btree-2?      t) (unsafe-fx= (unsafe-vector*-length t) 4))
+(define (btree-2-key   t) (unsafe-vector*-ref t 0))
+(define (btree-2-leaf  t) (unsafe-vector*-ref t 1))
+(define (btree-2-left  t) (unsafe-vector*-ref t btree-2-left:i))
+(define (btree-2-right t) (unsafe-vector*-ref t btree-2-right:i))
+
+(define (btree-2-left-set!  t u) (unsafe-vector*-set! t btree-2-left:i  u))
+(define (btree-2-right-set! t u) (unsafe-vector*-set! t btree-2-right:i u))
+
+(define btree-2-left:i  2)
+(define btree-2-right:i 3)
+
+(define (btree-3-left-key   t) (unsafe-vector*-ref t 0))
+(define (btree-3-right-key  t) (unsafe-vector*-ref t 1))
+(define (btree-3-left-leaf  t) (unsafe-vector*-ref t 2))
+(define (btree-3-right-leaf t) (unsafe-vector*-ref t 3))
+(define (btree-3-left       t) (unsafe-vector*-ref t btree-3-left:i))
+(define (btree-3-middle     t) (unsafe-vector*-ref t btree-3-middle:i))
+(define (btree-3-right      t) (unsafe-vector*-ref t btree-3-right:i))
+
+(define (btree-3-left-set!   t u) (unsafe-vector*-set! t btree-3-left:i   u))
+(define (btree-3-middle-set! t u) (unsafe-vector*-set! t btree-3-middle:i u))
+(define (btree-3-right-set!  t u) (unsafe-vector*-set! t btree-3-right:i  u))
+
+(define btree-3-left:i   4)
+(define btree-3-middle:i 5)
+(define btree-3-right:i  6)
+
+(define (btree-enumerate bt yield)
+  (let loop ((t (unsafe-vector*-ref bt 1)))
+    (when t
+      (cond ((btree-2? t) (loop  (btree-2-left t))
+                          (yield (btree-2-key t) (btree-2-leaf t))
+                          (loop  (btree-2-right t)))
+            (else (loop  (btree-3-left t))
+                  (yield (btree-3-left-key t) (btree-3-left-leaf t))
+                  (loop  (btree-3-middle t))
+                  (yield (btree-3-right-key t) (btree-3-right-leaf t))
+                  (loop  (btree-3-right t)))))))
+
+;; TODO: provide an id / value that we should map x to if it's not already present
+(define (btree-ref-or-set! bt x)
+  (let loop ((t        (unsafe-vector*-ref bt 1))
+             (replace! (lambda (u)            (unsafe-vector*-set! bt 1 u)))
+             (expand!  (lambda (key leaf l r) (unsafe-vector*-set! bt 1 (vector key leaf l r)))))
+    (cond
+      ((not t) (let ((count (unsafe-vector*-ref bt 0)))
+                 (unsafe-vector*-set! bt 0 (unsafe-fx+ count 1))
+                 (expand! x count #f #f)
+                 count))
+      ((btree-2? t) (case (bytes-compare x (btree-2-key t))
+                      ((-1) (loop (btree-2-left t)
+                                  (lambda (u) (btree-2-left-set! t u))
+                                  (lambda (left-key left-leaf l m)
+                                    (replace! (make-btree-3 left-key (btree-2-key t)
+                                                            left-leaf (btree-2-leaf t)
+                                                            l m (btree-2-right t))))))
+                      (( 1) (loop (btree-2-right t)
+                                  (lambda (u) (btree-2-right-set! t u))
+                                  (lambda (right-key right-leaf m r)
+                                    (replace! (make-btree-3 (btree-2-key t) right-key
+                                                            (btree-2-leaf t) right-leaf
+                                                            (btree-2-left t) m r)))))
+                      (else (btree-2-leaf t))))
+      (else (case (bytes-compare x (btree-3-left-key t))
+              ((-1) (loop (btree-3-left t)
+                          (lambda (u) (btree-3-left-set! t u))
+                          (lambda (key leaf l r)
+                            (expand! (btree-3-left-key t)
+                                     (btree-3-left-leaf t)
+                                     (make-btree-2 key leaf l r)
+                                     (make-btree-2 (btree-3-right-key t) (btree-3-right-leaf t)
+                                                   (btree-3-middle t) (btree-3-right t))))))
+              (( 1) (case (bytes-compare x (btree-3-right-key t))
+                      ((-1) (loop (btree-3-middle t)
+                                  (lambda (u) (btree-3-middle-set! t u))
+                                  (lambda (key leaf l r)
+                                    (expand! key leaf
+                                             (make-btree-2 (btree-3-left-key t) (btree-3-left-leaf t)
+                                                           (btree-3-left t) l)
+                                             (make-btree-2 (btree-3-right-key t) (btree-3-right-leaf t)
+                                                           r (btree-3-right t))))))
+                      (( 1) (loop (btree-3-right t)
+                                  (lambda (u) (btree-3-right-set! t u))
+                                  (lambda (key leaf l r)
+                                    (expand! (btree-3-right-key t)
+                                             (btree-3-right-leaf t)
+                                             (make-btree-2 (btree-3-left-key t) (btree-3-left-leaf t)
+                                                           (btree-3-left t) (btree-3-middle t))
+                                             (make-btree-2 key leaf l r)))))
+                      (else (btree-3-right-leaf t))))
+              (else (btree-3-left-leaf t)))))))
 
 ;; TODO: benchmark a design based on streams/iterators for comparison
 
