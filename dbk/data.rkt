@@ -760,7 +760,7 @@
        column-ids))
 
 (define (ingest-relation-source apath.root lpath.domain-text lpath.table type s.in)
-  (define bytes=>id             (make-hash))
+  (define bytes=>id             (make-btree))
   (define size.bytes            0)
   (define count.tuples.initial  0)
   (define apath.domain.value    (path->string (build-path apath.root lpath.domain-text fn.value)))
@@ -769,11 +769,11 @@
   (define apath*.column.initial (map (lambda (p.c) (string-append p.c fnsuffix.initial))
                                      apath*.column))
   (define (insert-bytes! b)
-    (or (hash-ref bytes=>id b #f)
-        (let ((id (hash-count bytes=>id)))
-          (hash-set! bytes=>id b id)
-          (set! size.bytes (+ size.bytes (bytes-length b)))
-          id)))
+    (let* ((count.0 (btree-count bytes=>id))
+           (id      (btree-ref-or-set! bytes=>id b)))
+      (unless (= count.0 (btree-count bytes=>id))
+        (set! size.bytes (+ size.bytes (bytes-length b))))
+      id))
   (define row->tuple
     (let ((col->num* (map (lambda (i t.col)
                             (match t.col
@@ -813,29 +813,26 @@
                 s.in))))
 
   (define size.pos  (min-nat-bytes size.bytes))
-  (define count.ids (hash-count bytes=>id))
+  (define count.ids (btree-count bytes=>id))
   (define id=>id    (make-vector count.ids))
   (pretty-log `(ingested ,count.tuples.initial tuples))
-  (pretty-log `(sorting ,(hash-count bytes=>id) strings -- ,size.bytes bytes total))
-  (let ((bytes&id*.sorted (time/pretty-log (sort (hash->list bytes=>id)
-                                                 (lambda (a b) (bytes<? (car a) (car b)))))))
-    (pretty-log '(writing sorted strings to) apath.domain.value
-                '(writing positions to) apath.domain.pos)
-    (let/files () ((out.bytes.value apath.domain.value)
-                   (out.bytes.pos   apath.domain.pos))
-      (define (write-pos)
-        (write-bytes (nat->bytes size.pos (file-position out.bytes.value)) out.bytes.pos))
-      (write-pos)
-      (time/pretty-log
-        (let loop ((i 0) (b&id* bytes&id*.sorted))
-          (unless (null? b&id*)
-            (let* ((b&id (car b&id*))
-                   (b    (car b&id))
-                   (id   (cdr b&id)))
-              (write-bytes b out.bytes.value)
-              (write-pos)
-              (vector-set! id=>id id i)
-              (loop (+ i 1) (cdr b&id*))))))))
+  (pretty-log `(enumerating ,(btree-count bytes=>id) strings -- ,size.bytes bytes total))
+  (pretty-log '(writing sorted strings to) apath.domain.value
+              '(writing positions to) apath.domain.pos)
+  (let/files () ((out.bytes.value apath.domain.value)
+                 (out.bytes.pos   apath.domain.pos))
+    (define (write-pos)
+      (write-bytes (nat->bytes size.pos (file-position out.bytes.value)) out.bytes.pos))
+    (write-pos)
+    (time/pretty-log
+      (let ((i 0))
+        (btree-enumerate
+          bytes=>id
+          (lambda (b id)
+            (write-bytes b out.bytes.value)
+            (write-pos)
+            (vector-set! id=>id id i)
+            (set! i (unsafe-fx+ i 1)))))))
   (define desc.domain-text
     (hash 'count         count.ids
           'size.position size.pos))
