@@ -6,6 +6,27 @@
   unsafe-bytes-split-tab
   bytes-base10->fxnat
 
+  dict-count
+  dict-min
+  dict-min-value
+  dict-min-pop
+  dict-min-find
+  dict-max
+  dict-max-find
+  dict-empty?
+  dict->=
+  dict->
+  dict-<=
+  dict-<
+  dict-ref
+  dict-enumerator
+  dict-key-enumerator
+
+  dict:ref
+
+  merge-join
+  dict-join-ordered
+
   database
   database-path
   database-commit!
@@ -31,6 +52,10 @@
   relation-index-remove!
   relation-full-compact!
   relation-incremental-compact!
+
+  relation-index-dict
+  relation-text-dicts
+
   R.empty R+ R-
   auto-empty-trash?
   current-batch-size)
@@ -178,6 +203,9 @@
 (define (relation-index-remove!   r . ixs) ((wrapped-relation-controller r) 'index-remove!   ixs))
 (define (relation-full-compact!        r)  ((wrapped-relation-controller r) 'full-compact!))
 (define (relation-incremental-compact! r)  ((wrapped-relation-controller r) 'incremental-compact!))
+
+(define (relation-index-dict r signature) ((wrapped-relation-controller r) 'index-dict signature))
+(define (relation-text-dicts r)           ((wrapped-relation-controller r) 'text-dicts))
 
 (struct wrapped-database (controller)
         #:methods gen:custom-write
@@ -385,7 +413,52 @@
          (stg-update! 'relation-id=>type       (lambda (rid=>t)  (hash-remove rid=>t  id.self)))
          (stg-update! 'relation-id=>table-expr (lambda (rid=>te) (hash-remove rid=>te id.self)))
          (stg-update! 'relation-id=>indexes    (lambda (rid=>os) (hash-remove rid=>os id.self)))
-         (invalidate!))))
+         (invalidate!))
+        ((index-dict signature)
+         ;; TODO: support complex table expressions
+         (let* ((ordering (index-signature->ordering signature))
+                (oprefix* (ordering->prefixes ordering))
+                (texpr    (R-texpr id.self)))
+           (unless (hash-ref (hash-ref (stg-ref 'relation-id=>indexes) id.self) ordering #f)
+             (error "missing relation index" (R-name id.self) signature))
+           (unless (number? texpr)
+             (error "relation-index-dict with complex table expressions is not currently supported"
+                    (R-name id.self) texpr))
+           (let ((iprefix=>cid.key (stg-ref 'index-prefix=>key-column-id))
+                 (iprefix=>cid.pos (stg-ref 'index-prefix=>position-column-id))
+                 (cid=>desc        (stg-ref 'column-id=>column))
+                 (tid              texpr))
+             (let loop ((ref.prev (lambda (_) '()))
+                        (oprefix  (car oprefix*))
+                        (oprefix* (cdr oprefix*)))
+               (let* ((iprefix    (cons tid oprefix))
+                      (desc.key   (hash-ref cid=>desc (hash-ref iprefix=>cid.key iprefix)))
+                      (mvec       (column->monovec desc.key))
+                      (ival->dict (lambda (start end) (dict:monovec mvec ref.prev start end))))
+                 (cond
+                   ((null? oprefix*) (ival->dict 0 (column-count desc.key)))
+                   (else (let* ((desc.pos (hash-ref cid=>desc (hash-ref iprefix=>cid.pos iprefix)))
+                                (ref.pos  (column->ref desc.pos)))
+                           (loop (lambda (i) (ival->dict (ref.pos i) (ref.pos (unsafe-fx+ i 1))))
+                                 (car oprefix*) (cdr oprefix*))))))))))
+        ((text-dicts)
+         ;; TODO: support complex table expressions
+         (let ((texpr (R-texpr id.self)))
+           (unless (number? texpr)
+             (error "relation-text-dict with complex table expressions is not currently supported"
+                    (R-name id.self) texpr))
+           (let* ((tid=>cids (stg-ref 'table-id=>column-ids))
+                  (cid=>c    (stg-ref 'column-id=>column))
+                  (text-cids (list->set
+                               (filter-not not (map (lambda (cid)
+                                                      (column->text-cid (hash-ref cid=>c cid)))
+                                                    (hash-ref tid=>cids texpr))))))
+             (case (set-count text-cids)
+               ((0) (values #f #f))
+               ((1) (let ((desc.text (hash-ref cid=>c (car (set->list text-cids)))))
+                      (values (text-column->text=>id desc.text) (text-column->id=>text desc.text))))
+               (else (error "relation table has multiple text columns"
+                            (R-name id.self) texpr))))))))
     (lambda args (apply (or self (method-lambda
                                    ((valid?) #f)))
                         args)))
@@ -2066,6 +2139,34 @@
                     (cond ((<? min.pos min.neg) (less))
                           ((<? min.neg min.pos) (loop d.pos (dict-min-find d.neg #t min.pos)))
                           (else                 (same)))))))))
+
+(define ((merge-join k<? A B) yield)
+  (unless (or (dict-empty? A) (dict-empty? B))
+    (let loop ((A   A)
+               (k.A (dict-min A))
+               (B   B)
+               (k.B (dict-min B)))
+      (cond ((k<? k.A k.B) (let ((A (dict->= A k.B)))
+                             (unless (dict-empty? A)
+                               (loop A (dict-min A) B k.B))))
+            ((k<? k.B k.A) (let ((B (dict->= B k.A)))
+                             (unless (dict-empty? B)
+                               (loop A k.A B (dict-min B)))))
+            (else          (let ((t.A (dict-min-value A))
+                                 (t.B (dict-min-value B))
+                                 (A   (dict-min-pop A))
+                                 (B   (dict-min-pop B)))
+                             (yield k.A t.A t.B)
+                             (unless (or (dict-empty? A) (dict-empty? B))
+                               (loop A (dict-min A) B (dict-min B)))))))))
+
+(define ((dict-join-ordered en.ordered d.index) yield)
+  (unless (dict-empty? d.index)
+    (en.ordered (lambda (k v)
+                  (set! d.index (dict->= d.index k))
+                  (dict-ref d.index k
+                            (lambda (v.index) (yield k v v.index))
+                            (lambda ()        (void)))))))
 
 ;; 2-3 tree
 (define (make-btree) (vector 0 #f))
