@@ -996,7 +996,7 @@
     (checkpoint!))
 
   (define (text-column->text=>id desc) (let ((count (column-count desc)))
-                                         (dict:ref (column->ref desc) bytes<? bytes<=?
+                                         (dict:ref (column->ref desc) bytes<?
                                                    (column->ref (hash 'class  'line
                                                                       'count  count
                                                                       'offset 0
@@ -1134,9 +1134,8 @@
                             (lambda (i) (ref.text (ref i)))))))))
 
   (define (column->monovec desc)
-    (define (ref->monovec ref) (monovec ref
-                                        (find-next:ref ref unsafe-fx< unsafe-fx<=)
-                                        (find-prev:ref ref unsafe-fx< unsafe-fx<=)))
+    (define (ref->monovec ref)
+      (monovec ref (find-next:ref ref unsafe-fx<) (find-prev:ref ref unsafe-fx<)))
     (case (hash-ref desc 'class)
       ((line)  (let ((step   (hash-ref desc 'step))
                      (offset (hash-ref desc 'offset)))
@@ -1876,12 +1875,14 @@
 (define ((ref-map   ref f)      i) (f                          (ref i)))
 (define ((ref-remap ref id=>id) i) (unsafe-fxvector-ref id=>id (ref i)))
 
-(define ((find-next:ref ref <? <=?) inclusive? i.start i.end v)
-  (let ((<? (if inclusive? <? <=?)))
-    (bisect-next i.start i.end (lambda (i) (<? (ref i) v)))))
-(define ((find-prev:ref ref <? <=?) inclusive? i.start i.end v)
-  (let ((<? (if inclusive? <? <=?)))
-    (bisect-prev i.start i.end (lambda (i) (<? v (ref i))))))
+(define ((find-next:ref ref <?) inclusive? i.start i.end v)
+  (if inclusive?
+      (bisect-next i.start i.end (lambda (i) (<? (ref i) v)))
+      (bisect-next i.start i.end (lambda (i) (not (<? v (ref i)))))))
+(define ((find-prev:ref ref <?) inclusive? i.start i.end v)
+  (if inclusive?
+      (bisect-prev i.start i.end (lambda (i) (<? v (ref i))))
+      (bisect-prev i.start i.end (lambda (i) (not (<? (ref i) v))))))
 
 (define ((find-next:line offset step) inclusive? i.start i.end v)
   (let* ((i.0 (/ (- v offset) step))
@@ -1934,10 +1935,10 @@
   (match-define (monovec ref.key find-next find-prev) monovec.key)
   (dict:basic ref.key find-next find-prev ref.value start end))
 
-(define (dict:ref ref.key <?.key <=?.key ref.value start end)
+(define (dict:ref ref.key <?.key ref.value start end)
   (dict:basic ref.key
-              (find-next:ref ref.key <?.key <=?.key)
-              (find-prev:ref ref.key <?.key <=?.key)
+              (find-next:ref ref.key <?.key)
+              (find-prev:ref ref.key <?.key)
               ref.value
               start end))
 

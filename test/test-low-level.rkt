@@ -26,7 +26,7 @@
 (define (bytes*->id=>1 text*)
   (let* ((text* (sort (set->list (list->set text*)) bytes<?))
          (id*   (list->vector (map (lambda (text) (dict-get text=>id text)) text*))))
-    (dict:ref (lambda (i) (vector-ref id* i)) fx< fx<=
+    (dict:ref (lambda (i) (vector-ref id* i)) fx<
               (lambda (_) '()) 0 (vector-length id*))))
 
 (define (string->id str) (text->id (string->bytes/utf-8 str)))
@@ -179,7 +179,7 @@
     (let* ((candidate* (sort candidate* (lambda (a b) (string<? (car a) (car b)))))
            (group*     (list->vector (s-group candidate* equal? car)))
            (ref.value  (lambda (i) (vector-ref group* i))))
-      (dict:ref (lambda (i) (caar (ref.value i))) string<? string<=?
+      (dict:ref (lambda (i) (caar (ref.value i))) string<?
                 ref.value 0 (vector-length group*))))
   (let* ((X=>XK1=>1 (candidate*->dict (query:X->Known category*.X predicate*.K1<-X curie*.K1)))
          (X=>XK2=>1 (candidate*->dict (query:X->Known category*.X predicate*.X->K2 curie*.K2))))
@@ -203,13 +203,13 @@
     (let* ((candidate* (sort candidate* (lambda (a b) (string<? (car a) (car b)))))
            (group*     (list->vector (s-group candidate* equal? car)))
            (ref.value  (lambda (i) (vector-ref group* i))))
-      (dict:ref (lambda (i) (cadddr (car (ref.value i)))) string<? string<=?
+      (dict:ref (lambda (i) (cadddr (car (ref.value i)))) string<?
                 ref.value 0 (vector-length group*))))
   (define (XK*->dict candidate*)
     (let* ((candidate* (sort candidate* (lambda (a b) (string<? (car a) (car b)))))
            (group*     (list->vector (s-group candidate* equal? car)))
            (ref.value  (lambda (i) (vector-ref group* i))))
-      (dict:ref (lambda (i) (caar (ref.value i))) string<? string<=?
+      (dict:ref (lambda (i) (caar (ref.value i))) string<?
                 ref.value 0 (vector-length group*))))
   (let* ((X=>K1X=>1 (KX*->dict (query:Known->X curie*.K1 predicate*.K1->X category*.X)))
          (X=>XK2=>1 (XK*->dict (query:X->Known category*.X predicate*.X->K2 curie*.K2))))
@@ -233,7 +233,7 @@
     (let* ((result*   (sort result* (lambda (a b) (string<? (key a) (key b)))))
            (group*    (list->vector (s-group result* equal? key)))
            (ref.value (lambda (i) (vector-ref group* i))))
-      (dict:ref (lambda (i) (key (car (ref.value i)))) string<? string<=?
+      (dict:ref (lambda (i) (key (car (ref.value i)))) string<?
                 ref.value 0 (vector-length group*))))
   (let* ((Y=>YK=>1 (result*->dict car    (query:X->Known category*.Y predicate*.Y->K curie*.K)))
          (curie*.Y (enumerator->list (dict-key-enumerator Y=>YK=>1)))
