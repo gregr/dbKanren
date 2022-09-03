@@ -16,6 +16,10 @@
 (require "../dbk/database.rkt" "../dbk/enumerator.rkt" "../dbk/stream.rkt"
          racket/fixnum racket/match racket/pretty racket/runtime-path racket/set)
 
+;; Control whether data is preloaded from disk and kept in-memory
+(define preload-index? #f)
+(define preload-text?  #f)
+
 (define str.predicate "predicate")
 ;(define str.predicate "edge_label")
 
@@ -347,11 +351,13 @@
 (define r.edge  (database-relation db 'edge))
 (define r.eprop (database-relation db 'eprop))
 
-(define-values (text=>id id=>text) (relation-text-dicts r.cprop))
+(displayln "Loading text dictionaries")
+(define-values (text=>id id=>text) (time (relation-text-dicts r.cprop preload-text?)))
 
-(define subject=>eid=>object=>1 (relation-index-dict r.edge  '(subject eid object)))
-(define object=>eid=>subject=>1 (relation-index-dict r.edge  '(object eid subject)))
-(define ekey=>evalue=>eid=>1    (relation-index-dict r.eprop '(key value eid)))
-(define eid=>ekey=>evalue=>1    (relation-index-dict r.eprop '(eid key value)))
-(define ckey=>cvalue=>curie=>1  (relation-index-dict r.cprop '(key value curie)))
-(define curie=>ckey=>cvalue=>1  (relation-index-dict r.cprop '(curie key value)))
+(displayln "Loading relation index dictionaries")
+(define subject=>eid=>object=>1 (time (relation-index-dict r.edge  '(subject eid object) preload-index?)))
+(define object=>eid=>subject=>1 (time (relation-index-dict r.edge  '(object eid subject) preload-index?)))
+(define ekey=>evalue=>eid=>1    (time (relation-index-dict r.eprop '(key value eid)      preload-index?)))
+(define eid=>ekey=>evalue=>1    (time (relation-index-dict r.eprop '(eid key value)      preload-index?)))
+(define ckey=>cvalue=>curie=>1  (time (relation-index-dict r.cprop '(key value curie)    preload-index?)))
+(define curie=>ckey=>cvalue=>1  (time (relation-index-dict r.cprop '(curie key value)    preload-index?)))

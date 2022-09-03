@@ -204,8 +204,8 @@
 (define (relation-full-compact!        r)  ((wrapped-relation-controller r) 'full-compact!))
 (define (relation-incremental-compact! r)  ((wrapped-relation-controller r) 'incremental-compact!))
 
-(define (relation-index-dict r signature) ((wrapped-relation-controller r) 'index-dict signature))
-(define (relation-text-dicts r)           ((wrapped-relation-controller r) 'text-dicts))
+(define (relation-index-dict r signature preload?) ((wrapped-relation-controller r) 'index-dict signature preload?))
+(define (relation-text-dicts r preload?)           ((wrapped-relation-controller r) 'text-dicts preload?))
 
 (struct wrapped-database (controller)
         #:methods gen:custom-write
@@ -414,7 +414,7 @@
          (stg-update! 'relation-id=>table-expr (lambda (rid=>te) (hash-remove rid=>te id.self)))
          (stg-update! 'relation-id=>indexes    (lambda (rid=>os) (hash-remove rid=>os id.self)))
          (invalidate!))
-        ((index-dict signature)
+        ((index-dict signature preload?)
          ;; TODO: support complex table expressions
          (let* ((ordering (index-signature->ordering signature))
                 (oprefix* (ordering->prefixes ordering))
@@ -433,15 +433,15 @@
                         (oprefix* (cdr oprefix*)))
                (let* ((iprefix    (cons tid oprefix))
                       (desc.key   (hash-ref cid=>desc (hash-ref iprefix=>cid.key iprefix)))
-                      (mvec       (column->monovec desc.key))
+                      (mvec       (column->monovec desc.key preload?))
                       (ival->dict (lambda (start end) (dict:monovec mvec ref.prev start end))))
                  (cond
                    ((null? oprefix*) (ival->dict 0 (column-count desc.key)))
                    (else (let* ((desc.pos (hash-ref cid=>desc (hash-ref iprefix=>cid.pos iprefix)))
-                                (ref.pos  (column->ref desc.pos)))
+                                (ref.pos  (column->ref desc.pos preload?)))
                            (loop (lambda (i) (ival->dict (ref.pos i) (ref.pos (unsafe-fx+ i 1))))
                                  (car oprefix*) (cdr oprefix*))))))))))
-        ((text-dicts)
+        ((text-dicts preload?)
          ;; TODO: support complex table expressions
          (let ((texpr (R-texpr id.self)))
            (unless (number? texpr)
@@ -456,7 +456,8 @@
              (case (set-count text-cids)
                ((0) (values #f #f))
                ((1) (let ((desc.text (hash-ref cid=>c (car (set->list text-cids)))))
-                      (values (text-column->text=>id desc.text) (text-column->id=>text desc.text))))
+                      (values (text-column->text=>id desc.text preload?)
+                              (text-column->id=>text desc.text preload?))))
                (else (error "relation table has multiple text columns"
                             (R-name id.self) texpr))))))))
     (lambda args (apply (or self (method-lambda
@@ -995,21 +996,23 @@
       (remove-unreachable! 'column-id=>column                column-ids.reachable))
     (checkpoint!))
 
-  (define (text-column->text=>id desc) (let ((count (column-count desc)))
-                                         (dict:ref (column->ref desc) bytes<?
-                                                   (column->ref (hash 'class  'line
-                                                                      'count  count
-                                                                      'offset 0
-                                                                      'step   1))
-                                                   0 count)))
-  (define (text-column->id=>text desc) (let ((count (column-count desc)))
-                                         (dict:monovec
-                                           (column->monovec (hash 'class  'line
-                                                                  'count  count
-                                                                  'offset 0
-                                                                  'step   1))
-                                           (column->ref desc)
-                                           0 count)))
+  (define (text-column->text=>id desc preload?) (let ((count (column-count desc)))
+                                                  (dict:ref (column->ref desc preload?) bytes<?
+                                                            (column->ref (hash 'class  'line
+                                                                               'count  count
+                                                                               'offset 0
+                                                                               'step   1)
+                                                                         preload?)
+                                                            0 count)))
+  (define (text-column->id=>text desc preload?) (let ((count (column-count desc)))
+                                                  (dict:monovec
+                                                    (column->monovec (hash 'class  'line
+                                                                           'count  count
+                                                                           'offset 0
+                                                                           'step   1)
+                                                                     preload?)
+                                                    (column->ref desc preload?)
+                                                    0 count)))
 
   (define (block-desc->path desc.col) (storage-block-path stg (hash-ref desc.col 'name)))
   (define (open-input-block desc.col) (open-input-file (block-desc->path desc.col)))
@@ -1105,7 +1108,7 @@
                        (_                     '()))))))
       ((remap) (let ((s   ((column->start->s (hash-ref (stg-ref 'column-id=>column) (hash-ref desc.col 'local)))
                            start))
-                     (ref (column->ref (hash-ref (stg-ref 'column-id=>column) (hash-ref desc.col 'global)))))
+                     (ref (column->ref (hash-ref (stg-ref 'column-id=>column) (hash-ref desc.col 'global)) #f)))
                  (values count (s-map ref s))))
       (else    (error "column->start->s unimplemented for column class" desc.col))))
 
@@ -1118,22 +1121,29 @@
                              (else   (column->text-cid desc)))))
       (else              #f)))
 
-  (define (column->ref desc)
+  (define (column->ref desc preload?)
     (case (hash-ref desc 'class)
-      ((text) (let* ((cid=>c  (stg-ref 'column-id=>column))
-                     (ref.pos (column->ref (hash-ref cid=>c (hash-ref desc 'position))))
-                     (in      (open-input-block/cache (hash-ref cid=>c (hash-ref desc 'value)))))
-                (lambda (i) (let ((pos.i   (ref.pos i))
-                                  (pos.i+1 (ref.pos (unsafe-fx+ i 1))))
-                              (file-position in pos.i)
-                              (read-bytes (unsafe-fx- pos.i+1 pos.i) in)))))
-      (else   (match-define (monovec ref fnext fprev) (column->monovec desc))
+      ((text) (let* ((cid=>c     (stg-ref 'column-id=>column))
+                     (ref.pos    (column->ref (hash-ref cid=>c (hash-ref desc 'position)) preload?))
+                     (desc.value (hash-ref cid=>c (hash-ref desc 'value))))
+                (if preload?
+                    ;; TODO: cache this bytevector
+                    (let ((bs (file->bytes (block-desc->path desc.value))))
+                      (lambda (i) (let ((pos.i   (ref.pos i))
+                                        (pos.i+1 (ref.pos (unsafe-fx+ i 1))))
+                                    (subbytes bs pos.i pos.i+1))))
+                    (let ((in (open-input-block/cache desc.value)))
+                      (lambda (i) (let ((pos.i   (ref.pos i))
+                                        (pos.i+1 (ref.pos (unsafe-fx+ i 1))))
+                                    (file-position in pos.i)
+                                    (read-bytes (unsafe-fx- pos.i+1 pos.i) in)))))))
+      (else   (match-define (monovec ref fnext fprev) (column->monovec desc preload?))
               (match (column->text-cid desc)
                 (#f       ref)
-                (cid.text (let ((ref.text (column->ref (hash-ref (stg-ref 'column-id=>column) cid.text))))
+                (cid.text (let ((ref.text (column->ref (hash-ref (stg-ref 'column-id=>column) cid.text) preload?)))
                             (lambda (i) (ref.text (ref i)))))))))
 
-  (define (column->monovec desc)
+  (define (column->monovec desc preload?)
     (define (ref->monovec ref)
       (monovec ref (find-next:ref ref unsafe-fx<) (find-prev:ref ref unsafe-fx<)))
     (case (hash-ref desc 'class)
@@ -1145,18 +1155,21 @@
                             (find-next:line offset step)
                             (find-prev:line offset step)))))
       ((block) (let* ((width  (unsafe-fxrshift (hash-ref desc 'bit-width) 3))
-                      (offset (hash-ref desc 'offset))
-                      (in     (open-input-block/cache desc)))
-                 (ref->monovec (lambda (i)
-                                 (file-position in (* width i))
-                                 (unsafe-fx+ (unsafe-bytes-nat-ref width (read-bytes width in) 0) offset)))))
+                      (offset (hash-ref desc 'offset)))
+                 (if preload?
+                     (let ((vec (read-fx-column desc)))
+                       (ref->monovec (lambda (i) (unsafe-fxvector-ref vec i))))
+                     (let ((in (open-input-block/cache desc)))
+                       (ref->monovec (lambda (i)
+                                       (file-position in (* width i))
+                                       (unsafe-fx+ (unsafe-bytes-nat-ref width (read-bytes width in) 0) offset)))))))
       ((text)  #f)
       ((remap) (let* ((cid=>c      (stg-ref 'column-id=>column))
                       (desc.global (hash-ref cid=>c (hash-ref desc 'global)))
-                      (monov.local (column->monovec (hash-ref cid=>c (hash-ref desc 'local)))))
+                      (monov.local (column->monovec (hash-ref cid=>c (hash-ref desc 'local)) preload?)))
                  (case (hash-ref desc.global 'class)
                    ((text) monov.local)
-                   ((line) (match-define (monovec ref.global fnext.global fprev.global) (column->monovec desc.global))
+                   ((line) (match-define (monovec ref.global fnext.global fprev.global) (column->monovec desc.global preload?))
                            (match-define (monovec ref.local  fnext.local  fprev.local)  monov.local)
                            (define (ref i) (ref.global (ref.local i)))
                            (if (unsafe-fx= (hash-ref desc.global 'step) 0)
