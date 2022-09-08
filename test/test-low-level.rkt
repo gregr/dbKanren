@@ -16,9 +16,9 @@
 (require "../dbk/database.rkt" "../dbk/enumerator.rkt" "../dbk/stream.rkt"
          racket/fixnum racket/match racket/pretty racket/runtime-path racket/set)
 
-;; Control whether data is preloaded from disk and kept in-memory
+;; Control whether data is preloaded from disk and kept in-memory.
+;; NOTE: without preloading, thread-safety is not guaranteed by default.
 (define preload-index? #f)
-(define preload-text?  #f)
 
 (define str.predicate "predicate")
 ;(define str.predicate "edge_label")
@@ -29,14 +29,14 @@
 (define (string*->id=>1 str*) (bytes*->id=>1 (map string->bytes/utf-8 str*)))
 (define (bytes*->id=>1 text*)
   (let* ((text* (sort (set->list (list->set text*)) bytes<?))
-         (id*   (list->vector (map (lambda (text) (dict-get text=>id text)) text*))))
+         (id*   (list->vector (map text->id text*))))
     (dict:ref (lambda (i) (vector-ref id* i)) fx<
               (lambda (_) '()) 0 (vector-length id*))))
 
 (define (string->id str) (text->id (string->bytes/utf-8 str)))
 (define (id->string id)  (bytes->string/utf-8 (id->text id)))
-(define (text->id   b)   (dict-get text=>id b))
-(define (id->text   id)  (dict-get id=>text id))
+(define (text->id   b)   (initialize-text!) (dict-get (thread-cell-ref tcell.text=>id) b))
+(define (id->text   id)  (initialize-text!) (dict-get (thread-cell-ref tcell.id=>text) id))
 
 (define (concept-properties)          (map id->string (enumerator->list
                                                         (dict-key-enumerator ckey=>cvalue=>curie=>1))))
@@ -451,8 +451,14 @@
 (define r.edge  (database-relation db 'edge))
 (define r.eprop (database-relation db 'eprop))
 
-(displayln "Loading text dictionaries")
-(define-values (text=>id id=>text) (time (relation-text-dicts r.cprop preload-text?)))
+(define tcell.text=>id (make-thread-cell #f))
+(define tcell.id=>text (make-thread-cell #f))
+
+(define (initialize-text!)
+  (unless (thread-cell-ref tcell.text=>id)
+    (define-values (text=>id id=>text) (relation-text-dicts r.cprop #f))
+    (thread-cell-set! tcell.text=>id text=>id)
+    (thread-cell-set! tcell.id=>text id=>text)))
 
 (displayln "Loading relation index dictionaries")
 (define subject=>object=>eid=>1 (time (relation-index-dict r.edge  '(subject object eid) preload-index?)))
