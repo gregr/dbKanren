@@ -343,8 +343,7 @@
                      (for-each
                        (lambda (XK2)
                          (match-define (list* _ _ X->K2 K2 name.K2 props2) XK2)
-                         (yield (append (list K1 name.K1 predicate.X->K1 X name.X X->K2 K2 name.K2)
-                                        (append props1 props2))))
+                         (yield (list K1 name.K1 predicate.X->K1 X name.X X->K2 K2 name.K2 props1 props2)))
                        XK2*))
                    XK1*))))))))
 
@@ -373,8 +372,7 @@
                      (for-each
                        (lambda (XK2)
                          (match-define (list* _ _ X->K2 K2 name.K2 props2) XK2)
-                         (yield (append (list K1 name.K1 predicate.X->K1 X name.X X->K2 K2 name.K2)
-                                        (append props1 props2))))
+                         (yield (list K1 name.K1 predicate.X->K1 X name.X X->K2 K2 name.K2 props1 props2)))
                        XK2*))
                    K1X*))))))))
 
@@ -398,8 +396,7 @@
                      (for-each
                        (lambda (YK)
                          (match-define (list* _ _ Y->K K name.K props.Y->K) YK)
-                         (yield (append (list X name.X predicate.X->Y Y name.Y Y->K K name.K)
-                                        (append props.X->Y props.Y->K))))
+                         (yield (list X name.X predicate.X->Y Y name.Y Y->K K name.K props.X->Y props.Y->K)))
                        YK*))
                    XY*))))))))
 
