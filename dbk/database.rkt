@@ -1942,7 +1942,11 @@
   (method-lambda
     ((count)                   0)
     ((min-find inclusive? key) dict.empty)
-    ((max-find inclusive? key) dict.empty)))
+    ((max-find inclusive? key) dict.empty)
+    ((min)                     (error "method not supported for empty dictionary: min"))
+    ((min-value)               (error "method not supported for empty dictionary: min-value"))
+    ((min-pop)                 (error "method not supported for empty dictionary: min-pop"))
+    ((max)                     (error "method not supported for empty dictionary: max"))))
 
 (define (dict:monovec monovec.key ref.value start end)
   (match-define (monovec ref.key find-next find-prev) monovec.key)
