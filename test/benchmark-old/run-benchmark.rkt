@@ -21,7 +21,7 @@
 ;; Benchmark reference: http://users.informatik.uni-halle.de/~brass/botup/
 
 (define-relation/table Q
-  'path            "benchmark1/Q"
+  'path            "data/Q"
   'source-stream   (value/syntax
                      (map (lambda (i) (list i (+ i 1))) (range 1 5001)))
   'attribute-names '(a b)
@@ -31,7 +31,7 @@
   )
 
 (define-relation/table R
-  'path            "benchmark1/R"
+  'path            "data/R"
   'source-stream   (value/syntax
                      (map (lambda (i) (list i    i))    (range 1 5001)))
   'attribute-names '(a b)
