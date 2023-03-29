@@ -16,6 +16,7 @@
   unsafe-bytes-length
   unsafe-bytes-ref
   unsafe-bytes-set!
+  unsafe-bytes-copy!
   unsafe-vector*-length
   unsafe-vector*-ref
   unsafe-vector*-set!
@@ -41,6 +42,7 @@
 (define unsafe-bytes-length    bytes-length)
 (define unsafe-bytes-ref       bytes-ref)
 (define unsafe-bytes-set!      bytes-set!)
+(define unsafe-bytes-copy!     bytes-copy!)
 (define unsafe-vector*-length  vector-length)
 (define unsafe-vector*-ref     vector-ref)
 (define unsafe-vector*-set!    vector-set!)
