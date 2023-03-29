@@ -4,12 +4,17 @@
 (define enable-interrupts  (vm-primitive 'enable-interrupts))
 (define disable-interrupts (vm-primitive 'disable-interrupts))
 
-;; 37GB
-;(define in (open-input-file "rtx-kg2-s3/rtx-kg2_edges_2.8.1.tsv"))
+;; TODO: use unsafe ops
+
 ;; 4.8GB
 (define in (open-input-file "rtx-kg2-s3/rtx-kg2_nodes_2.8.1.tsv"))
+(define field-count 16)
+;; 37GB
+;(define in (open-input-file "rtx-kg2-s3/rtx-kg2_edges_2.8.1.tsv"))
+;(define field-count 18)
 ;; 40GB
 ;(define in (open-input-file "rtx_kg2_20210204.edgeprop.tsv"))
+;(define field-count 3)
 
 (define-syntax-rule (pause e) (lambda () e))
 (define (s->list s)
@@ -31,29 +36,16 @@
               (else           (cons (car s) (loop (- n 1) (cdr s))))))
       (s->list s)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; streaming tuple blocks with multiple buffers ;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; TODO: should we just s-map over stream:line-block* for simplicity, or will the extra allocation hurt too much?
-
-;; Each tuple will be represented as a single bytevector with packed, length-encoded fields.
-;; This means that sorting tuples with bytes<? is not lexicographical relative to the field text.
-;; But this is fine since we only care about equality, not order.
-
-;(define (stream:tsv-tuple-block* field-count in)
-;  ;; TODO: Pre-allocate a fxvector buffer for storing intermediate lengths and offsets for the current line/tuple
-;  ;; - field-count tells us how large this buffer needs to be
-;  )
+(define (s-map f s)
+  (let loop ((s s))
+    (cond ((null? s)      '())
+          ((procedure? s) (loop (s)))
+          (else           (cons (f (car s)) (loop (cdr s)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; streaming line blocks with multiple buffers ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; ~20 seconds without streams (~22 seconds with streams) (~5.3 seconds gc) for 4.8GB (~17 seconds with disable-interrupts w/ ~3.1 seconds gc follow-up)
-(file-stream-buffer-mode in 'none)
-(define result #f)
-;(disable-interrupts)
 ;; NOTE: to measure something simpler first, this version doesn't parse tabs, just entire lines.
 (define (stream:line-block* in)
   (define block-length 1024)
@@ -129,14 +121,31 @@
             '()
             (loop.single 0 end buffer 0 (make-vector block-length)))))))
 
-(pretty-write
-  (time
-    (let loop ((count 0) (b* (stream:line-block* in)))
-      (cond ((null?      b*) count)
-            ((procedure? b*) (loop count (b*)))
-            (else            (loop (+ count (vector-length (car b*))) (cdr b*)))))))
+;; 4.8GB (turning off interrupts is worse)
+;;  cpu time: 16667 real time: 17318 gc time: 187
+;(file-stream-buffer-mode in 'none)
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (b* (stream:line-block* in)))
+;      (cond ((null?      b*) count)
+;            ((procedure? b*) (loop count (b*)))
+;            (else            (loop (+ count (vector-length (car b*))) (cdr b*)))))))
+;;; ==> 11342763
 
-;(set! result (time (s->list (stream:line-block* in))))
+;; Alternative test:
+;; 4.8GB
+;;  cpu time: 21950 real time: 22606 gc time: 5390
+;; 4.8GB no interrupts
+;;  cpu time: 17662 real time: 17663 gc time: 0
+;;  cpu time: 3130 real time: 3130 gc time: 3130
+;; 4.8GB no streams
+;;  cpu time: 19818 real time: 20461 gc time: 5364
+;; 4.8GB no streams, no interrupts
+;;  cpu time: 17155 real time: 17156 gc time: 0
+;;  cpu time: 3135 real time: 3136 gc time: 3135
+;(file-stream-buffer-mode in 'none)
+;;(disable-interrupts)
+;(define result (time (s->list (stream:line-block* in))))
 ;;(time (enable-interrupts))
 ;(pretty-write (vector-ref (car result) 0))
 ;(pretty-write
@@ -145,6 +154,114 @@
 ;          (else (loop (+ count (vector-length (car b*))) (cdr b*))))))
 ;(let ((v (car (reverse result))))
 ;  (pretty-write (vector-ref v (- (vector-length v) 1))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; streaming vector-tuple blocks ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (stream:tsv-vector-block* in field-count)
+  (s-map
+    (lambda (block)
+      (vector-map
+        (lambda (line)
+          (let ((len.line (bytes-length line))
+                (tuple    (make-vector field-count)))
+            (let loop ((i 0) (j.field 0) (start.field 0))
+              (cond
+                ((= i len.line)
+                 (vector-set! tuple j.field (subbytes line start.field i))
+                 (unless (= (+ j.field 1) field-count) (error "too few fields" j.field line))
+                 tuple)
+                ((= (bytes-ref line i) 9)
+                 (vector-set! tuple j.field (subbytes line start.field i))
+                 (let ((i (+ i 1)) (j.field (+ j.field 1)))
+                   (when (= j.field field-count) (error "too many fields" line))
+                   (loop i j.field i)))
+                (else (loop (+ i 1) j.field start.field))))))
+        block))
+    (stream:line-block* in)))
+
+;; 4.8GB
+;;  cpu time: 49724 real time: 51073 gc time: 15303
+;; 4.8GB no interrupts
+;;  cpu time: 36689 real time: 36692 gc time: 0
+;;  cpu time: 1484 real time: 1484 gc time: 1484
+(file-stream-buffer-mode in 'none)
+;(disable-interrupts)
+(pretty-write
+  (time
+    (let loop ((count 0) (b* (stream:tsv-vector-block* in field-count)))
+      (cond ((null?      b*) count)
+            ((procedure? b*) (loop count (b*)))
+            (else            (loop (+ count (vector-length (car b*))) (cdr b*)))))))
+;; ==> 11342763
+;(time (enable-interrupts))
+
+;; Alternative test:
+;; 4.8GB
+;;  cpu time: 49543 real time: 50893 gc time: 15047
+;; 4.8GB no interrupts
+;;  cpu time: 37174 real time: 37176 gc time: 0
+;;  cpu time: 7777 real time: 7777 gc time: 7777
+;; 4.8GB no streams (slightly slower for some reason)
+;;  cpu time: 50876 real time: 52210 gc time: 18141
+;; 4.8GB no streams, no interrupts
+;;  cpu time: 34756 real time: 34758 gc time: 0
+;;  cpu time: 7607 real time: 7607 gc time: 7607
+;(file-stream-buffer-mode in 'none)
+;;(disable-interrupts)
+;(define result (time (s->list (stream:tsv-vector-block* in field-count))))
+;;(time (enable-interrupts))
+;(pretty-write (vector-ref (car result) 0))
+;(pretty-write
+;  (let loop ((count 0) (b* result))
+;    (cond ((null? b*) count)
+;          (else (loop (+ count (vector-length (car b*))) (cdr b*))))))
+;(let ((v (car (reverse result))))
+;  (pretty-write (vector-ref v (- (vector-length v) 1))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; streaming bytevector-tuple blocks ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; TODO: should we just s-map over stream:line-block* for simplicity, or will the extra allocation hurt too much?
+
+;; Each tuple will be represented as a single bytevector with packed, length-encoded fields.
+;; This means that sorting tuples with bytes<? is not lexicographical relative to the field text.
+;; But this is fine since we only care about equality, not order.
+
+;(define (stream:tsv-bytevector-block* field-count in)
+;  ;; TODO: Pre-allocate a fxvector buffer for storing intermediate lengths and offsets for the current line/tuple
+;  ;; - field-count tells us how large this buffer needs to be
+;  (s-map
+;    (let ((end* (make-fxvector (- field-count 1))))
+;      (lambda (block)
+;        (vector-map
+;          (lambda (line)
+;            (let ((len.line (bytes-length line)))
+;              (let loop ((i 0) (j.field 0) (start.field 0) (size.field-length* 0))
+;                (cond
+;                  ((= i len.line)
+;                   (unless (= (+ j.field 1) field-count)
+;                     (error "too few fields" j.field line))
+;                   (let* ((len.last-field         (- i start.field))
+;                          (size.last-field-length
+;
+;                            ))
+;
+;                     (make-bytes (- (+ size.field-length* size.last-field-length len.line 1) field-count))
+;
+;                     ))
+;                  ((= (bytes-ref line i) 9)
+;                   (fxvector-set! end* j.field i)
+;                   (let ((len.field (- i start.field))
+;                         (i         (+ i 1)))
+;                     (loop i (+ j.field 1) i
+;
+;                           )))
+;                  (else (loop (+ i 1) j.field start.field size.field-length*))))))
+;          block)))
+;    (stream:line-block* in)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; naive tuple construction unbuffered ;;;
