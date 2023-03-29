@@ -1,10 +1,12 @@
 #lang racket/base
-(require ffi/unsafe/atomic racket/unsafe/ops)
+(require ffi/unsafe/atomic racket/fixnum racket/unsafe/ops)
 
-;; 37GB
+;; 37GB for 56965146 lines
 ;(define in (open-input-file "rtx-kg2-s3/rtx-kg2_edges_2.8.1.tsv"))
-;; 4.8GB
-(define in (open-input-file "rtx-kg2-s3/rtx-kg2_nodes_2.8.1.tsv"))
+;; 4.8GB for 11342763 lines
+;(define in (open-input-file "rtx-kg2-s3/rtx-kg2_nodes_2.8.1.tsv"))
+;; 40GB for 600183480 lines
+(define in (open-input-file "rtx_kg2_20210204.edgeprop.tsv"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; 4x unrolled read-bytes! unbuffered futures ;;;
@@ -105,6 +107,35 @@
 ;;; 4x unrolled read-bytes! unbuffered ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; ~3.2 seconds for 4.8GB (~3 seconds in atomic mode)
+;; NOTE: using a byte vector for the dispatch table is ~33% slower
+(file-stream-buffer-mode in 'none)
+;(start-atomic)
+(let ()
+  ;(define buffer-size 65536)
+  ;(define buffer-size 32768)
+  (define buffer-size 16384)
+  ;(define buffer-size 8192)
+  ;(define buffer-size 4096)
+  (time (let ((dispatch (make-fxvector 256 0))
+              (buffer (make-bytes buffer-size)))
+          (fxvector-set! dispatch 10 1)
+          (let loop.outer ((count 0))
+            (let ((size (read-bytes! buffer in 0 buffer-size)))
+              (if (eof-object? size)
+                  count
+                  (let loop.inner ((i 0) (count count))
+                    (if (unsafe-fx<= size i)
+                        (loop.outer count)
+                        (loop.inner
+                          (unsafe-fx+ i 4)
+                          (unsafe-fx+ count
+                                      (unsafe-fxvector-ref dispatch (unsafe-bytes-ref buffer i))
+                                      (unsafe-fxvector-ref dispatch (unsafe-bytes-ref buffer (unsafe-fx+ i 1)))
+                                      (unsafe-fxvector-ref dispatch (unsafe-bytes-ref buffer (unsafe-fx+ i 2)))
+                                      (unsafe-fxvector-ref dispatch (unsafe-bytes-ref buffer (unsafe-fx+ i 3)))))))))))))
+;(end-atomic)
+
 ;; ~6.3 seconds for 4.8GB (~5 seconds in atomic mode)
 ;(file-stream-buffer-mode in 'none)
 ;(start-atomic)
@@ -139,36 +170,59 @@
 ;;(end-atomic)
 
 ; ~2.9 seconds for 4.8GB
-(file-stream-buffer-mode in 'none)
-(start-atomic)
-(let ()
-  ;(define buffer-size 65536)
-  ;(define buffer-size 32768)
-  (define buffer-size 16384)
-  ;(define buffer-size 8192)
-  ;(define buffer-size 4096)
-  (time (let ((buffer (make-bytes buffer-size)))
-          (let loop.outer ((count 0))
-            (let ((size (read-bytes! buffer in 0 buffer-size)))
-              (if (eof-object? size)
-                  count
-                  (let loop.inner ((i 0) (count count))
-                    (if (unsafe-fx<= size i)
-                        (loop.outer count)
-                        (loop.inner
-                          (unsafe-fx+ i 4)
-                          (unsafe-fx+
-                            count
-                            (unsafe-fx- (unsafe-bytes-ref buffer i)                10)
-                            (unsafe-fx- (unsafe-bytes-ref buffer (unsafe-fx+ i 1)) 10)
-                            (unsafe-fx- (unsafe-bytes-ref buffer (unsafe-fx+ i 2)) 10)
-                            (unsafe-fx- (unsafe-bytes-ref buffer (unsafe-fx+ i 3)) 10)
-                            ))))))))))
-;(end-atomic)
+;(file-stream-buffer-mode in 'none)
+;(start-atomic)
+;(let ()
+;  ;(define buffer-size 65536)
+;  ;(define buffer-size 32768)
+;  (define buffer-size 16384)
+;  ;(define buffer-size 8192)
+;  ;(define buffer-size 4096)
+;  (time (let ((buffer (make-bytes buffer-size)))
+;          (let loop.outer ((count 0))
+;            (let ((size (read-bytes! buffer in 0 buffer-size)))
+;              (if (eof-object? size)
+;                  count
+;                  (let loop.inner ((i 0) (count count))
+;                    (if (unsafe-fx<= size i)
+;                        (loop.outer count)
+;                        (loop.inner
+;                          (unsafe-fx+ i 4)
+;                          (unsafe-fx+
+;                            count
+;                            (unsafe-fx- (unsafe-bytes-ref buffer i)                10)
+;                            (unsafe-fx- (unsafe-bytes-ref buffer (unsafe-fx+ i 1)) 10)
+;                            (unsafe-fx- (unsafe-bytes-ref buffer (unsafe-fx+ i 2)) 10)
+;                            (unsafe-fx- (unsafe-bytes-ref buffer (unsafe-fx+ i 3)) 10)
+;                            ))))))))))
+;;(end-atomic)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; read-bytes! unbuffered ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; ~7.2 seconds for 4.8GB (~6 seconds in atomic mode)
+;(file-stream-buffer-mode in 'none)
+;;(start-atomic)
+;(let ()
+;  ;(define buffer-size 65536)  ; ~8.3 seconds for 4.8GB
+;  ;(define buffer-size 32768)  ; ~8.3 seconds for 4.8GB
+;  (define buffer-size 16384)  ; ~7.6 seconds for 4.8GB
+;  ;(define buffer-size 8192)  ; ~7.6 seconds for 4.8GB
+;  ;(define buffer-size 4096)  ; ~8 seconds for 4.8GB
+;  (time (let ((dispatch (make-fxvector 256 0))
+;              (buffer (make-bytes buffer-size)))
+;          (fxvector-set! dispatch 10 1)
+;          (let loop.outer ((count 0))
+;            (let ((size (read-bytes! buffer in 0 buffer-size)))
+;              (if (eof-object? size)
+;                  count
+;                  (let loop.inner ((i 0) (count count))
+;                    (if (unsafe-fx= i size)
+;                        (loop.outer count)
+;                        (loop.inner (unsafe-fx+ i 1)
+;                                    (unsafe-fx+ count (unsafe-fxvector-ref dispatch (unsafe-bytes-ref buffer i))))))))))))
+;;(end-atomic)
 
 ;; ~7.6 seconds for 4.8GB (~6.5 seconds in atomic mode)
 ;(file-stream-buffer-mode in 'none)
