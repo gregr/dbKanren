@@ -10,6 +10,9 @@
   unsafe-fx-
   unsafe-fx*
   unsafe-fxand
+  unsafe-fxior
+  unsafe-fxxor
+  unsafe-fxnot
   unsafe-fxlshift
   unsafe-fxrshift
   unsafe-fxquotient
@@ -36,6 +39,9 @@
 (define unsafe-fx-             fx-)
 (define unsafe-fx*             fx*)
 (define unsafe-fxand           fxand)
+(define unsafe-fxior           fxior)
+(define unsafe-fxxor           fxxor)
+(define unsafe-fxnot           fxnot)
 (define unsafe-fxlshift        fxlshift)
 (define unsafe-fxrshift        fxrshift)
 (define unsafe-fxquotient      fxquotient)
