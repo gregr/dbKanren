@@ -8,14 +8,14 @@
 (define disable-interrupts (vm-primitive 'disable-interrupts))
 
 ;; 4.8GB
-;(define in (open-input-file "rtx-kg2-s3/rtx-kg2_nodes_2.8.1.tsv"))
-;(define field-count 16)
+(define in (open-input-file "rtx-kg2-s3/rtx-kg2_nodes_2.8.1.tsv"))
+(define field-count 16)
 ;; 37GB
 ;(define in (open-input-file "rtx-kg2-s3/rtx-kg2_edges_2.8.1.tsv"))
 ;(define field-count 18)
 ;; 40GB
-(define in (open-input-file "rtx_kg2_20210204.edgeprop.tsv"))
-(define field-count 3)
+;(define in (open-input-file "rtx_kg2_20210204.edgeprop.tsv"))
+;(define field-count 3)
 
 (define-syntax-rule (pause e) (lambda () e))
 (define (s->list s)
@@ -742,13 +742,109 @@
 ;; 40GB
 ;;  cpu time: 184234 real time: 195508 gc time: 1405
 ;; ==> 600183480
+;(file-stream-buffer-mode in 'none)
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (b* (stream:tsv-bytevector-block*-via-map-spare-buffer in field-count)))
+;      (cond ((null?      b*) count)
+;            ((procedure? b*) (loop count (b*)))
+;            (else            (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car b*))) (unsafe-cdr b*)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; sorting vector-tuple blocks ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (vector-tuple-sort! tuple*)
+  (define (vector-tuple<? a b)
+    (define (text-compare/k a b k.< k.= k.>)
+      (let ((len.a (unsafe-bytes-length a))
+            (len.b (unsafe-bytes-length b)))
+        (cond ((unsafe-fx< len.a len.b) (k.<))
+              ((unsafe-fx< len.b len.a) (k.>))
+              (else (let loop ((i 0))
+                      (if (unsafe-fx= i len.a)
+                          (k.=)
+                          (let ((x.a (unsafe-bytes-ref a i)) (x.b (unsafe-bytes-ref b i)))
+                            (cond ((unsafe-fx< x.a x.b) (k.<))
+                                  ((unsafe-fx< x.b x.a) (k.>))
+                                  (else (loop (unsafe-fx+ i 1)))))))))))
+    (let ((len (unsafe-vector*-length a)))
+      (let loop ((i 0))
+        (and (unsafe-fx< i len)
+             (text-compare/k (unsafe-vector*-ref a i) (unsafe-vector*-ref b i)
+                             (lambda () #t)
+                             (lambda () (loop (unsafe-fx+ i 1)))
+                             (lambda () #f))))))
+  (vector-sort! tuple* vector-tuple<?))
+
+;; 4.8GB
+;;  cpu time: 29876 real time: 31893 gc time: 498
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 176952 real time: 188737 gc time: 5503
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 275484 real time: 291020 gc time: 2008
+;; ==> 600183480
 (file-stream-buffer-mode in 'none)
 (pretty-write
   (time
-    (let loop ((count 0) (b* (stream:tsv-bytevector-block*-via-map-spare-buffer in field-count)))
+    (let loop ((count 0) (b* (stream:tsv-vector-block*-via-map-spare-buffer in field-count)))
       (cond ((null?      b*) count)
             ((procedure? b*) (loop count (b*)))
-            (else            (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car b*))) (unsafe-cdr b*)))))))
+            (else            (loop (unsafe-fx+ count
+                                               (let ((tuple* (unsafe-car b*)))
+                                                 (vector-tuple-sort! tuple*)
+                                                 (unsafe-vector*-length tuple*)))
+                                   (unsafe-cdr b*)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; sorting bytevector-tuple blocks ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; NOTE: using bytes<? like this is surprisingly slow.
+;; 4.8GB
+;;  cpu time: 45799 real time: 48009 gc time: 329
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 219707 real time: 231937 gc time: 4847
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 658636 real time: 685149 gc time: 1599
+;; ==> 600183480
+;(define (bytevector-tuple-sort! tuple*) (vector-sort! tuple* bytes<?))
+
+(define (bytevector-tuple-sort! tuple*)
+  (define (bytevector-tuple<? a b)
+    (let ((len (unsafe-fxmin (unsafe-bytes-length a) (unsafe-bytes-length b))))
+      (let loop ((i 0))
+        (and (unsafe-fx< i len)
+             (let ((x.a (unsafe-bytes-ref a i)) (x.b (unsafe-bytes-ref b i)))
+               (or (unsafe-fx< x.a x.b)
+                   (and (unsafe-fx= x.a x.b)
+                        (loop (unsafe-fx+ i 1)))))))))
+  (vector-sort! tuple* bytevector-tuple<?))
+
+;; 4.8GB
+;;  cpu time: 28726 real time: 30827 gc time: 359
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 186084 real time: 198105 gc time: 5519
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 394967 real time: 419776 gc time: 1616
+;; ==> 600183480
+;(file-stream-buffer-mode in 'none)
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (b* (stream:tsv-bytevector-block*-via-map-spare-buffer in field-count)))
+;      (cond ((null?      b*) count)
+;            ((procedure? b*) (loop count (b*)))
+;            (else            (loop (unsafe-fx+ count
+;                                               (let ((tuple* (unsafe-car b*)))
+;                                                 (bytevector-tuple-sort! tuple*)
+;                                                 (unsafe-vector*-length tuple*)))
+;                                   (unsafe-cdr b*)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; naive tuple construction unbuffered ;;;
