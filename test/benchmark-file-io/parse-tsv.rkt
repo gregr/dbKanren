@@ -597,56 +597,158 @@
 ;; 40GB
 ;;  cpu time: 187051 real time: 198424 gc time: 1962
 ;; ==> 600183480
-(file-stream-buffer-mode in 'none)
-(pretty-write
-  (time
-    (let loop ((count 0) (b* (stream:tsv-vector-block*-via-map-spare-buffer in field-count)))
-      (cond ((null?      b*) count)
-            ((procedure? b*) (loop count (b*)))
-            (else            (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car b*))) (unsafe-cdr b*)))))))
+;(file-stream-buffer-mode in 'none)
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (b* (stream:tsv-vector-block*-via-map-spare-buffer in field-count)))
+;      (cond ((null?      b*) count)
+;            ((procedure? b*) (loop count (b*)))
+;            (else            (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car b*))) (unsafe-cdr b*)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; streaming bytevector-tuple blocks ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; TODO: should we just s-map over stream:line-block* for simplicity, or will the extra allocation hurt too much?
-
 ;; Each tuple will be represented as a single bytevector with packed, length-encoded fields.
 ;; This means that sorting tuples with bytes<? is not lexicographical relative to the field text.
 ;; But this is fine since we only care about equality, not order.
 
-;(define (stream:tsv-bytevector-block* field-count in)
-;  ;; TODO: Pre-allocate a fxvector buffer for storing intermediate lengths and offsets for the current line/tuple
-;  ;; - field-count tells us how large this buffer needs to be
-;  (s-map
-;    (let ((end* (make-fxvector (- field-count 1))))
-;      (lambda (block)
-;        (vector-map
-;          (lambda (line)
-;            (let ((len.line (bytes-length line)))
-;              (let loop ((i 0) (j.field 0) (start.field 0) (size.field-length* 0))
-;                (cond
-;                  ((= i len.line)
-;                   (unless (= (+ j.field 1) field-count)
-;                     (error "too few fields" j.field line))
-;                   (let* ((len.last-field         (- i start.field))
-;                          (size.last-field-length
-;
-;                            ))
-;
-;                     (make-bytes (- (+ size.field-length* size.last-field-length len.line 1) field-count))
-;
-;                     ))
-;                  ((= (bytes-ref line i) 9)
-;                   (fxvector-set! end* j.field i)
-;                   (let ((len.field (- i start.field))
-;                         (i         (+ i 1)))
-;                     (loop i (+ j.field 1) i
-;
-;                           )))
-;                  (else (loop (+ i 1) j.field start.field size.field-length*))))))
-;          block)))
-;    (stream:line-block* in)))
+(define (nat-size n)
+  (cond
+    ((unsafe-fx< n 128)               1)
+    ((unsafe-fx< n 16384)             2)
+    ((unsafe-fx< n 2097152)           3)
+    ((unsafe-fx< n 268435456)         4)
+    ((unsafe-fx< n 34359738368)       5)
+    ((unsafe-fx< n 4398046511104)     6)
+    ((unsafe-fx< n 562949953421312)   7)
+    ((unsafe-fx< n 72057594037927936) 8)
+    (else                             9)))
+
+(define (write-nat! buffer start n)
+  (cond
+    ((unsafe-fx< n 128)
+     (unsafe-bytes-set! buffer start                n))
+    ((unsafe-fx< n 16384)
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 1) (unsafe-fxand n                                    127))
+     (unsafe-bytes-set! buffer start                (unsafe-fxior (unsafe-fxrshift n 7)                     128)))
+    ((unsafe-fx< n 2097152)
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 2) (unsafe-fxand n                                    127))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 1) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 7)  127) 128))
+     (unsafe-bytes-set! buffer start                (unsafe-fxior (unsafe-fxrshift n 14)                    128)))
+    ((unsafe-fx< n 268435456)
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 3) (unsafe-fxand n                                    127))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 2) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 7)  127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 1) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 14) 127) 128))
+     (unsafe-bytes-set! buffer start                (unsafe-fxior (unsafe-fxrshift n 21)                    128)))
+    ((unsafe-fx< n 34359738368)
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 4) (unsafe-fxand n                                    127))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 3) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 7)  127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 2) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 14) 127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 1) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 21) 127) 128))
+     (unsafe-bytes-set! buffer start                (unsafe-fxior (unsafe-fxrshift n 28)                    128)))
+    ((unsafe-fx< n 4398046511104)
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 5) (unsafe-fxand n                                    127))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 4) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 7)  127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 3) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 14) 127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 2) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 21) 127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 1) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 28) 127) 128))
+     (unsafe-bytes-set! buffer start                (unsafe-fxior (unsafe-fxrshift n 35)                    128)))
+    ((unsafe-fx< n 562949953421312)
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 6) (unsafe-fxand n                                    127))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 5) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 7)  127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 4) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 14) 127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 3) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 21) 127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 2) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 28) 127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 1) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 35) 127) 128))
+     (unsafe-bytes-set! buffer start                (unsafe-fxior (unsafe-fxrshift n 42)                    128)))
+    ((unsafe-fx< n 72057594037927936)
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 7) (unsafe-fxand n                                    127))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 6) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 7)  127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 5) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 14) 127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 4) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 21) 127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 3) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 28) 127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 2) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 35) 127) 128))
+     (unsafe-bytes-set! buffer (unsafe-fx+ start 1) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 42) 127) 128))
+     (unsafe-bytes-set! buffer start                (unsafe-fxior (unsafe-fxrshift n 49)                    128)))
+    (else
+      (unsafe-bytes-set! buffer (unsafe-fx+ start 8) (unsafe-fxand n                                    255))
+      (unsafe-bytes-set! buffer (unsafe-fx+ start 7) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 8)  127) 128))
+      (unsafe-bytes-set! buffer (unsafe-fx+ start 6) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 15) 127) 128))
+      (unsafe-bytes-set! buffer (unsafe-fx+ start 5) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 22) 127) 128))
+      (unsafe-bytes-set! buffer (unsafe-fx+ start 4) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 29) 127) 128))
+      (unsafe-bytes-set! buffer (unsafe-fx+ start 3) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 36) 127) 128))
+      (unsafe-bytes-set! buffer (unsafe-fx+ start 2) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 43) 127) 128))
+      (unsafe-bytes-set! buffer (unsafe-fx+ start 1) (unsafe-fxior (unsafe-fxand (unsafe-fxrshift n 50) 127) 128))
+      (unsafe-bytes-set! buffer start                (unsafe-fxior (unsafe-fxrshift n 57)                    128)))))
+
+;; TODO:
+;(define (read-nat! buffer start)
+  ;)
+
+(define (stream:tsv-bytevector-block*-via-map-spare-buffer in field-count)
+  (s-map
+    (lambda (block)
+      (vector-map
+        (lambda (line)
+          (let* ((len.line   (unsafe-bytes-length line))
+                 (len-count  (unsafe-fx- field-count 1))
+                 (len*.delim (make-fxvector len-count)))
+            (let loop ((i 0) (j.field 0) (start.field 0) (size.len* 0))
+              (cond
+                ((unsafe-fx= i len.line)
+                 (unless (unsafe-fx= j.field len-count) (error "too few fields" j.field line))
+                 (let* ((len.field      (unsafe-fx- i start.field))
+                        (size.len.field (nat-size len.field))
+                        (size.tuple     (unsafe-fx+ (unsafe-fx- len.line len-count) (unsafe-fx+ size.len* size.len.field)))
+                        (tuple          (make-bytes size.tuple)))
+                   (let loop ((j.field        j.field)
+                              (len.field      len.field)
+                              (size.len.field size.len.field)
+                              (start.tuple    (unsafe-fx- size.tuple len.field))
+                              (start          (unsafe-fx- len.line   len.field))
+                              (end            len.line))
+                     (cond ((unsafe-fx= j.field 0) tuple)
+                           (else
+                             (unsafe-bytes-copy! tuple start.tuple line start end)
+                             (let ((start.tuple (unsafe-fx- start.tuple size.len.field)))
+                               (write-nat! tuple start.tuple len.field)
+                               (let* ((j.field        (unsafe-fx- j.field 1))
+                                      (len.field      (unsafe-fxvector-ref len*.delim j.field))
+                                      (size.len.field (nat-size len.field))
+                                      (end            (unsafe-fx- start 1)))
+                                 (loop j.field
+                                       len.field
+                                       size.len.field
+                                       (unsafe-fx- start.tuple len.field)
+                                       (unsafe-fx- end len.field)
+                                       end))))))))
+                ((unsafe-fx= (unsafe-bytes-ref line i) 9)
+                 (when (unsafe-fx= j.field len-count) (error "too many fields" line))
+                 (let ((len.field (unsafe-fx- i start.field))
+                       (i         (unsafe-fx+ i 1)))
+                   (unsafe-fxvector-set! len*.delim j.field len.field)
+                   (loop i (unsafe-fx+ j.field 1) i (unsafe-fx+ size.len* (nat-size len.field)))))
+                (else (loop (unsafe-fx+ i 1) j.field start.field size.len*))))))
+        block))
+    (stream:line-block*-spare-buffer in)))
+
+;; 4.8GB
+;;  cpu time: 18892 real time: 20149 gc time: 305
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 140360 real time: 150143 gc time: 4855
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 184234 real time: 195508 gc time: 1405
+;; ==> 600183480
+(file-stream-buffer-mode in 'none)
+(pretty-write
+  (time
+    (let loop ((count 0) (b* (stream:tsv-bytevector-block*-via-map-spare-buffer in field-count)))
+      (cond ((null?      b*) count)
+            ((procedure? b*) (loop count (b*)))
+            (else            (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car b*))) (unsafe-cdr b*)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; naive tuple construction unbuffered ;;;
