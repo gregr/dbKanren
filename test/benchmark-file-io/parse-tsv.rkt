@@ -460,6 +460,118 @@
 ;            ((procedure? b*) (loop count (b*)))
 ;            (else            (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car b*))) (unsafe-cdr b*)))))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; streaming vector-tuple blocks with immediate mapping, plus spare buffer ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define ((stream:line-block*/map f) in)
+  (define block-length 1024)
+  (define buffer-size 16384)
+  (define (loop.single start end buffer j.block block buffer.spare)
+    (let loop.inner ((i start))
+      (cond
+        ((unsafe-fx<= end i) (if (unsafe-fx= start end)
+                                 (let ((end (read-bytes! buffer in 0 buffer-size)))
+                                   (cond
+                                     ((not (eof-object? end)) (loop.single 0 end buffer j.block block buffer.spare))
+                                     ((unsafe-fx< 0 j.block)  (list (vector-copy block 0 j.block)))
+                                     (else                    '())))
+                                 (loop.multi buffer.spare 0 '() '() buffer start end j.block block)))
+        ((unsafe-fx= (unsafe-bytes-ref buffer i) 10)
+         (unsafe-vector*-set! block j.block (f (subbytes buffer start i)))
+         (let ((j.block (unsafe-fx+ j.block 1)))
+           (if (unsafe-fx= j.block block-length)
+               (cons block (pause (loop.single (unsafe-fx+ i 1) end buffer 0 (make-vector block-length) buffer.spare)))
+               (loop.single (unsafe-fx+ i 1) end buffer j.block block buffer.spare))))
+        (else (loop.inner (unsafe-fx+ i 1))))))
+  (define (loop.multi buffer.current len.middle end*.middle buffer*.middle buffer.first start.first end.first j.block block)
+    (let ((end (read-bytes! buffer.current in 0 buffer-size)))
+      (cond
+        ((not (eof-object? end))
+         (let loop.first ((i 0))
+           (cond
+             ((unsafe-fx<= end i) (loop.multi (make-bytes buffer-size)
+                                              (unsafe-fx+ len.middle end)
+                                              (cons end            end*.middle)
+                                              (cons buffer.current buffer*.middle)
+                                              buffer.first start.first end.first j.block block))
+             ((unsafe-fx= (unsafe-bytes-ref buffer.current i) 10)
+              (let* ((len.prev (unsafe-fx+ len.middle (unsafe-fx- end.first start.first)))
+                     (len      (unsafe-fx+ len.prev i))
+                     (line     (make-bytes len)))
+                (unsafe-bytes-copy! line len.prev buffer.current 0 i)
+                (let loop ((pos len.prev) (end* end*.middle) (buffer* buffer*.middle))
+                  (when (pair? end*)
+                    (let* ((end (unsafe-car end*))
+                           (pos (unsafe-fx- pos end)))
+                      (bytes-copy! line pos (unsafe-car buffer*) 0 end)
+                      (loop pos (unsafe-cdr end*) (unsafe-cdr buffer*)))))
+                (unsafe-bytes-copy! line 0 buffer.first start.first end.first)
+                (unsafe-vector*-set! block j.block (f line)))
+              (let ((j.block (unsafe-fx+ j.block 1)))
+                (if (unsafe-fx= j.block block-length)
+                    (cons block (pause (loop.single (unsafe-fx+ i 1) end buffer.current 0 (make-vector block-length) buffer.first)))
+                    (loop.single (unsafe-fx+ i 1) end buffer.current j.block block buffer.first))))
+             (else (loop.first (unsafe-fx+ i 1))))))
+        (else
+          (let* ((len  (unsafe-fx+ len.middle (unsafe-fx- end.first start.first)))
+                 (line (make-bytes len)))
+            (let loop ((pos len) (end* end*.middle) (buffer* buffer*.middle))
+              (when (pair? end*)
+                (let* ((end (unsafe-car end*))
+                       (pos (unsafe-fx- pos end)))
+                  (unsafe-bytes-copy! line pos (unsafe-car buffer*) 0 end)
+                  (loop pos (unsafe-cdr end*) (unsafe-cdr buffer*)))))
+            (unsafe-bytes-copy! line 0 buffer.first start.first end.first)
+            (unsafe-vector*-set! block j.block (f line)))
+          (list (let ((j.block (unsafe-fx+ j.block 1)))
+                  (if (unsafe-fx= j.block block-length)
+                      block
+                      (vector-copy block 0 j.block))))))))
+  (pause
+    (let ((buffer       (make-bytes buffer-size))
+          (buffer.spare (make-bytes buffer-size)))
+      (let ((end (read-bytes! buffer in 0 buffer-size)))
+        (if (eof-object? end)
+            '()
+            (loop.single 0 end buffer 0 (make-vector block-length) buffer.spare))))))
+
+(define (stream:tsv-vector-block*-via-immediate-map in field-count)
+  ((stream:line-block*/map
+     (lambda (line)
+       (let ((len.line (bytes-length line))
+             (tuple    (make-vector field-count)))
+         (let loop ((i 0) (j.field 0) (start.field 0))
+           (cond
+             ((unsafe-fx= i len.line)
+              (unsafe-vector*-set! tuple j.field (subbytes line start.field i))
+              (unless (unsafe-fx= (unsafe-fx+ j.field 1) field-count) (error "too few fields" j.field line))
+              tuple)
+             ((unsafe-fx= (unsafe-bytes-ref line i) 9)
+              (unsafe-vector*-set! tuple j.field (subbytes line start.field i))
+              (let ((i (unsafe-fx+ i 1)) (j.field (unsafe-fx+ j.field 1)))
+                (when (unsafe-fx= j.field field-count) (error "too many fields" line))
+                (loop i j.field i)))
+             (else (loop (unsafe-fx+ i 1) j.field start.field)))))))
+   in))
+
+;; 4.8GB
+;;  cpu time: 19631 real time: 20888 gc time: 475
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 152438 real time: 162311 gc time: 5617
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 173673 real time: 184644 gc time: 1653
+;; ==> 600183480
+;(file-stream-buffer-mode in 'none)
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (b* (stream:tsv-vector-block*-via-immediate-map in field-count)))
+;      (cond ((null?      b*) count)
+;            ((procedure? b*) (loop count (b*)))
+;            (else            (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car b*))) (unsafe-cdr b*)))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; streaming vector-tuple blocks with mapping, plus spare buffer ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -777,6 +889,7 @@
                              (lambda () #f))))))
   (vector-sort! tuple* vector-tuple<?))
 
+;;; s-map
 ;; 4.8GB
 ;;  cpu time: 29876 real time: 31893 gc time: 498
 ;; ==> 11342763
@@ -786,10 +899,32 @@
 ;; 40GB
 ;;  cpu time: 275484 real time: 291020 gc time: 2008
 ;; ==> 600183480
+;(file-stream-buffer-mode in 'none)
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (b* (stream:tsv-vector-block*-via-map-spare-buffer in field-count)))
+;      (cond ((null?      b*) count)
+;            ((procedure? b*) (loop count (b*)))
+;            (else            (loop (unsafe-fx+ count
+;                                               (let ((tuple* (unsafe-car b*)))
+;                                                 (vector-tuple-sort! tuple*)
+;                                                 (unsafe-vector*-length tuple*)))
+;                                   (unsafe-cdr b*)))))))
+
+;;; immediate-map
+;; 4.8GB
+;;  cpu time: 33395 real time: 35520 gc time: 517
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 186301 real time: 198042 gc time: 5681
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 258402 real time: 273479 gc time: 1782
+;; ==> 600183480
 (file-stream-buffer-mode in 'none)
 (pretty-write
   (time
-    (let loop ((count 0) (b* (stream:tsv-vector-block*-via-map-spare-buffer in field-count)))
+    (let loop ((count 0) (b* (stream:tsv-vector-block*-via-immediate-map in field-count)))
       (cond ((null?      b*) count)
             ((procedure? b*) (loop count (b*)))
             (else            (loop (unsafe-fx+ count
