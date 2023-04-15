@@ -60,8 +60,10 @@
   auto-empty-trash?
   current-batch-size)
 (require "heap.rkt" "logging.rkt" "misc.rkt" "storage.rkt" "stream.rkt"
+         ;"safe-unsafe.rkt"
+         racket/unsafe/ops
          racket/file racket/fixnum racket/hash racket/list racket/match
-         racket/set racket/struct racket/unsafe/ops racket/vector)
+         racket/set racket/struct racket/vector)
 
 ;(define-syntax-rule (verbose-log     description)          (void))
 ;(define-syntax-rule (performance-log description body ...) (let () body ...))
@@ -1017,10 +1019,11 @@
   (define (block-desc->path desc.col) (storage-block-path stg (hash-ref desc.col 'name)))
   (define (open-input-block desc.col) (open-input-file (block-desc->path desc.col)))
   (define (open-input-block/cache desc.col)
+    ;; TODO: this caching is not thread-safe
     (let ((bpath (block-desc->path desc.col)))
-      (or (hash-ref bpath=>in bpath #f)
+      (or ;(hash-ref bpath=>in bpath #f)
           (let ((in (open-input-file bpath)))
-            (hash-set! bpath=>in bpath in)
+            ;(hash-set! bpath=>in bpath in)
             in))))
   (define (clear-open-input-blocks!)
     (for-each close-input-port (hash-values bpath=>in))
