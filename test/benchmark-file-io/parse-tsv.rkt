@@ -60,18 +60,6 @@
     (resume yield done))
   (lambda () (loop src)))
 
-(define ((source->block*/length len.block) src)
-  (define (loop resume i block)
-    (define (yield x resume)
-      (unsafe-vector*-set! block i x)
-      (let ((i (unsafe-fx+ i 1)))
-        (if (unsafe-fx= i len.block)
-            (cons block (lambda () (loop resume 0 (make-vector len.block))))
-            (loop resume i block))))
-    (define (done) (list (vector-copy block 0 i)))
-    (resume yield done))
-  (lambda () (loop src 0 (make-vector len.block))))
-
 (define (s->source x*)
   (let resume/x* ((x* x*))
     (lambda (yield done)
@@ -81,24 +69,74 @@
           ((procedure? x*) (loop (x*)))
           (else            (yield (car x*) (resume/x* (cdr x*)))))))))
 
-(define (block*->source b*)
-  (let resume/b* ((b* b*))
-    (lambda (yield done)
-      (let loop ((b* b*))
-        (cond
-          ((null?      b*) (done))
-          ((procedure? b*) (loop (b*)))
-          (else (let* ((x*  (car b*))
-                       (len (vector-length x*)))
-                  (define ((produce i) yield done)
-                    (yield (unsafe-vector*-ref x* i)
-                           (let ((i (unsafe-fx+ i 1)))
-                             (if (unsafe-fx< i len)
-                                 (produce i)
-                                 (resume/b* (cdr b*))))))
-                  (if (unsafe-fx= len 0)
-                      (loop (cdr b*))
-                      ((produce 0) yield done)))))))))
+(define (source-chunk len.chunk src)
+  (cond
+    ((<= len.chunk 0) (error "chunk length must be positive" len.chunk))
+    ((=  len.chunk 1) (source-map vector src))
+    (else
+      (define ((new resume) yield done)
+        (resume
+          (lambda (x resume)
+            (let ((chunk (make-vector len.chunk)))
+              (unsafe-vector*-set! chunk 0 x)
+              (let loop ((resume resume) (i 1))
+                (resume
+                  (lambda (x resume)
+                    (unsafe-vector*-set! chunk i x)
+                    (let ((i (unsafe-fx+ i 1)))
+                      (if (unsafe-fx< i len.chunk)
+                          (loop resume i)
+                          (yield chunk (new resume)))))
+                  (lambda () (yield (vector-copy chunk 0 i) (lambda (yield done) (done))))))))
+          done))
+      (new src))))
+
+(define ((source-unchunk src) yield done)
+  (let next ((resume src) (yield yield) (done done))
+    (resume
+      (lambda (x* resume)
+        (let ((len.chunk (vector-length x*)))
+          (let loop ((yield yield) (done done) (i 0))
+            (if (unsafe-fx< i len.chunk)
+                (yield (unsafe-vector*-ref x* i)
+                       (lambda (yield done) (loop yield done (unsafe-fx+ i 1))))
+                (next resume yield done)))))
+      done)))
+
+;; benchmark helpers
+(define ((source->block*/length len.block) src) (source->s (source-chunk len.block src)))
+(define (block*->source b*)                     (source-unchunk (s->source b*)))
+
+;(define ((source->block*/length len.block) src)
+;  (define (loop resume i block)
+;    (define (yield x resume)
+;      (unsafe-vector*-set! block i x)
+;      (let ((i (unsafe-fx+ i 1)))
+;        (if (unsafe-fx= i len.block)
+;            (cons block (lambda () (loop resume 0 (make-vector len.block))))
+;            (loop resume i block))))
+;    (define (done) (list (vector-copy block 0 i)))
+;    (resume yield done))
+;  (lambda () (loop src 0 (make-vector len.block))))
+;
+;(define (block*->source b*)
+;  (let resume/b* ((b* b*))
+;    (lambda (yield done)
+;      (let loop ((b* b*))
+;        (cond
+;          ((null?      b*) (done))
+;          ((procedure? b*) (loop (b*)))
+;          (else (let* ((x*  (car b*))
+;                       (len (vector-length x*)))
+;                  (define ((produce i) yield done)
+;                    (yield (unsafe-vector*-ref x* i)
+;                           (let ((i (unsafe-fx+ i 1)))
+;                             (if (unsafe-fx< i len)
+;                                 (produce i)
+;                                 (resume/b* (cdr b*))))))
+;                  (if (unsafe-fx= len 0)
+;                      (loop (cdr b*))
+;                      ((produce 0) yield done)))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; streaming line blocks with multiple buffers ;;;
@@ -923,7 +961,7 @@
 ;;; streaming lines and vector-tuple blocks with source combinators ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (source:line* in)
+(define (source:port-split delim in)
   (define size.buffer 16384)
   (file-stream-buffer-mode in 'none)
   (lambda (yield done)
@@ -937,7 +975,7 @@
                      (done)
                      (loop.single yield done 0 end buffer buffer.spare)))
                (loop.multi yield done buffer.spare 0 '() '() start end buffer)))
-          ((unsafe-fx= (unsafe-bytes-ref buffer i) 10)
+          ((unsafe-fx= (unsafe-bytes-ref buffer i) delim)
            (yield (subbytes buffer start i)
                   (lambda (yield done)
                     (loop.single yield done (unsafe-fx+ i 1) end buffer buffer.spare))))
@@ -954,7 +992,7 @@
                                                  (cons end            end*.middle)
                                                  (cons buffer.current buffer*.middle)
                                                  start.first end.first buffer.first))
-                ((unsafe-fx= (unsafe-bytes-ref buffer.current i) 10)
+                ((unsafe-fx= (unsafe-bytes-ref buffer.current i) delim)
                  (let* ((len.prev (unsafe-fx+ len.middle (unsafe-fx- end.first start.first)))
                         (len      (unsafe-fx+ len.prev i))
                         (line     (make-bytes len)))
@@ -980,14 +1018,15 @@
                     (loop pos (unsafe-cdr end*) (unsafe-cdr buffer*)))))
               (unsafe-bytes-copy! line 0 buffer.first start.first end.first)
               (yield line (lambda (yield done) (done)))))))
-    (lambda ()
-      (let ((buffer (make-bytes size.buffer)))
-        (let ((end (read-bytes! buffer in 0 size.buffer)))
-          (if (eof-object? end)
-              (done)
-              (loop.single yield done 0 end buffer (make-bytes size.buffer))))))))
+    (let ((buffer (make-bytes size.buffer)))
+      (let ((end (read-bytes! buffer in 0 size.buffer)))
+        (if (eof-object? end)
+            (done)
+            (loop.single yield done 0 end buffer (make-bytes size.buffer)))))))
 
-(define (source:tsv* field-count in)
+(define (source:port-line* in) (source:port-split 10 in))
+
+(define (source:port-tsv* field-count in)
   (source-map
     (lambda (line)
       (let ((len.line (bytes-length line))
@@ -1005,39 +1044,107 @@
                (when (unsafe-fx= j.field field-count) (error "too many fields" line))
                (loop i j.field i)))
             (else (loop (unsafe-fx+ i 1) j.field start.field))))))
-    (source:line* in)))
+    (source:port-line* in)))
+
+;;; line*
 
 ;; 4.8GB
-;;  cpu time: 8977 real time: 9593 gc time: 152
+;;  cpu time: 8488 real time: 9101 gc time: 143
 ;; ==> 11342763
 ;; 37GB
-;;  cpu time: 71017 real time: 75757 gc time: 3383
+;;  cpu time: 69718 real time: 74451 gc time: 3062
 ;; ==> 56965146
 ;; 40GB
-;;  cpu time: 85096 real time: 90524 gc time: 873
+;;  cpu time: 84399 real time: 89836 gc time: 893
 ;; ==> 600183480
 ;(pretty-write
 ;  (time
-;    (let loop ((count 0) (b* ((source->block*/length 1024) (source:line* in))))
+;    (let loop ((count 0) (b* ((source->block*/length 1024) (source:port-line* in))))
 ;      (cond ((null?      b*) count)
 ;            ((procedure? b*) (loop count (b*)))
 ;            (else            (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car b*))) (unsafe-cdr b*)))))))
 
 ;; 4.8GB
-;;  cpu time: 20456 real time: 21750 gc time: 544
+;;   cpu time: 8538 real time: 9155 gc time: 32
 ;; ==> 11342763
 ;; 37GB
-;;  cpu time: 151139 real time: 160919 gc time: 5917
+;;  cpu time: 65771 real time: 70531 gc time: 175
 ;; ==> 56965146
 ;; 40GB
-;;  cpu time: 190992 real time: 202335 gc time: 2726
+;;  cpu time: 80721 real time: 86104 gc time: 325
 ;; ==> 600183480
 ;(pretty-write
 ;  (time
-;    (let loop ((count 0) (b* ((source->block*/length 1024) (source:tsv* field-count in))))
+;    (let loop ((count 0) (resume (source:port-line* in)))
+;      (resume
+;        (lambda (x resume) (loop (unsafe-fx+ count 1) resume))
+;        (lambda () count)))))
+
+;; 4.8GB
+;;  cpu time: 8951 real time: 9570 gc time: 159
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 69778 real time: 74495 gc time: 2825
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 85219 real time: 90636 gc time: 995
+;; ==> 600183480
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (resume (source-chunk 1024 (source:port-line* in))))
+;      (resume
+;        (lambda (x resume) (loop (unsafe-fx+ count (unsafe-vector*-length x)) resume))
+;        (lambda () count)))))
+
+;;; tsv*
+
+;; 4.8GB
+;;  cpu time: 19234 real time: 20497 gc time: 498
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 145026 real time: 154654 gc time: 5333
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 179781 real time: 190858 gc time: 2626
+;; ==> 600183480
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (b* ((source->block*/length 1024) (source:port-tsv* field-count in))))
 ;      (cond ((null?      b*) count)
 ;            ((procedure? b*) (loop count (b*)))
 ;            (else            (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car b*))) (unsafe-cdr b*)))))))
+
+;; 4.8GB
+;;  cpu time: 19331 real time: 20588 gc time: 58
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 136394 real time: 145911 gc time: 374
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 183406 real time: 194453 gc time: 669
+;; ==> 600183480
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (resume (source:port-tsv* field-count in)))
+;      (resume
+;        (lambda (x resume) (loop (unsafe-fx+ count 1) resume))
+;        (lambda () count)))))
+
+;; 4.8GB
+;;  cpu time: 20781 real time: 22041 gc time: 590
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 155325 real time: 164917 gc time: 6294
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 188667 real time: 199784 gc time: 2957
+;; ==> 600183480
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (resume (source-chunk 1024 (source:port-tsv* field-count in))))
+;      (resume
+;        (lambda (x resume) (loop (unsafe-fx+ count (unsafe-vector*-length x)) resume))
+;        (lambda () count)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; sorting vector-tuple blocks ;;;
@@ -1115,14 +1222,14 @@
 ;;  cpu time: 31225 real time: 33352 gc time: 554
 ;; ==> 11342763
 ;; 37GB
-;;  cpu time: 188251 real time: 200021 gc time: 5968
+;;  cpu time: 174235 real time: 185874 gc time: 5772
 ;; ==> 56965146
 ;; 40GB
-;;  cpu time: 266536 real time: 281825 gc time: 2954
+;;  cpu time: 256142 real time: 271380 gc time: 2875
 ;; ==> 600183480
 ;(pretty-write
 ;  (time
-;    (let loop ((count 0) (b* ((source->block*/length 1024) (source:tsv* field-count in))))
+;    (let loop ((count 0) (b* ((source->block*/length 1024) (source:port-tsv* field-count in))))
 ;      (cond ((null?      b*) count)
 ;            ((procedure? b*) (loop count (b*)))
 ;            (else            (loop (unsafe-fx+ count
@@ -1133,26 +1240,65 @@
 
 ;;; combinator with resizing
 ;; 4.8GB
-;;  cpu time: 41743 real time: 43882 gc time: 9463
+;;  cpu time: 40072 real time: 42183 gc time: 8813
 ;; ==> 11342763
 ;; 37GB
-;;  cpu time: 263310 real time: 275386 gc time: 67432
+;;  cpu time: 243806 real time: 255555 gc time: 62417
 ;; ==> 56965146
 ;; 40GB
-;;  cpu time: 371186 real time: 387227 gc time: 79678
+;;  cpu time: 353606 real time: 369411 gc time: 80791
 ;; ==> 600183480
-(pretty-write
-  (time
-    (let loop ((count 0) (b* ((source->block*/length 1024)
-                              (block*->source
-                                ((source->block*/length 65536) (source:tsv* field-count in))))))
-      (cond ((null?      b*) count)
-            ((procedure? b*) (loop count (b*)))
-            (else            (loop (unsafe-fx+ count
-                                               (let ((tuple* (unsafe-car b*)))
-                                                 (vector-tuple-sort! tuple*)
-                                                 (unsafe-vector*-length tuple*)))
-                                   (unsafe-cdr b*)))))))
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (b* ((source->block*/length 1024)
+;                              (source-unchunk (source-chunk 65536 (source:port-tsv* field-count in))))))
+;      (cond ((null?      b*) count)
+;            ((procedure? b*) (loop count (b*)))
+;            (else            (loop (unsafe-fx+ count
+;                                               (let ((tuple* (unsafe-car b*)))
+;                                                 (vector-tuple-sort! tuple*)
+;                                                 (unsafe-vector*-length tuple*)))
+;                                   (unsafe-cdr b*)))))))
+
+;;; source-only
+
+;; 4.8GB
+;;  cpu time: 33786 real time: 35862 gc time: 620
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 183669 real time: 195223 gc time: 6222
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 279083 real time: 294317 gc time: 3171
+;; ==> 600183480
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (resume (source-chunk 1024 (source:port-tsv* field-count in))))
+;      (resume
+;        (lambda (tuple* resume)
+;          (vector-tuple-sort! tuple*)
+;          (loop (unsafe-fx+ count (unsafe-vector*-length tuple*)) resume))
+;        (lambda () count)))))
+
+;;; source-only with resizing
+
+;; 4.8GB
+;;  cpu time: 43416 real time: 45526 gc time: 9003
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 251643 real time: 263321 gc time: 66461
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 367554 real time: 383242 gc time: 84051
+;; ==> 600183480
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (resume (source-chunk 1024 (source-unchunk (source-chunk 65536 (source:port-tsv* field-count in))))))
+;      (resume
+;        (lambda (tuple* resume)
+;          (vector-tuple-sort! tuple*)
+;          (loop (unsafe-fx+ count (unsafe-vector*-length tuple*)) resume))
+;        (lambda () count)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; sorting bytevector-tuple blocks ;;;
