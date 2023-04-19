@@ -89,64 +89,6 @@
                         (cons (unsafe-vector*-ref x* i) (loop (unsafe-fx+ i 1)))
                         (next (cdr s)))))))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; streams with regular suspension ;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define (rs->list ^x*)
-  (let loop ((x* (^x*)))
-    (cond
-      ((null? x*) '())
-      (else       (cons (car x*) (loop ((cdr x*))))))))
-
-(define (rs-take n ^x*)
-  (if n
-      (let loop ((n n) (x* (^x*)))
-        (cond ((= n 0)    '())
-              ((null? x*) '())
-              (else       (cons (car x*) (loop (- n 1) ((cdr x*)))))))
-      (rs->list ^x*)))
-
-(define (rs-map f ^x*)
-  (let loop ((^x* ^x*))
-    (lambda ()
-      (let ((x* (^x*)))
-        (cond ((null? x*) '())
-              (else       (cons (f (car x*)) (loop (cdr x*)))))))))
-
-(define (rs-chunk ^x* len.chunk)
-  (cond
-    ((<= len.chunk 0) (error "chunk length must be positive" len.chunk))
-    ((=  len.chunk 1) (rs-map vector ^x*))
-    (else
-      (define (new ^x*)
-        (lambda ()
-          (let ((x* (^x*)))
-            (if (null? x*)
-                '()
-                (let ((chunk (make-vector len.chunk)))
-                  (unsafe-vector*-set! chunk 0 (car x*))
-                  (let loop ((x* ((cdr x*))) (i 1))
-                    (cond
-                      ((null? x*) (cons (vector-copy chunk 0 i) (lambda () '())))
-                      (else (unsafe-vector*-set! chunk i (car x*))
-                            (let ((i (unsafe-fx+ i 1)))
-                              (if (unsafe-fx< i len.chunk)
-                                  (loop ((cdr x*)) i)
-                                  (cons chunk (new (cdr x*)))))))))))))
-      (new ^x*))))
-
-(define ((rs-unchunk ^x**))
-  (let next ((^x** ^x**))
-    (let ((x** (^x**)))
-      (if (null? x**)
-          '()
-          (let* ((x* (car x**)) (len.chunk (vector-length x*)))
-            (let loop ((i 0))
-              (if (unsafe-fx< i len.chunk)
-                  (cons (unsafe-vector*-ref x* i) (lambda () (loop (unsafe-fx+ i 1))))
-                  (next (cdr x**)))))))))
-
 ;;;;;;;;;;;;;;;;;;;
 ;;; combinators ;;;
 ;;;;;;;;;;;;;;;;;;;
@@ -1305,58 +1247,35 @@
         (else (loop (unsafe-fx+ i 1) j.field start.field))))))
 
 (define (port-tsv* in field-count)
-  (s-map
-    (line->tsv/field-count field-count)
-    (port-line* in)))
+  (s-map (line->tsv/field-count field-count) (port-line* in)))
 
 ;;; line*
-
-;; irregular suspensions
 ;; 4.8GB
-;;
-
+;;  cpu time: 7708 real time: 8315 gc time: 31
+;; ==> 11342763
 ;; 37GB
-;;
-
+;;  cpu time: 61245 real time: 65918 gc time: 138
+;; ==> 56965146
 ;; 40GB
-;;
-
-;(pretty-write
-;  (time
-;    (let loop ((count 0) (line* (port-line* in)))
-;      (cond ((null?      line*) count)
-;            ((procedure? line*) (loop count (line*)))
-;            (else               (loop (unsafe-fx+ count 1) (unsafe-cdr line*)))))))
-
-;; only regular suspensions
-;; 4.8GB
-;;
-
-;; 37GB
-;;
-
-;; 40GB
-;;
-
-;(pretty-write
-;  (time
-;    (let loop ((count 0) (^line* (port-line* in)))
-;      (let ((line* (^line*)))
-;        (cond ((null? line*) count)
-;              (else          (loop (unsafe-fx+ count 1) (unsafe-cdr line*))))))))
+;;  cpu time: 74276 real time: 79608 gc time: 236
+;; ==> 600183480
+(pretty-write
+  (time
+    (let loop ((count 0) (line* (port-line* in)))
+      (cond ((null?      line*) count)
+            ((procedure? line*) (loop count (line*)))
+            (else               (loop (unsafe-fx+ count 1) (unsafe-cdr line*)))))))
 
 ;;; line**
-
-;; irregular suspensions
 ;; 4.8GB
-;;
-
+;;  cpu time: 8378 real time: 8997 gc time: 143
+;; ==> 11342763
 ;; 37GB
-;;
-
+;;  cpu time: 65511 real time: 70208 gc time: 3199
+;; ==> 56965146
 ;; 40GB
-;;
-
+;;  cpu time: 79205 real time: 84693 gc time: 735
+;; ==> 600183480
 ;(pretty-write
 ;  (time
 ;    (let loop ((count 0) (line** (s-chunk (port-line* in) 1024)))
@@ -1364,107 +1283,56 @@
 ;            ((procedure? line**) (loop count (line**)))
 ;            (else                (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car line**))) (unsafe-cdr line**)))))))
 
-(pretty-write
-  (time
-    (let loop ((count 0) (line** (s-chunk (s-unchunk (s-chunk (port-line* in) 1024)) 1024)))
-      (cond ((null?      line**) count)
-            ((procedure? line**) (loop count (line**)))
-            (else                (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car line**))) (unsafe-cdr line**)))))))
-
-;; only regular suspensions
-;; 4.8GB
-;;
-
-;; 37GB
-;;
-
-;; 40GB
-;;
-
-;(pretty-write
-;  (time
-;    (let loop ((count 0) (^line** (rs-chunk (port-line* in) 1024)))
-;      (let ((line** (^line**)))
-;        (cond ((null? line**) count)
-;              (else           (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car line**))) (unsafe-cdr line**))))))))
-
-;(pretty-write
-;  (time
-;    (let loop ((count 0) (^line** (rs-chunk (rs-unchunk (rs-chunk (port-line* in) 1024)) 1024)))
-;      (let ((line** (^line**)))
-;        (cond ((null? line**) count)
-;              (else           (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car line**))) (unsafe-cdr line**))))))))
-
 ;;; tsv*
-
-;; irregular suspensions
 ;; 4.8GB
-;;
-
+;;  cpu time: 18174 real time: 19428 gc time: 58
+;; ==> 11342763
 ;; 37GB
-;;
-
+;;  cpu time: 128575 real time: 138002 gc time: 288
+;; ==> 56965146
 ;; 40GB
-;;
-
+;;  cpu time: 167210 real time: 178156 gc time: 497
+;; ==> 600183480
 ;(pretty-write
 ;  (time
-;    (let loop ((count 0) (tsv* ((s-map (line->tsv/field-count field-count) (port-line* in)))))
-;      (cond ((null? tsv*) count)
-;            (else         (loop (unsafe-fx+ count 1) ((unsafe-cdr tsv*))))))))
-
-;; only regular suspensions
-;; 4.8GB
-;;
-
-;; 37GB
-;;
-
-;; 40GB
-;;
-
-;(pretty-write
-;  (time
-;    (let loop ((count 0) (^tsv* (rs-map (line->tsv/field-count field-count) (port-line* in))))
-;      (let ((tsv* (^tsv*)))
-;        (cond ((null? tsv*) count)
-;              (else         (loop (unsafe-fx+ count 1) (unsafe-cdr tsv*))))))))
+;    (let loop ((count 0) (tsv* (port-tsv* in field-count)))
+;      (cond ((null?      tsv*) count)
+;            ((procedure? tsv*) (loop count (tsv*)))
+;            (else              (loop (unsafe-fx+ count 1) ((unsafe-cdr tsv*))))))))
 
 ;;; tsv**
-
-;; irregular suspensions
 ;; 4.8GB
-;;
-
+;;  cpu time: 18731 real time: 19987 gc time: 461
+;; ==> 11342763
 ;; 37GB
-;;
-
+;;  cpu time: 130234 real time: 139721 gc time: 5035
+;; ==> 56965146
 ;; 40GB
-;;
-
+;;  cpu time: 175915 real time: 187106 gc time: 2174
+;; ==> 600183480
 ;(pretty-write
 ;  (time
-;    (let loop ((count 0) (tsv** (s-chunk (s-map (line->tsv/field-count field-count) (port-line* in)) 1024)))
+;    (let loop ((count 0) (tsv** (s-chunk (port-tsv* in field-count) 1024)))
 ;      (cond ((null?      tsv**) count)
 ;            ((procedure? tsv**) (loop count (tsv**)))
 ;            (else               (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car tsv**))) (unsafe-cdr tsv**)))))))
 
-;; only regular suspensions
+;;; tsv** with resizing
 ;; 4.8GB
-;;
-
+;;  cpu time: 25701 real time: 26978 gc time: 7636
+;; ==> 11342763
 ;; 37GB
-;;
-
+;;  cpu time: 199729 real time: 209406 gc time: 59567
+;; ==> 56965146
 ;; 40GB
-;;
-
+;;  cpu time: 263930 real time: 275982 gc time: 69542
+;; ==> 600183480
 ;(pretty-write
 ;  (time
-;    (let loop ((count 0) (^tsv** (rs-chunk (rs-map (line->tsv/field-count field-count) (port-line* in)) 1024)))
-;      (let ((tsv** (^tsv**)))
-;        (cond ((null? tsv**) count)
-;              (else          (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car tsv**))) (unsafe-cdr tsv**))))))))
+;    (let loop ((count 0) (tsv** (s-chunk (s-unchunk (s-chunk (port-tsv* in field-count) 65536)) 1024)))
+;      (cond ((null?      tsv**) count)
+;            ((procedure? tsv**) (loop count (tsv**)))
+;            (else               (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car tsv**))) (unsafe-cdr tsv**)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; sorting vector-tuple blocks ;;;
