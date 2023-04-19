@@ -24,9 +24,12 @@
       ((null?      s) '())
       ((procedure? s) (loop (s)))
       (else           (cons (car s) (loop (cdr s)))))))
-
 ;(define-syntax-rule (pause e) e)
 ;(define (s->list s) s)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; streams with irregular suspension ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (s-take n s)
   (if n
@@ -37,11 +40,112 @@
               (else           (cons (car s) (loop (- n 1) (cdr s))))))
       (s->list s)))
 
-(define (s-map f s)
-  (let loop ((s s))
-    (cond ((null? s)      '())
-          ((procedure? s) (lambda () (loop (s))))
-          (else           (cons (f (car s)) (loop (cdr s)))))))
+(define s-map
+  (case-lambda
+    ((f s)
+     (let loop ((s s))
+       (cond ((null?      s) '())
+             ((procedure? s) (lambda () (loop (s))))
+             (else           (cons (f (car s)) (loop (cdr s)))))))
+    ((f s . s*)
+     (let loop.outer ((s s) (s* s*))
+       (cond ((null?      s) '())
+             ((procedure? s) (lambda () (loop.outer (s) s*)))
+             (else (let loop ((s*-pending s*) (rs* '()))
+                     (if (null? s*-pending)
+                         (let ((s* (reverse rs*)))
+                           (cons (apply f (car s) (map car s*))
+                                 (loop.outer (cdr s) (map cdr s*))))
+                         (let next ((s*0 (car s*-pending)))
+                           (cond ((procedure? s*0) (lambda () (next (s*0))))
+                                 (else (loop (cdr s*-pending) (cons s*0 rs*)))))))))))))
+
+(define (s-chunk s len.chunk)
+  (cond
+    ((<= len.chunk 0) (error "chunk length must be positive" len.chunk))
+    ((=  len.chunk 1) (s-map vector s))
+    (else (let new ((s s))
+            (cond ((null?      s) '())
+                  ((procedure? s) (lambda () (new (s))))
+                  (else (let ((chunk (make-vector len.chunk)))
+                          (unsafe-vector*-set! chunk 0 (car s))
+                          (let loop ((s (cdr s)) (i 1))
+                            (cond
+                              ((null?      s) (list (vector-copy chunk 0 i)))
+                              ((procedure? s) (lambda () (loop (s) i)))
+                              (else (unsafe-vector*-set! chunk i (car s))
+                                    (let ((i (unsafe-fx+ i 1)))
+                                      (if (unsafe-fx< i len.chunk)
+                                          (loop (cdr s) i)
+                                          (cons chunk (new (cdr s)))))))))))))))
+
+(define (s-unchunk s)
+  (let next ((s s))
+    (cond ((null?      s) '())
+          ((procedure? s) (lambda () (next (s))))
+          (else (let* ((x* (car s)) (len.chunk (vector-length x*)))
+                  (let loop ((i 0))
+                    (if (unsafe-fx< i len.chunk)
+                        (cons (unsafe-vector*-ref x* i) (loop (unsafe-fx+ i 1)))
+                        (next (cdr s)))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; streams with regular suspension ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (rs->list ^x*)
+  (let loop ((x* (^x*)))
+    (cond
+      ((null? x*) '())
+      (else       (cons (car x*) (loop ((cdr x*))))))))
+
+(define (rs-take n ^x*)
+  (if n
+      (let loop ((n n) (x* (^x*)))
+        (cond ((= n 0)    '())
+              ((null? x*) '())
+              (else       (cons (car x*) (loop (- n 1) ((cdr x*)))))))
+      (rs->list ^x*)))
+
+(define (rs-map f ^x*)
+  (let loop ((^x* ^x*))
+    (lambda ()
+      (let ((x* (^x*)))
+        (cond ((null? x*) '())
+              (else       (cons (f (car x*)) (loop (cdr x*)))))))))
+
+(define (rs-chunk ^x* len.chunk)
+  (cond
+    ((<= len.chunk 0) (error "chunk length must be positive" len.chunk))
+    ((=  len.chunk 1) (rs-map vector ^x*))
+    (else
+      (define (new ^x*)
+        (lambda ()
+          (let ((x* (^x*)))
+            (if (null? x*)
+                '()
+                (let ((chunk (make-vector len.chunk)))
+                  (unsafe-vector*-set! chunk 0 (car x*))
+                  (let loop ((x* ((cdr x*))) (i 1))
+                    (cond
+                      ((null? x*) (cons (vector-copy chunk 0 i) (lambda () '())))
+                      (else (unsafe-vector*-set! chunk i (car x*))
+                            (let ((i (unsafe-fx+ i 1)))
+                              (if (unsafe-fx< i len.chunk)
+                                  (loop ((cdr x*)) i)
+                                  (cons chunk (new (cdr x*)))))))))))))
+      (new ^x*))))
+
+(define ((rs-unchunk ^x**))
+  (let next ((^x** ^x**))
+    (let ((x** (^x**)))
+      (if (null? x**)
+          '()
+          (let* ((x* (car x**)) (len.chunk (vector-length x*)))
+            (let loop ((i 0))
+              (if (unsafe-fx< i len.chunk)
+                  (cons (unsafe-vector*-ref x* i) (lambda () (loop (unsafe-fx+ i 1))))
+                  (next (cdr x**)))))))))
 
 ;;;;;;;;;;;;;;;;;;;
 ;;; combinators ;;;
@@ -54,11 +158,11 @@
   (loop src))
 
 (define (source->s src)
-  (define (loop resume)
-    (define (yield x resume) (cons x (lambda () (loop resume))))
+  (define ((loop resume))
+    (define (yield x resume) (cons x (loop resume)))
     (define (done) '())
     (resume yield done))
-  (lambda () (loop src)))
+  (loop src))
 
 (define (s->source x*)
   (let resume/x* ((x* x*))
@@ -106,37 +210,6 @@
 ;; benchmark helpers
 (define ((source->block*/length len.block) src) (source->s (source-chunk len.block src)))
 (define (block*->source b*)                     (source-unchunk (s->source b*)))
-
-;(define ((source->block*/length len.block) src)
-;  (define (loop resume i block)
-;    (define (yield x resume)
-;      (unsafe-vector*-set! block i x)
-;      (let ((i (unsafe-fx+ i 1)))
-;        (if (unsafe-fx= i len.block)
-;            (cons block (lambda () (loop resume 0 (make-vector len.block))))
-;            (loop resume i block))))
-;    (define (done) (list (vector-copy block 0 i)))
-;    (resume yield done))
-;  (lambda () (loop src 0 (make-vector len.block))))
-;
-;(define (block*->source b*)
-;  (let resume/b* ((b* b*))
-;    (lambda (yield done)
-;      (let loop ((b* b*))
-;        (cond
-;          ((null?      b*) (done))
-;          ((procedure? b*) (loop (b*)))
-;          (else (let* ((x*  (car b*))
-;                       (len (vector-length x*)))
-;                  (define ((produce i) yield done)
-;                    (yield (unsafe-vector*-ref x* i)
-;                           (let ((i (unsafe-fx+ i 1)))
-;                             (if (unsafe-fx< i len)
-;                                 (produce i)
-;                                 (resume/b* (cdr b*))))))
-;                  (if (unsafe-fx= len 0)
-;                      (loop (cdr b*))
-;                      ((produce 0) yield done)))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; streaming line blocks with multiple buffers ;;;
@@ -1146,6 +1219,253 @@
 ;        (lambda (x resume) (loop (unsafe-fx+ count (unsafe-vector*-length x)) resume))
 ;        (lambda () count)))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; streaming lines and vector-tuples individually ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; TODO: port-split-RLF
+
+(define (port-split in delim)
+  (define size.buffer 16384)
+  (file-stream-buffer-mode in 'none)
+  (define (loop.single start end buffer buffer.spare)
+    (let loop.inner ((i start))
+      (cond
+        ((unsafe-fx<= end i)
+         (if (unsafe-fx= start end)
+             (let ((end (read-bytes! buffer in 0 size.buffer)))
+               (if (eof-object? end)
+                   '()
+                   (loop.single 0 end buffer buffer.spare)))
+             (loop.multi buffer.spare 0 '() '() start end buffer)))
+        ((unsafe-fx= (unsafe-bytes-ref buffer i) delim)
+         (cons (subbytes buffer start i)
+               (lambda () (loop.single (unsafe-fx+ i 1) end buffer buffer.spare))))
+        (else (loop.inner (unsafe-fx+ i 1))))))
+  (define (loop.multi buffer.current len.middle end*.middle buffer*.middle
+                      start.first end.first buffer.first)
+    (let ((end (read-bytes! buffer.current in 0 size.buffer)))
+      (if (not (eof-object? end))
+          (let loop.inner ((i 0))
+            (cond
+              ((unsafe-fx<= end i) (loop.multi (make-bytes size.buffer)
+                                               (unsafe-fx+ len.middle end)
+                                               (cons end            end*.middle)
+                                               (cons buffer.current buffer*.middle)
+                                               start.first end.first buffer.first))
+              ((unsafe-fx= (unsafe-bytes-ref buffer.current i) delim)
+               (let* ((len.prev (unsafe-fx+ len.middle (unsafe-fx- end.first start.first)))
+                      (len      (unsafe-fx+ len.prev i))
+                      (line     (make-bytes len)))
+                 (unsafe-bytes-copy! line len.prev buffer.current 0 i)
+                 (let loop ((pos len.prev) (end* end*.middle) (buffer* buffer*.middle))
+                   (when (pair? end*)
+                     (let* ((end (unsafe-car end*))
+                            (pos (unsafe-fx- pos end)))
+                       (bytes-copy! line pos (unsafe-car buffer*) 0 end)
+                       (loop pos (unsafe-cdr end*) (unsafe-cdr buffer*)))))
+                 (unsafe-bytes-copy! line 0 buffer.first start.first end.first)
+                 (cons line (lambda ()
+                              (loop.single (unsafe-fx+ i 1) end buffer.current buffer.first)))))
+              (else (loop.inner (unsafe-fx+ i 1)))))
+          (let* ((len  (unsafe-fx+ len.middle (unsafe-fx- end.first start.first)))
+                 (line (make-bytes len)))
+            (let loop ((pos len) (end* end*.middle) (buffer* buffer*.middle))
+              (when (pair? end*)
+                (let* ((end (unsafe-car end*))
+                       (pos (unsafe-fx- pos end)))
+                  (unsafe-bytes-copy! line pos (unsafe-car buffer*) 0 end)
+                  (loop pos (unsafe-cdr end*) (unsafe-cdr buffer*)))))
+            (unsafe-bytes-copy! line 0 buffer.first start.first end.first)
+            (cons line (lambda () '()))))))
+  (lambda ()
+    (let ((buffer (make-bytes size.buffer)))
+      (let ((end (read-bytes! buffer in 0 size.buffer)))
+        (if (eof-object? end)
+            '()
+            (loop.single 0 end buffer (make-bytes size.buffer)))))))
+
+(define (port-line* in) (port-split in 10))
+
+(define ((line->tsv/field-count field-count) line)
+  (let ((len.line (bytes-length line))
+        (tuple    (make-vector field-count)))
+    (let loop ((i 0) (j.field 0) (start.field 0))
+      (cond
+        ((unsafe-fx= i len.line)
+         (unsafe-vector*-set! tuple j.field (subbytes line start.field i))
+         (unless (unsafe-fx= (unsafe-fx+ j.field 1) field-count)
+           (error "too few fields" j.field line))
+         tuple)
+        ((unsafe-fx= (unsafe-bytes-ref line i) 9)
+         (unsafe-vector*-set! tuple j.field (subbytes line start.field i))
+         (let ((i (unsafe-fx+ i 1)) (j.field (unsafe-fx+ j.field 1)))
+           (when (unsafe-fx= j.field field-count) (error "too many fields" line))
+           (loop i j.field i)))
+        (else (loop (unsafe-fx+ i 1) j.field start.field))))))
+
+(define (port-tsv* in field-count)
+  (s-map
+    (line->tsv/field-count field-count)
+    (port-line* in)))
+
+;;; line*
+
+;; irregular suspensions
+;; 4.8GB
+;;
+
+;; 37GB
+;;
+
+;; 40GB
+;;
+
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (line* (port-line* in)))
+;      (cond ((null?      line*) count)
+;            ((procedure? line*) (loop count (line*)))
+;            (else               (loop (unsafe-fx+ count 1) (unsafe-cdr line*)))))))
+
+;; only regular suspensions
+;; 4.8GB
+;;
+
+;; 37GB
+;;
+
+;; 40GB
+;;
+
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (^line* (port-line* in)))
+;      (let ((line* (^line*)))
+;        (cond ((null? line*) count)
+;              (else          (loop (unsafe-fx+ count 1) (unsafe-cdr line*))))))))
+
+;;; line**
+
+;; irregular suspensions
+;; 4.8GB
+;;
+
+;; 37GB
+;;
+
+;; 40GB
+;;
+
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (line** (s-chunk (port-line* in) 1024)))
+;      (cond ((null?      line**) count)
+;            ((procedure? line**) (loop count (line**)))
+;            (else                (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car line**))) (unsafe-cdr line**)))))))
+
+(pretty-write
+  (time
+    (let loop ((count 0) (line** (s-chunk (s-unchunk (s-chunk (port-line* in) 1024)) 1024)))
+      (cond ((null?      line**) count)
+            ((procedure? line**) (loop count (line**)))
+            (else                (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car line**))) (unsafe-cdr line**)))))))
+
+;; only regular suspensions
+;; 4.8GB
+;;
+
+;; 37GB
+;;
+
+;; 40GB
+;;
+
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (^line** (rs-chunk (port-line* in) 1024)))
+;      (let ((line** (^line**)))
+;        (cond ((null? line**) count)
+;              (else           (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car line**))) (unsafe-cdr line**))))))))
+
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (^line** (rs-chunk (rs-unchunk (rs-chunk (port-line* in) 1024)) 1024)))
+;      (let ((line** (^line**)))
+;        (cond ((null? line**) count)
+;              (else           (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car line**))) (unsafe-cdr line**))))))))
+
+;;; tsv*
+
+;; irregular suspensions
+;; 4.8GB
+;;
+
+;; 37GB
+;;
+
+;; 40GB
+;;
+
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (tsv* ((s-map (line->tsv/field-count field-count) (port-line* in)))))
+;      (cond ((null? tsv*) count)
+;            (else         (loop (unsafe-fx+ count 1) ((unsafe-cdr tsv*))))))))
+
+;; only regular suspensions
+;; 4.8GB
+;;
+
+;; 37GB
+;;
+
+;; 40GB
+;;
+
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (^tsv* (rs-map (line->tsv/field-count field-count) (port-line* in))))
+;      (let ((tsv* (^tsv*)))
+;        (cond ((null? tsv*) count)
+;              (else         (loop (unsafe-fx+ count 1) (unsafe-cdr tsv*))))))))
+
+;;; tsv**
+
+;; irregular suspensions
+;; 4.8GB
+;;
+
+;; 37GB
+;;
+
+;; 40GB
+;;
+
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (tsv** (s-chunk (s-map (line->tsv/field-count field-count) (port-line* in)) 1024)))
+;      (cond ((null?      tsv**) count)
+;            ((procedure? tsv**) (loop count (tsv**)))
+;            (else               (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car tsv**))) (unsafe-cdr tsv**)))))))
+
+;; only regular suspensions
+;; 4.8GB
+;;
+
+;; 37GB
+;;
+
+;; 40GB
+;;
+
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (^tsv** (rs-chunk (rs-map (line->tsv/field-count field-count) (port-line* in)) 1024)))
+;      (let ((tsv** (^tsv**)))
+;        (cond ((null? tsv**) count)
+;              (else          (loop (unsafe-fx+ count (unsafe-vector*-length (unsafe-car tsv**))) (unsafe-cdr tsv**))))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; sorting vector-tuple blocks ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1509,6 +1829,32 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; old naive line-reading ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (port-line*-naive in)
+  (let loop ()
+    (lambda ()
+      (let ((l (read-bytes-line in
+                                ;'any
+                                ;'return-linefeed
+                                'linefeed
+                                )))
+        (if (eof-object? l) '() (cons l (loop)))))))
+
+;; 4.8GB
+;;  cpu time: 24938 real time: 26044 gc time: 60
+;; ==> 11342763
+;; 37GB
+;;  cpu time: 247322 real time: 257375 gc time: 338
+;; ==> 56965146
+;; 40GB
+;;  cpu time: 247828 real time: 258028 gc time: 382
+;; 600183480
+;(pretty-write
+;  (time
+;    (let loop ((count 0) (line* (port-line*-naive in)))
+;      (cond ((null?      line*) count)
+;            ((procedure? line*) (loop count (line*)))
+;            (else               (loop (unsafe-fx+ count 1) (unsafe-cdr line*)))))))
 
 ;; 4.8GB
 ;;  cpu time: 34447 real time: 36184 gc time: 69
