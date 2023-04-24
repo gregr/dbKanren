@@ -2,6 +2,7 @@
 (provide
   ;; TODO: move these
   set-fixed-point
+  build-enumerator-relation
   build-s-relation
   build-tsv-relation
   unsafe-bytes-split-tab
@@ -84,6 +85,10 @@
         current
         (loop (set-union current new)
               (step      new))))))
+
+(define (build-enumerator-relation db type.r en)
+  (let-values (((insert! finish) (database-relation-builder db type.r)))
+    (time (begin (en insert!) (time (finish))))))
 
 (define (build-s-relation db type.r s)
   (let-values (((insert! finish) (database-relation-builder db type.r)))
