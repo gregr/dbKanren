@@ -2,6 +2,7 @@
 (provide
   ;; TODO: move these
   set-fixed-point
+  build-s-relation
   build-tsv-relation
   unsafe-bytes-split-tab
   bytes-base10->fxnat
@@ -83,6 +84,13 @@
         current
         (loop (set-union current new)
               (step      new))))))
+
+(define (build-s-relation db type.r s)
+  (let-values (((insert! finish) (database-relation-builder db type.r)))
+    (time (let loop ((s s))
+            (cond ((null?      s) (time (finish)))
+                  ((procedure? s) (loop (s)))
+                  (else           (insert! (car s)) (loop (cdr s))))))))
 
 (define (build-tsv-relation db type.r file-name)
   (let-values (((insert! finish) (database-relation-builder db type.r)))
