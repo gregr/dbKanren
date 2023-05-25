@@ -1747,7 +1747,7 @@
     ((6)  (6-unrolled-unsafe-bytes-nat-set! bs offset n))
     (else (rolled-unsafe-bytes-nat-set! width bs offset n))))
 
-(define (rolled-unsafe-bytes-nat-set! bs offset width n)
+(define (rolled-unsafe-bytes-nat-set! width bs offset n)
   (let loop ((i     offset)
              (shift (unsafe-fxlshift (unsafe-fx- width 1) 3)))
     (when (unsafe-fx<= 0 shift)
