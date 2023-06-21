@@ -257,6 +257,16 @@
       ((_                 rest ...) (loop #'(rest ...)))
       (()                           size))))
 
+(define (structure-env-lookup env x)
+  (unless (identifier? x) (error "not a discriminated identifier" x))
+  (let loop ((env env))
+    (if (null? env)
+        (error "not discriminated" x)
+        (let ((next (car env)))
+          (if (free-identifier=? (car next) x)
+              (cdr next)
+              (loop (cdr env)))))))
+
 (define (structure-compile-read/size-check S E.buffer E.limit.left E.limit.right E.k.fail E*.succeed)
   #`(let ((k.fail #,E.k.fail))
       (let retry ((buffer #,E.buffer)
@@ -266,15 +276,6 @@
             (k.fail retry)
             #,(let loop/env ((S* (list S)) (env '()))
                 (define (loop S*) (loop/env S* env))
-                (define (lookup x)
-                  (unless (identifier? x) (error "not a discriminated identifier" x))
-                  (let loop ((env env))
-                    (if (null? env)
-                        (error "not discriminated" x)
-                        (let ((next (car env)))
-                          (if (free-identifier=? (car next) x)
-                              (cdr next)
-                              (loop (cdr env)))))))
                 (syntax-case S* (struct size-= size-min size-max byte bytes text array
                                         let here discriminate case)
                   ((((bytes E.count) name) rest ...)
@@ -304,7 +305,7 @@
                                      (cons (cons #'name (syntax->datum #'choice)) env))
                          #,(loop #'((discriminate name more ...) rest ...))))
                   (((case x clause ...) rest ...)
-                   (let ((choice (lookup #'x)))
+                   (let ((choice (structure-env-lookup env #'x)))
                      (let loop.clause* ((clause* #'(clause ...)))
                        (syntax-case clause* (else)
                          (() (error "no matching clause for choice"
@@ -329,7 +330,7 @@
                           . #,(map (lambda (E.succeed)
                                      (syntax-case E.succeed (case)
                                        ((case x clause ...)
-                                        (let ((choice (lookup #'x)))
+                                        (let ((choice (structure-env-lookup env #'x)))
                                           (let loop.clause* ((clause* #'(clause ...)))
                                             (syntax-case clause* (else)
                                               (() (error "no matching clause for choice"
@@ -351,15 +352,6 @@
           (cur    #,E.limit.right))
       #,(let loop/env ((S* (list S)) (env '()))
           (define (loop S*) (loop/env S* env))
-          (define (lookup x)
-            (unless (identifier? x) (error "not a discriminated identifier" x))
-            (let loop ((env env))
-              (if (null? env)
-                  (error "not discriminated" x)
-                  (let ((next (car env)))
-                    (if (free-identifier=? (car next) x)
-                        (cdr next)
-                        (loop (cdr env)))))))
           (syntax-case S* (struct size-= size-min size-max byte bytes text array
                                   let here discriminate case)
             ((((bytes E.count) name) rest ...)
@@ -389,7 +381,7 @@
                                (cons (cons #'name (syntax->datum #'choice)) env))
                    #,(loop #'((discriminate name more ...) rest ...))))
             (((case x clause ...) rest ...)
-             (let ((choice (lookup #'x)))
+             (let ((choice (structure-env-lookup env #'x)))
                (let loop.clause* ((clause* #'(clause ...)))
                  (syntax-case clause* (else)
                    (() (error "no matching clause for choice"
@@ -409,7 +401,7 @@
             (() #`(begin . #,(map (lambda (E.succeed)
                                     (syntax-case E.succeed (case)
                                       ((case x clause ...)
-                                       (let ((choice (lookup #'x)))
+                                       (let ((choice (structure-env-lookup env #'x)))
                                          (let loop.clause* ((clause* #'(clause ...)))
                                            (syntax-case clause* (else)
                                              (() (error "no matching clause for choice"
@@ -425,6 +417,55 @@
                                               (error "misplaced else" #'(case x clause ...)))))))
                                       (_ E.succeed)))
                                   E*.succeed)))))))
+
+;; NOTE: assumes buffer is large enough
+(define (structure-compile-write S env E.buffer E.limit.right E.k.succeed)
+  #`(let ((buffer #,E.buffer)
+          (cur    #,E.limit.right))
+      #,(let loop ((S* (list S)))
+          (syntax-case S* (struct size-= size-min size-max byte bytes text array
+                                  let here discriminate case)
+            ((((bytes E.count) name) rest ...)
+             #`(let* ((count E.count)
+                      (cur   (unsafe-fx- cur count)))
+                 (unsafe-bytes-nat-set! count buffer cur name)
+                 #,(loop #'(rest ...))))
+            ((((array E.count E.len) name) rest ...)
+             #`(let* ((count E.count)
+                      (len   E.len)
+                      (cur   (unsafe-fx- cur (unsafe-fx* count len))))
+                 (unsafe-bytes-nat-array-set! count len buffer cur name)
+                 #,(loop #'(rest ...))))
+            ((((text E.len) name) rest ...)
+             #`(let* ((len E.len)
+                      (cur (unsafe-fx- cur len)))
+                 (unsafe-bytes-text-set! len buffer cur name 0)
+                 #,(loop #'(rest ...))))
+            ((((bytes c)   name ...) rest ...) (loop #'(((bytes c)   name) ... rest ...)))
+            ((((array c l) name ...) rest ...) (loop #'(((array c l) name) ... rest ...)))
+            ((((text l)    name ...) rest ...) (loop #'(((text l)    name) ... rest ...)))
+            (((let name body) rest ...) #`(let ((name body)) #,(loop #'(rest ...))))
+            (((here name ...) rest ...) #`(let ((name cur) ...) #,(loop #'(rest ...))))
+            (((discriminate name choice more ...) rest ...) (loop #'(rest ...)))
+            (((case x clause ...) rest ...)
+             (let ((choice (structure-env-lookup env #'x)))
+               (let loop.clause* ((clause* #'(clause ...)))
+                 (syntax-case clause* (else)
+                   (() (error "no matching clause for choice"
+                              #'x choice #'(case x clause ...)))
+                   (((() _) more ...) (loop.clause* #'(more ...)))
+                   ((((val val* ...) body) more ...)
+                    (if (eq? (syntax->datum #'val) choice)
+                        (loop #'(body rest ...))
+                        (loop.clause* #'(((val* ...) body) more ...))))
+                   (((else body))       (loop #'(body rest ...)))
+                   (((else _) more ...) (error "misplaced else" #'(case x clause ...)))))))
+            (((struct body ...) rest ...) (loop #'(body ... rest ...)))
+            (((byte name ...)   rest ...) (loop #'(((bytes 1) name ...) rest ...)))
+            (((size-=   sz)     rest ...) (loop #'((size-max sz) (size-min sz) rest ...)))
+            (((size-max sz)     rest ...) (loop #'(rest ...)))
+            (((size-min sz)     rest ...) (loop #'(rest ...)))
+            (()                           #`(#,E.k.succeed cur))))))
 
 ;;;;;;;;;;;;;;;;
 ;;; Examples ;;;
@@ -457,8 +498,8 @@
       ((array bytecount.address.payload (unsafe-fx+ type.node count.key* 1)) address*.payload)
       (discriminate type.node 0 1)
       (case type.node
-        ((0) ((bytes 6) max-reachable-cardinality-offset))
-        ((1) (struct)))
+        ((0) (struct))
+        ((1) ((bytes 6) max-reachable-cardinality-offset)))
       (here address.key*)))
 
 (require racket/pretty)
@@ -469,3 +510,19 @@
 (pretty-result
   (syntax->datum
     (structure-compile-read stx.btt-node #'E.buffer #'E.limit.right (list #'E.succeed))))
+(pretty-result
+  (syntax->datum
+    (structure-compile-write
+      stx.btt-node
+      `((,#'type.node . 0))
+      #'E.buffer
+      #'E.limit.right
+      #'E.k.succeed)))
+(pretty-result
+  (syntax->datum
+    (structure-compile-write
+      stx.btt-node
+      `((,#'type.node . 1))
+      #'E.buffer
+      #'E.limit.right
+      #'E.k.succeed)))
