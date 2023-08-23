@@ -10,6 +10,11 @@
 (define enable-interrupts  (vm-primitive 'enable-interrupts))
 (define disable-interrupts (vm-primitive 'disable-interrupts))
 
+(define bytevector-u32-native-ref  (vm-primitive 'bytevector-u32-native-ref))
+(define bytevector-u32-native-set! (vm-primitive 'bytevector-u32-native-set!))
+(define bytevector-u64-native-ref  (vm-primitive 'bytevector-u64-native-ref))
+(define bytevector-u64-native-set! (vm-primitive 'bytevector-u64-native-set!))
+
 (define prefix      #"SHARE:")
 (define digit-count 7)
 (define len.prefix (bytes-length prefix))
@@ -107,6 +112,21 @@
 
 ;; cpu time: 23 real time: 23 gc time: 0
 (time (unsafe-bytes-copy! output 0 input))
+;; cpu time: 281 real time: 288 gc time: 0
+(time (let loop ((i 0))
+        (when (unsafe-fx< i size)
+          (unsafe-bytes-set! output i (unsafe-bytes-ref input i))
+          (loop (unsafe-fx+ i 1)))))
+;; cpu time: 278 real time: 280 gc time: 0
+(time (let loop ((i 0))
+        (when (unsafe-fx< i size)
+          (bytevector-u32-native-set! output i (bytevector-u32-native-ref input i))
+          (loop (unsafe-fx+ i 4)))))
+;; cpu time: 180 real time: 182 gc time: 0
+(time (let loop ((i 0))
+        (when (unsafe-fx< i size)
+          (bytevector-u64-native-set! output i (bytevector-u64-native-ref input i))
+          (loop (unsafe-fx+ i 8)))))
 
 ;; cpu time: 20 real time: 20 gc time: 0
 (pretend-decode-input)
