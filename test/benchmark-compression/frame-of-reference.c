@@ -58,7 +58,7 @@ static inline u64 max(u64 a, u64 b) { return (a < b) ? b : a; }
 u64 nat_min_byte_width(u64 n_max) { return max(min_bytes(n_max), 1); }
 
 s64 v_min, v_max;
-u64 expected_byte_width, count, byte_width, size;
+u64 expected_byte_width, count, byte_width, size, bw2, bw3, bw4;
 u8 *input;
 s64* output;
 
@@ -86,6 +86,9 @@ void init() {
   count = v_max - v_min;
   byte_width = nat_min_byte_width(count);
   size = count * byte_width;
+  bw2 = byte_width * 2;
+  bw3 = byte_width * 3;
+  bw4 = byte_width * 4;
 
   input = malloc(size);
   output = malloc(count * sizeof(s64));
@@ -139,6 +142,22 @@ void decode_input() {
   time_end();
 }
 
+void multi_decode_input() {
+  time_start();
+  for (u64 i = 0, start = 0; i < count; i += 2, start += bw2) {
+    output[i]   = decode(nat_ref(input, start));
+    output[i+1] = decode(nat_ref(input, start + byte_width));
+  }
+  // 4x unrolled seems to perform the same as 2x.
+  /*for (u64 i = 0, start = 0; i < count; i += 4, start += bw4) {*/
+    /*output[i]   = decode(nat_ref(input, start));*/
+    /*output[i+1] = decode(nat_ref(input, start + byte_width));*/
+    /*output[i+2] = decode(nat_ref(input, start + bw2));*/
+    /*output[i+3] = decode(nat_ref(input, start + bw3));*/
+  /*}*/
+  time_end();
+}
+
 u64 throwaway = 0;
 
 void pretend_decode_input() {
@@ -169,24 +188,28 @@ int main() {
   printf("count: %llu byte-width: %llu\n", count, byte_width);
 
   // count: 16000000 byte-width: 3
-  // 0.047027 elapsed seconds
-  // 0.000001 elapsed seconds
-  // 0.021228 elapsed seconds
-  // 0.099596 elapsed seconds
+  // 0.047094 elapsed seconds
+  // 0.000000 elapsed seconds
+  // 0.018841 elapsed seconds
+  // 0.099701 elapsed seconds
+  // 0.024144 elapsed seconds
   // count: 20000000 byte-width: 4
-  // 0.069665 elapsed seconds
-  // 0.000000 elapsed seconds
-  // 0.037357 elapsed seconds
-  // 0.135385 elapsed seconds
+  // 0.073569 elapsed seconds
+  // 0.000001 elapsed seconds
+  // 0.030951 elapsed seconds
+  // 0.130310 elapsed seconds
+  // 0.037042 elapsed seconds
   // count: 32500000 byte-width: 4
-  // 0.120382 elapsed seconds
+  // 0.117449 elapsed seconds
   // 0.000000 elapsed seconds
-  // 0.050082 elapsed seconds
-  // 0.206945 elapsed seconds
+  // 0.052090 elapsed seconds
+  // 0.205715 elapsed seconds
+  // 0.063819 elapsed seconds
   generate_input();
   pretend_decode_input();
   pretend_decode_input_more();
   decode_input();
+  multi_decode_input();
 
   show_u8(input, 0, 100);
   show_u8(input, 10000, 10100);

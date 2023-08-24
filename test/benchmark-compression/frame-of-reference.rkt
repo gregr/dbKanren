@@ -154,6 +154,10 @@
 (define byte-width (nat-min-byte-width count))
 (pretty-write `(count: ,count byte-width: ,byte-width))
 
+(define bw2 (* byte-width 2))
+(define bw3 (* byte-width 3))
+(define bw4 (* byte-width 4))
+
 (define size   (* count byte-width))
 (define input  (make-bytes size))
 (define output (make-fxvector count))
@@ -188,6 +192,28 @@
             (when (unsafe-fx< i count)
               (unsafe-fxvector-set! output i (decode (n-ref input start)))
               (loop (unsafe-fx+ i 1) (unsafe-fx+ start byte-width)))))))
+
+(define (multi-decode-input)
+  (let ((n-ref (case byte-width
+                 ((1) 1-unrolled-unsafe-bytes-nat-ref)
+                 ((2) 2-unrolled-unsafe-bytes-nat-ref)
+                 ((3) 3-unrolled-unsafe-bytes-nat-ref)
+                 ((4) 4-unrolled-unsafe-bytes-nat-ref)
+                 ((5) 5-unrolled-unsafe-bytes-nat-ref)
+                 ((6) 6-unrolled-unsafe-bytes-nat-ref)
+                 (else (error "invalid byte width" byte-width)))))
+    (time (let loop ((i 0) (start 0))
+            (when (unsafe-fx< i count)
+              (unsafe-fxvector-set! output i                (decode (n-ref input start)))
+              (unsafe-fxvector-set! output (unsafe-fx+ i 1) (decode (n-ref input (unsafe-fx+ start byte-width))))
+              (loop (unsafe-fx+ i 2) (unsafe-fx+ start bw2))
+              ;; 4x unrolled seems to perform the same as 2x.
+              ;(unsafe-fxvector-set! output i                (decode (n-ref input start)))
+              ;(unsafe-fxvector-set! output (unsafe-fx+ i 1) (decode (n-ref input (unsafe-fx+ start byte-width))))
+              ;(unsafe-fxvector-set! output (unsafe-fx+ i 2) (decode (n-ref input (unsafe-fx+ start bw2))))
+              ;(unsafe-fxvector-set! output (unsafe-fx+ i 3) (decode (n-ref input (unsafe-fx+ start bw3))))
+              ;(loop (unsafe-fx+ i 4) (unsafe-fx+ start bw4))
+              )))))
 
 (define (pretend-decode-input)
   (let ((n-ref (case byte-width
@@ -237,24 +263,28 @@
               (loop (unsafe-fx+ i 1) (unsafe-fx+ start byte-width)))))))
 
 ;; (count: 16000000 byte-width: 3)
-;; cpu time: 200 real time: 201 gc time: 132
-;; cpu time: 32 real time: 32 gc time: 0
+;; cpu time: 205 real time: 205 gc time: 133
+;; cpu time: 35 real time: 35 gc time: 0
 ;; cpu time: 61 real time: 63 gc time: 0
-;; cpu time: 74 real time: 76 gc time: 0
+;; cpu time: 75 real time: 78 gc time: 0
+;; cpu time: 72 real time: 74 gc time: 0
 ;; (count: 20000000 byte-width: 4)
-;; cpu time: 301 real time: 303 gc time: 184
-;; cpu time: 40 real time: 40 gc time: 0
-;; cpu time: 93 real time: 97 gc time: 0
-;; cpu time: 105 real time: 109 gc time: 0
+;; cpu time: 312 real time: 313 gc time: 191
+;; cpu time: 44 real time: 45 gc time: 0
+;; cpu time: 93 real time: 96 gc time: 0
+;; cpu time: 103 real time: 103 gc time: 0
+;; cpu time: 108 real time: 114 gc time: 0
 ;; (count: 32500000 byte-width: 4)
-;; cpu time: 525 real time: 528 gc time: 330
-;; cpu time: 66 real time: 66 gc time: 0
-;; cpu time: 152 real time: 156 gc time: 0
-;; cpu time: 167 real time: 170 gc time: 0
+;; cpu time: 482 real time: 487 gc time: 290
+;; cpu time: 70 real time: 71 gc time: 0
+;; cpu time: 148 real time: 152 gc time: 0
+;; cpu time: 170 real time: 173 gc time: 0
+;; cpu time: 171 real time: 176 gc time: 0
 (generate-input)
 (pretend-decode-input)
 (pretend-decode-input-more)
 (decode-input)
+(multi-decode-input)
 
 ;; with integer->integer-bytes and integer-bytes->integer:
 ;;   (count: 32500000 byte-width: 4)
