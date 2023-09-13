@@ -28,9 +28,14 @@
   ((define (port-read-method in)
      (file-stream-buffer-mode in 'none)
      (lambda (count pos bv.target start.target)
-       (file-position in pos)
-       ;; NOTE: in must have count bytes available at pos
-       (read-bytes! bv.target in start.target (unsafe-fx+ start.target count)))))
+       ;; WARNING: we assume "in" has at least count bytes available at pos.  If it does not,
+       ;; read-bytes! will eventually return eof and behave unsafely.
+       (let loop ((pos pos) (i start.target) (count count))
+         (file-position in pos)
+         (let ((amount (read-bytes! bv.target in i (unsafe-fx+ i count))))
+           (if (unsafe-fx< amount count)
+               (loop (unsafe-fx+ pos amount) (unsafe-fx+ i amount) (unsafe-fx- count amount))
+               (void)))))))
   (define (storage:port-read-only in) (port-read-method in))
   (define (storage:port-read-write in out)
     (file-stream-buffer-mode out 'none)
