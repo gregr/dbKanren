@@ -1,4 +1,4 @@
-// gcc -O2 -o frame-of-reference.out frame-of-reference.c && ./frame-of-reference.out && rm frame-of-reference.out
+// gcc -O2 -o frame-of-reference-deocde.out frame-of-reference-deocde.c && ./frame-of-reference-deocde.out && rm frame-of-reference-deocde.out
 #include <sys/time.h>
 #include <unistd.h>
 #include <stdio.h>
