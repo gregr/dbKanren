@@ -87,12 +87,11 @@
       ((6) (go 6-unrolled-unsafe-bytes-nat-ref)))))
 (define (unsafe-bytes-nat-array-set! width len bs offset n*)
   (let ((go (lambda (n-set!)
-              (let ((n* (make-fxvector len 0)))
-                (let loop ((i 0) (pos offset))
-                  (when (unsafe-fx< i len)
-                    (n-set! bs pos (unsafe-fxvector-ref n* i))
-                    (loop (unsafe-fx+ i 1) (unsafe-fx+ pos width))))))))
-    (case width
+              (let loop ((i 0) (pos offset))
+                (when (unsafe-fx< i len)
+                  (n-set! bs pos (unsafe-fxvector-ref n* i))
+                  (loop (unsafe-fx+ i 1) (unsafe-fx+ pos width)))))))
+  (case width
       ((0) (void))
       ((1) (go 1-unrolled-unsafe-bytes-nat-set!))
       ((2) (go 2-unrolled-unsafe-bytes-nat-set!))
