@@ -165,26 +165,24 @@
         ((6) (go 6-unrolled-unsafe-bytes-nat-set!))
         (else (error "unsupported byte-width" width))))))
 
-;; TODO: destructively updates v.source to contain deltas, which is not great
 ;; Returns the pos immediately following segment
-(define (int-segment-encode!/delta len bv pos v.source i.source)
-  (unsafe-bytes-set! bv pos compression-type.int:delta)
-  (let* ((v.start  (unsafe-vector*-ref v.source i.source))
-         (pos      (int-encode! bv (unsafe-fx+ pos 1) v.start))
-         (end      (unsafe-fx+ i.source len)))
-    (let loop ((i (unsafe-fx+ i.source 1)) (v.prev v.start))
-      (when (unsafe-fx< i end)
-        (let ((v (unsafe-vector*-ref v.source i)))
-          (unsafe-vector*-set! v.source i (unsafe-fx- v v.prev))
-          (loop (unsafe-fx+ i 1) v))))
-    pos))
-
-;; TODO: silly signature when we only need v.sole
-;; Returns the pos immediately following segment
-(define (int-segment-encode!/single-value len bv pos v.source i.source)
+(define (int-segment-encode!/single-value v.sole bv pos)
   (unsafe-bytes-set! bv pos compression-type.int:single-value)
-  (let ((v.sole (unsafe-vector*-ref v.source i.source)))
+  (int-encode! bv (unsafe-fx+ pos 1) v.sole))
+
+;; Returns the pos immediately following segment
+(define (int-segment-encode!/delta-single-value v.start v.sole bv pos)
+  (unsafe-bytes-set! bv pos compression-type.int:delta)
+  (let ((pos (int-encode! bv (unsafe-fx+ pos 1) v.start)))
+    (unsafe-bytes-set! bv pos compression-type.int:single-value)
     (int-encode! bv (unsafe-fx+ pos 1) v.sole)))
+
+;; TODO: support a dedicated int:delta-single-value compression method?
+;; Returns the pos immediately following segment
+;(define (int-segment-encode!/delta-single-value v.start v.sole bv pos)
+;  (unsafe-bytes-set! bv pos compression-type.int:delta-single-value)
+;  (let ((pos (int-encode! bv (unsafe-fx+ pos 1) v.start)))
+;    (int-encode! bv pos v.sole)))
 
 ;; TODO: search for a reasonable int-segment encoding:
 ;; - min-count.dictionary
