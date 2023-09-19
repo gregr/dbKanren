@@ -8,14 +8,21 @@
   ;racket/unsafe/ops
   )
 
-(define compression-type.int:frame-of-reference        0)
-(define compression-type.int:delta                     1)
-(define compression-type.int:single-value              2)
-(define compression-type.int:dictionary                3)
-(define compression-type.text:none                     4)
-(define compression-type.text:previous-relative-prefix 5)
-(define compression-type.text:single-value             6)
-(define compression-type.text:dictionary               7)
+;; TODO: we probably won't use int:none
+;(define compression-type.int:none                       0)
+(define compression-type.int:frame-of-reference         1)
+(define compression-type.int:single-value               2)
+;; TODO: delta is probably only useful when it leads to single-value, so change this to assume delta-single-value ?
+(define compression-type.int:delta                      3)
+(define compression-type.int:dictionary                 4)
+(define compression-type.int:multiple                   5)
+
+(define compression-type.text:none                      6)
+(define compression-type.text:previous-relative-prefix  7)
+(define compression-type.text:single-value              8)
+(define compression-type.text:dictionary:small          9)
+(define compression-type.text:dictionary:big           10)
+(define compression-type.text:multiple                 11)
 
 (define (text-segment-decode bv i.segment v.target i.target)
   (let ((type (unsafe-bytes-ref bv i.segment)))
@@ -28,59 +35,64 @@
       ;   - text value start/end byte-position-interval array (relative to base-address)
       ;     - implicit start of 0
       ;   - logically subsumed by previous-relative prefix method, but should be more efficient to decode
-      ; - dictionary (int or text)
-      ;   - 16-bit count
-      ;   - 8-bit segment-size bit-width
-      ;   - segment-size
+      ; - text:dictionary:small
+      ;   - 8-bit count of dictionary values
       ;   - embedded segment for dictionary values
-      ;   - the segment-header for dictionary-encoded values
+      ;   - 8-bit indexes into dictionary
+      ; - text:dictionary:big
+      ;   - 16-bit count of dictionary values
+      ;   - embedded segment for dictionary values
+      ;   - 16-bit indexes into dictionary
       ; - text:previous-relative-prefix
       ;   - TODO
+      ; - multiple segments
+      ;   - 8-bit segment-count
+      ;   - segment-count segments, each preceded by a 16-bit segment-length
       (else (error "unknown text compression type" type)))))
-
-(define (int-section-decode! bv pos v.target i.target)
-  (let* ((segment-count (2-unrolled-unsafe-bytes-nat-ref bv pos))
-         (pos           (unsafe-fx+ pos 2))
-         (end*          (unsafe-bytes-nat-fxarray-ref 2 segment-count bv pos))
-         (pos           (unsafe-fx+ pos (unsafe-fx* segment-count 2))))
-    (let loop ((j 0) (start 0) (pos pos) (i.target i.target))
-      (when (unsafe-fx< j segment-count)
-        (let* ((end (unsafe-fxvector-ref end* j))
-               (len (unsafe-fx- end start))
-               (pos (int-segment-decode! len bv pos v.target i.target)))
-          (loop (unsafe-fx+ j 1) end pos (unsafe-fx+ i.target len)))))))
 
 ;; Returns the pos immediately following segment
 (define (int-segment-decode! len bv pos v.target i.target)
-  (let ((type (unsafe-bytes-ref bv pos)))
+  (define (int-segment-decode/frame-of-reference v.min byte-width pos)
+    (let ((end (unsafe-fx+ i.target len)))
+      (let ((go (lambda (n-ref)
+                  (let loop ((i i.target) (pos pos))
+                    (cond ((unsafe-fx< i end)
+                           (unsafe-vector*-set! v.target i (unsafe-fx+ (n-ref bv pos) v.min))
+                           (loop (unsafe-fx+ i 1) (unsafe-fx+ pos byte-width)))
+                          (else pos))))))
+        (case byte-width
+          ((1) (go 1-unrolled-unsafe-bytes-nat-ref))
+          ((2) (go 2-unrolled-unsafe-bytes-nat-ref))
+          ((3) (go 3-unrolled-unsafe-bytes-nat-ref))
+          ((4) (go 4-unrolled-unsafe-bytes-nat-ref))
+          ((5) (go 5-unrolled-unsafe-bytes-nat-ref))
+          ((6) (go 6-unrolled-unsafe-bytes-nat-ref))
+          (else (error "unsupported byte-width" byte-width))))))
+  (let* ((type (unsafe-bytes-ref bv pos))
+         (pos  (unsafe-fx+ pos 1)))
     (define (? x) (eq? type x))
     (cond
+      ;; TODO: we probably won't use int:none
+      ;((? compression-type.int:none)
+      ; (let* ((byte-width (unsafe-bytes-ref bv pos))
+      ;        (pos        (unsafe-fx+ pos 1))
+      ;        (v.min      (byte-width->int-min byte-width)))
+      ;   (int-segment-decode/frame-of-reference v.min byte-width pos)))
       ((? compression-type.int:frame-of-reference)
-       (let* ((byte-width (unsafe-bytes-ref bv (unsafe-fx+ pos 1)))
-              (v.min      (unsafe-fx+ (unsafe-bytes-nat-ref byte-width bv (unsafe-fx+ pos 2))
+       (let* ((byte-width (unsafe-bytes-ref bv pos))
+              (pos        (unsafe-fx+ pos 1))
+              (v.min      (unsafe-fx+ (unsafe-bytes-nat-ref byte-width bv pos)
                                       (byte-width->int-min byte-width)))
-              (pos        (unsafe-fx+ pos 2 byte-width))
+              (pos        (unsafe-fx+ pos byte-width))
               (byte-width (unsafe-bytes-ref bv pos))
-              (end        (unsafe-fx+ i.target len)))
-         (let ((go (lambda (n-ref)
-                     (let loop ((i i.target) (pos (unsafe-fx+ pos 1)))
-                       (cond ((unsafe-fx< i end)
-                              (unsafe-vector*-set! v.target i (unsafe-fx+ (n-ref bv pos) v.min))
-                              (loop (unsafe-fx+ i 1) (unsafe-fx+ pos byte-width)))
-                             (else pos))))))
-           (case byte-width
-             ((1) (go 1-unrolled-unsafe-bytes-nat-ref))
-             ((2) (go 2-unrolled-unsafe-bytes-nat-ref))
-             ((3) (go 3-unrolled-unsafe-bytes-nat-ref))
-             ((4) (go 4-unrolled-unsafe-bytes-nat-ref))
-             ((5) (go 5-unrolled-unsafe-bytes-nat-ref))
-             ((6) (go 6-unrolled-unsafe-bytes-nat-ref))
-             (else (error "unsupported byte-width" byte-width))))))
+              (pos        (unsafe-fx+ pos 1)))
+         (int-segment-decode/frame-of-reference v.min byte-width pos)))
       ((? compression-type.int:delta)
-       (let* ((byte-width (unsafe-bytes-ref bv (unsafe-fx+ pos 1)))
-              (v.start    (unsafe-fx+ (unsafe-bytes-nat-ref byte-width bv (unsafe-fx+ pos 2))
+       (let* ((byte-width (unsafe-bytes-ref bv pos))
+              (pos        (unsafe-fx+ pos 1))
+              (v.start    (unsafe-fx+ (unsafe-bytes-nat-ref byte-width bv pos)
                                       (byte-width->int-min byte-width)))
-              (pos        (unsafe-fx+ pos 2 byte-width)))
+              (pos        (unsafe-fx+ pos byte-width)))
          (unsafe-vector*-set! v.target i.target v.start)
          (let* ((len (unsafe-fx- len 1))
                 (i   (unsafe-fx+ i.target 1))
@@ -93,20 +105,33 @@
                  (loop (unsafe-fx+ i 1) v))))
            pos)))
       ((? compression-type.int:single-value)
-       (error "TODO: integer single-value compression")
-       ; - int:single-value
-       ;   - a single int:none encoded value
-       ;     - includes 8-bit bit-width
-       )
+       (let* ((byte-width (unsafe-bytes-ref bv pos))
+              (pos        (unsafe-fx+ pos 1))
+              (v.sole     (unsafe-fx+ (unsafe-bytes-nat-ref byte-width bv pos)
+                                      (byte-width->int-min byte-width)))
+              (pos        (unsafe-fx+ pos byte-width))
+              (end        (unsafe-fx+ i.target len)))
+         (let loop ((i i.target))
+           (when (unsafe-fx< i end)
+             (unsafe-vector*-set! v.target i v.sole)
+             (loop (unsafe-fx+ i 1))))
+         pos))
       ((? compression-type.int:dictionary)
        (error "TODO: integer dictionary compression")
-       ; - dictionary (int or text)
-       ;   - 16-bit count
-       ;   - 8-bit segment-size bit-width
-       ;   - segment-size
+       ; - int:dictionary
+       ;   - 8-bit count of dictionary values
        ;   - embedded segment for dictionary values
-       ;   - the segment-header for dictionary-encoded values
+       ;   - 8-bit indexes into dictionary
        )
+      ((? compression-type.int:multiple)
+       (let ((segment-count (unsafe-bytes-ref bv pos)))
+         (let loop ((j 0) (pos (unsafe-fx+ pos 1)) (i.target i.target))
+           (if (unsafe-fx< j segment-count)
+               (let* ((len (2-unrolled-unsafe-bytes-nat-ref bv pos))
+                      (pos (unsafe-fx+ pos 2))
+                      (pos (int-segment-decode! len bv pos v.target i.target)))
+                 (loop (unsafe-fx+ j 1) pos (unsafe-fx+ i.target len)))
+               pos))))
       (else (error "unknown integer compression type" type)))))
 
 ;; Returns the pos immediately following int
@@ -140,8 +165,8 @@
         ((6) (go 6-unrolled-unsafe-bytes-nat-set!))
         (else (error "unsupported byte-width" width))))))
 
+;; TODO: destructively updates v.source to contain deltas, which is not great
 ;; Returns the pos immediately following segment
-;; Destructively updates v.source to contain deltas
 (define (int-segment-encode!/delta len bv pos v.source i.source)
   (unsafe-bytes-set! bv pos compression-type.int:delta)
   (let* ((v.start  (unsafe-vector*-ref v.source i.source))
@@ -153,6 +178,19 @@
           (unsafe-vector*-set! v.source i (unsafe-fx- v v.prev))
           (loop (unsafe-fx+ i 1) v))))
     pos))
+
+;; TODO: silly signature when we only need v.sole
+;; Returns the pos immediately following segment
+(define (int-segment-encode!/single-value len bv pos v.source i.source)
+  (unsafe-bytes-set! bv pos compression-type.int:single-value)
+  (let ((v.sole (unsafe-vector*-ref v.source i.source)))
+    (int-encode! bv (unsafe-fx+ pos 1) v.sole)))
+
+;; TODO: search for a reasonable int-segment encoding:
+;; - min-count.dictionary
+;; - min-count.single-value
+;; - allow-delta?
+;; - allow-multiple-segments?
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Codec for text, nat, and nat-array values ;;;
