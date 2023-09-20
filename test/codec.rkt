@@ -127,15 +127,11 @@
                  (loop (unsafe-fx+ i 1) (unsafe-fx+ pos 1)))
                pos))))
       ((? compression-type.int:multiple)
-       (let ((segment-count (unsafe-bytes-ref bv pos)))
-         (let loop ((j 0) (pos (unsafe-fx+ pos 1)) (start start))
-           (if (unsafe-fx< j segment-count)
-               (let* ((len (2-unrolled-unsafe-bytes-nat-ref bv pos))
-                      (end (unsafe-fx+ start len))
-                      (pos (unsafe-fx+ pos 2))
-                      (pos (int-segment-decode! bv pos z* start end)))
-                 (loop (unsafe-fx+ j 1) pos end))
-               pos))))
+       (let* ((len (2-unrolled-unsafe-bytes-nat-ref bv pos))
+              (pos (unsafe-fx+ pos 2))
+              (mid (unsafe-fx+ start len))
+              (pos (int-segment-decode! bv pos z* start mid)))
+         (int-segment-decode! bv pos z* mid end)))
       (else (error "unknown integer compression type" type)))))
 
 ;; Returns the pos immediately following int
@@ -209,6 +205,12 @@
             (unsafe-bytes-set! bv pos (hash-ref z=>i z))
             (loop (unsafe-fx+ i 1) (unsafe-fx+ pos 1)))
           pos))))
+
+;; Returns the pos immediately following header
+(define (int-segment-encode!/multiple len bv pos)
+  (unsafe-bytes-set! bv pos compression-type.int:multiple)
+  (2-unrolled-unsafe-bytes-nat-set! bv (unsafe-fx+ pos 1) len)
+  (unsafe-fx+ pos 3))
 
 ;; TODO: search for a reasonable int-segment encoding:
 ;; - min-count.dictionary
