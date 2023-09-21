@@ -165,6 +165,7 @@
         (else (error "unsupported byte-width" width))))))
 
 ;; Returns the pos immediately following segment
+;; Assumes a non-empty range of integer values
 (define (int-segment-encode!/frame-of-reference bv pos z* start end)
   (let ((z0 (unsafe-vector*-ref z* start)))
     (let loop ((i (unsafe-fx+ start 1)) (z.min z0) (z.max z0))
@@ -212,11 +213,86 @@
   (2-unrolled-unsafe-bytes-nat-set! bv (unsafe-fx+ pos 1) len)
   (unsafe-fx+ pos 3))
 
-;; TODO: search for a reasonable int-segment encoding:
-;; - min-count.dictionary
-;; - min-count.single-value
-;; - allow-delta?
-;; - allow-multiple-segments?
+;; Returns the pos immediately following segment
+;; Assumes a non-empty range of integer values
+(define int-segment-encode!
+  (let ((min-count.dictionary   1024)
+        (min-count.single-value   32))
+    (lambda (bv pos z* start end)
+      (define (encode-for pos start end)
+        (int-segment-encode!/frame-of-reference bv pos z* start end))
+      (define (encode-try-dictionary pos start end)
+        ;; TODO: try dictionary encoding first
+        (encode-for pos start end))
+      (define (encode-try-delta-single-value pos start end)
+        (let next ((pos pos) (start start) (z.start (unsafe-vector*-ref z* start)))
+          (let ((end.abort (unsafe-fx- end min-count.single-value)))
+            (cond
+              ((unsafe-fx<= start end.abort)
+               (let restart ((i (unsafe-fx+ start 1)) (start.same start) (z.start z.start))
+                 (let* ((end.same (unsafe-fx+ start.same min-count.single-value))
+                        (z        (unsafe-vector*-ref z* i))
+                        (i        (unsafe-fx+ i 1))
+                        (delta    (unsafe-fx- z z.start)))
+                   (let loop ((i i) (z.prev z))
+                     (if (unsafe-fx< i end.same)
+                         (let ((z (unsafe-vector*-ref z* i)))
+                           (cond
+                             ((unsafe-fx= (unsafe-fx- z z.prev) delta) (loop (unsafe-fx+ i 1) z))
+                             ((unsafe-fx<= i end.abort) (restart (unsafe-fx+ i 1) i z))
+                             (else                      (encode-try-dictionary pos start end))))
+                         (let ((pos (if (unsafe-fx= start start.same)
+                                        pos
+                                        (let ((pos (int-segment-encode!/multiple
+                                                     (unsafe-fx- start.same start) bv pos)))
+                                          (encode-try-dictionary pos start start.same)))))
+                           (let loop ((i i) (z.prev z))
+                             (if (unsafe-fx< i end)
+                                 (let ((z (unsafe-vector*-ref z* i)))
+                                   (if (unsafe-fx= (unsafe-fx- z z.prev) delta)
+                                       (loop (unsafe-fx+ i 1) z)
+                                       (let* ((pos (int-segment-encode!/multiple
+                                                     (unsafe-fx- i start.same) bv pos))
+                                              (pos (int-segment-encode!/delta-single-value
+                                                     z.start delta bv pos)))
+                                         (next pos i z))))
+                                 (int-segment-encode!/delta-single-value
+                                   z.start delta bv pos)))))))))
+              ((unsafe-fx< 1 (unsafe-fx- end start)) (encode-try-dictionary pos start end))
+              (else (int-segment-encode!/single-value z.start bv pos))))))
+      (define (encode-try-single-value pos start end)
+        (let next ((pos pos) (start start) (z.prev (unsafe-vector*-ref z* start)))
+          (let ((end.abort (unsafe-fx- end min-count.single-value)))
+            (cond
+              ((unsafe-fx<= start end.abort)
+               (let restart ((i (unsafe-fx+ start 1)) (start.same start) (z.prev z.prev))
+                 (let ((end.same (unsafe-fx+ start.same min-count.single-value)))
+                   (let loop ((i i))
+                     (if (unsafe-fx< i end.same)
+                         (let ((z (unsafe-vector*-ref z* i)))
+                           (cond
+                             ((unsafe-fx= z.prev z)     (loop (unsafe-fx+ i 1)))
+                             ((unsafe-fx<= i end.abort) (restart (unsafe-fx+ i 1) i z))
+                             (else                      (encode-try-dictionary pos start end))))
+                         (let ((pos (if (unsafe-fx= start start.same)
+                                        pos
+                                        (let ((pos (int-segment-encode!/multiple
+                                                     (unsafe-fx- start.same start) bv pos)))
+                                          (encode-try-delta-single-value pos start start.same)))))
+                           (let loop ((i i))
+                             (if (unsafe-fx< i end)
+                                 (let ((z (unsafe-vector*-ref z* i)))
+                                   (if (unsafe-fx= z.prev z)
+                                       (loop (unsafe-fx+ i 1))
+                                       (let* ((pos (int-segment-encode!/multiple
+                                                     (unsafe-fx- i start.same) bv pos))
+                                              (pos (int-segment-encode!/single-value
+                                                     z.prev bv pos)))
+                                         (next pos i z))))
+                                 (int-segment-encode!/single-value z.prev bv pos)))))))))
+              ((unsafe-fx< 1 (unsafe-fx- end start)) (encode-try-dictionary pos start end))
+              (else (int-segment-encode!/single-value z.prev bv pos))))))
+      (encode-try-single-value pos start end))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Codec for text, nat, and nat-array values ;;;
