@@ -8,33 +8,26 @@
   ;racket/unsafe/ops
   )
 
-;; TODO: we probably won't use int:none
-;(define compression-type.int:none                       0)
-(define compression-type.int:frame-of-reference         1)
-(define compression-type.int:single-value               2)
-(define compression-type.int:delta-single-value         3)
-(define compression-type.int:dictionary                 4)
-(define compression-type.int:multiple                   5)
+(define compression-type.int:nat                0)
+(define compression-type.int:frame-of-reference 1)
+(define compression-type.int:single-value       2)
+(define compression-type.int:delta-single-value 3)
+(define compression-type.int:dictionary         4)
+(define compression-type.int:multiple           5)
 
-(define compression-type.text:none                      6)
-(define compression-type.text:previous-relative-prefix  7)
-(define compression-type.text:single-value              8)
-(define compression-type.text:dictionary:small          9)
-(define compression-type.text:dictionary:big           10)
-(define compression-type.text:multiple                 11)
+(define compression-type.text:share-prefix      6)
+(define compression-type.text:dictionary:small  7)
+(define compression-type.text:dictionary:big    8)
 
 (define (text-segment-decode bv pos t* start)
   (let* ((type (unsafe-bytes-ref bv pos))
          (pos  (unsafe-fx+ pos 1)))
     (define (? x) (eq? type x))
     (cond
-      ; - text:single-value
-      ;   - a single text:none encoded value
-      ; - text:none
-      ;   - 8-bit bit-width for byte-position
-      ;   - text value start/end byte-position-interval array (relative to base-address)
-      ;     - implicit start of 0
-      ;   - logically subsumed by previous-relative prefix method, but should be more efficient to decode
+      ; - text:share-prefix
+      ;   - int segment for lengths
+      ;   - int segment for shared-prefix-lengths
+      ;   - blob of bytes for unshared suffixes
       ; - text:dictionary:small
       ;   - 8-bit count of dictionary values
       ;   - embedded segment for dictionary values
@@ -43,40 +36,31 @@
       ;   - 16-bit count of dictionary values
       ;   - embedded segment for dictionary values
       ;   - 16-bit indexes into dictionary
-      ; - text:previous-relative-prefix
-      ;   - TODO
-      ; - multiple segments
-      ;   - 8-bit segment-count
-      ;   - segment-count segments, each preceded by a 16-bit segment-length
       (else (error "unknown text compression type" type)))))
 
 ;; Returns the pos immediately following segment
 (define (int-segment-decode! bv pos z* start end)
-  (define (int-segment-decode/frame-of-reference z.min byte-width pos)
-    (let ((go (lambda (n-ref)
-                (let loop ((i start) (pos pos))
-                  (cond ((unsafe-fx< i end)
-                         (unsafe-vector*-set! z* i (unsafe-fx+ (n-ref bv pos) z.min))
-                         (loop (unsafe-fx+ i 1) (unsafe-fx+ pos byte-width)))
-                        (else pos))))))
-      (case byte-width
-        ((1) (go 1-unrolled-unsafe-bytes-nat-ref))
-        ((2) (go 2-unrolled-unsafe-bytes-nat-ref))
-        ((3) (go 3-unrolled-unsafe-bytes-nat-ref))
-        ((4) (go 4-unrolled-unsafe-bytes-nat-ref))
-        ((5) (go 5-unrolled-unsafe-bytes-nat-ref))
-        ((6) (go 6-unrolled-unsafe-bytes-nat-ref))
-        (else (error "unsupported byte-width" byte-width)))))
   (let* ((type (unsafe-bytes-ref bv pos))
          (pos  (unsafe-fx+ pos 1)))
     (define (? x) (eq? type x))
     (cond
-      ;; TODO: we probably won't use int:none
-      ;((? compression-type.int:none)
-      ; (let* ((byte-width (unsafe-bytes-ref bv pos))
-      ;        (pos        (unsafe-fx+ pos 1))
-      ;        (z.min      (byte-width->int-min byte-width)))
-      ;   (int-segment-decode/frame-of-reference z.min byte-width pos)))
+      ((? compression-type.int:nat)
+       (let* ((byte-width (unsafe-bytes-ref bv pos))
+              (pos        (unsafe-fx+ pos 1))
+              (go (lambda (n-ref)
+                    (let loop ((i start) (pos pos))
+                      (cond ((unsafe-fx< i end)
+                             (unsafe-vector*-set! z* i (n-ref bv pos))
+                             (loop (unsafe-fx+ i 1) (unsafe-fx+ pos byte-width)))
+                            (else pos))))))
+         (case byte-width
+           ((1) (go 1-unrolled-unsafe-bytes-nat-ref))
+           ((2) (go 2-unrolled-unsafe-bytes-nat-ref))
+           ((3) (go 3-unrolled-unsafe-bytes-nat-ref))
+           ((4) (go 4-unrolled-unsafe-bytes-nat-ref))
+           ((5) (go 5-unrolled-unsafe-bytes-nat-ref))
+           ((6) (go 6-unrolled-unsafe-bytes-nat-ref))
+           (else (error "unsupported byte-width" byte-width)))))
       ((? compression-type.int:frame-of-reference)
        (let* ((byte-width (unsafe-bytes-ref bv pos))
               (pos        (unsafe-fx+ pos 1))
@@ -84,8 +68,21 @@
                                       (byte-width->int-min byte-width)))
               (pos        (unsafe-fx+ pos byte-width))
               (byte-width (unsafe-bytes-ref bv pos))
-              (pos        (unsafe-fx+ pos 1)))
-         (int-segment-decode/frame-of-reference z.min byte-width pos)))
+              (pos        (unsafe-fx+ pos 1))
+              (go (lambda (n-ref)
+                    (let loop ((i start) (pos pos))
+                      (cond ((unsafe-fx< i end)
+                             (unsafe-vector*-set! z* i (unsafe-fx+ (n-ref bv pos) z.min))
+                             (loop (unsafe-fx+ i 1) (unsafe-fx+ pos byte-width)))
+                            (else pos))))))
+         (case byte-width
+           ((1) (go 1-unrolled-unsafe-bytes-nat-ref))
+           ((2) (go 2-unrolled-unsafe-bytes-nat-ref))
+           ((3) (go 3-unrolled-unsafe-bytes-nat-ref))
+           ((4) (go 4-unrolled-unsafe-bytes-nat-ref))
+           ((5) (go 5-unrolled-unsafe-bytes-nat-ref))
+           ((6) (go 6-unrolled-unsafe-bytes-nat-ref))
+           (else (error "unsupported byte-width" byte-width)))))
       ((? compression-type.int:single-value)
        (let* ((byte-width (unsafe-bytes-ref bv pos))
               (pos        (unsafe-fx+ pos 1))
@@ -145,6 +142,30 @@
     (unsafe-fx+ pos 1 byte-width)))
 
 ;; Returns the pos immediately following segment
+(define (int-segment-encode!/nat/width width bv pos n* start end)
+  (unsafe-bytes-set! bv pos compression-type.int:nat)
+  (let ((pos (unsafe-fx+ pos 1)))
+    (unsafe-bytes-set! bv pos width)
+    (let ((go (lambda (n-set!)
+                (let loop ((i start) (pos (unsafe-fx+ pos 1)))
+                  (cond ((unsafe-fx< i end)
+                         (n-set! bv pos (unsafe-vector*-ref n* i))
+                         (loop (unsafe-fx+ i 1) (unsafe-fx+ pos width)))
+                        (else pos))))))
+      (case width
+        ((1) (go 1-unrolled-unsafe-bytes-nat-set!))
+        ((2) (go 2-unrolled-unsafe-bytes-nat-set!))
+        ((3) (go 3-unrolled-unsafe-bytes-nat-set!))
+        ((4) (go 4-unrolled-unsafe-bytes-nat-set!))
+        ((5) (go 5-unrolled-unsafe-bytes-nat-set!))
+        ((6) (go 6-unrolled-unsafe-bytes-nat-set!))
+        (else (error "unsupported byte-width" width))))))
+
+;; Returns the pos immediately following segment
+(define (int-segment-encode!/nat/max n.max bv pos n* start end)
+  (int-segment-encode!/nat/width (nat-min-byte-width n.max) bv pos n* start end))
+
+;; Returns the pos immediately following segment
 (define (int-segment-encode!/frame-of-reference/min&width z.min width bv pos z* start end)
   (unsafe-bytes-set! bv pos compression-type.int:frame-of-reference)
   (let ((pos (int-encode! bv (unsafe-fx+ pos 1) z.min)))
@@ -174,8 +195,11 @@
             (cond ((unsafe-fx< z z.min) (loop (unsafe-fx+ i 1) z     z.max))
                   ((unsafe-fx< z.max z) (loop (unsafe-fx+ i 1) z.min z))
                   (else                 (loop (unsafe-fx+ i 1) z.min z.max))))
-          (let ((width (nat-min-byte-width (unsafe-fx- z.max z.min))))
-            (int-segment-encode!/frame-of-reference/min&width z.min width bv pos z* start end))))))
+          (let ((width     (nat-min-byte-width (unsafe-fx- z.max z.min)))
+                (width.nat (and (unsafe-fx<= 0 z.min) (nat-min-byte-width z.max))))
+            (if (and width.nat (unsafe-fx<= width.nat width))
+                (int-segment-encode!/nat/width                      width.nat bv pos z* start end)
+                (int-segment-encode!/frame-of-reference/min&width z.min width bv pos z* start end)))))))
 
 ;; Returns the pos immediately following segment
 (define (int-segment-encode!/single-value z.sole bv pos)
