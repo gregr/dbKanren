@@ -2,7 +2,7 @@
 (provide
   )
 
-(require racket/fixnum)
+(require racket/fixnum racket/set)
 (require
   "../dbk/safe-unsafe.rkt"
   ;racket/unsafe/ops
@@ -222,8 +222,27 @@
       (define (encode-for pos start end)
         (int-segment-encode!/frame-of-reference bv pos z* start end))
       (define (encode-try-dictionary pos start end)
-        ;; TODO: try dictionary encoding first
-        (encode-for pos start end))
+        (if (unsafe-fx<= min-count.dictionary (unsafe-fx- end start))
+            (let restart ((i start) (seen (set)))
+              (let ((remaining (unsafe-fx- 256 (set-count seen))))
+                (if (and (unsafe-fx< i end) (unsafe-fx< 0 remaining))
+                    (let ((end.min (min (unsafe-fx+ i remaining) end)))
+                      (let loop ((i i) (seen seen))
+                        (if (unsafe-fx< i end.min)
+                            (loop (unsafe-fx+ i 1) (set-add seen (unsafe-vector*-ref z* i)))
+                            (restart i seen))))
+                    (let loop ((i i))
+                      (cond ((unsafe-fx= i end)
+                             (let* ((z*.dict  (list->vector (sort (set->list seen) <)))
+                                    (len.dict (unsafe-vector*-length z*.dict))
+                                    (z.max    (unsafe-vector*-ref z*.dict (unsafe-fx- len.dict 1)))
+                                    (z.min    (unsafe-vector*-ref z*.dict 0)))
+                               (if (unsafe-fx< (unsafe-fx- z.max z.min) 256)
+                                   (encode-for pos start end)
+                                   (int-segment-encode!/dictionary z*.dict bv pos z* start end))))
+                            ((set-member? seen (unsafe-vector*-ref z* i)) (loop (unsafe-fx+ i 1)))
+                            (else (encode-for pos start end)))))))
+            (encode-for pos start end)))
       (define (encode-try-delta-single-value pos start end)
         (let next ((pos pos) (start start) (z.start (unsafe-vector*-ref z* start)))
           (let ((end.abort (unsafe-fx- end min-count.single-value)))
@@ -577,3 +596,17 @@
                           small small small small small small small small
                           large small)))
   (test-roundtrip 1000 example))
+
+(displayln "dict-repeats:")
+(let* ((large   5000000000)
+       (small   -5000000000)
+       (example (list large small large small large small large large small large
+                      small large small large small large small large large small))
+       (example (append example example example example example))
+       (example (append example example example example example))
+       (example (append example example example))
+       (example (list->vector example)))
+  (test-roundtrip
+    2000
+    ; 8000  ; need more space without dictionaries
+    example))
