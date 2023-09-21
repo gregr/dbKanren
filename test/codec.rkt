@@ -461,3 +461,119 @@
 
 (define (bit-width->int-min  bit-width)  (unsafe-fx- (unsafe-fxlshift 1 (unsafe-fx- bit-width 1))))
 (define (byte-width->int-min byte-width) (bit-width->int-min (unsafe-fxlshift byte-width 3)))
+
+;;;;;;;;;;;;;;;;
+;;; Examples ;;;
+;;;;;;;;;;;;;;;;
+
+(require racket/list racket/pretty)
+
+(let* ((example   (list->vector (range 100)))
+       (roundtrip (make-vector 100))
+       (bv        (make-bytes 1000)))
+
+  ;; int:multiple
+  (let* ((pos (int-segment-encode!/multiple 49 bv 0))
+         (pos (time (int-segment-encode!/frame-of-reference/min&width -10 6 bv pos example 0 49))))
+    (time (int-segment-encode!/frame-of-reference/min&width -10 6 bv pos example 49 100)))
+
+  ;; with delta:
+  #;(let* ((z.start (vector-ref example 0))
+         (z.delta (- (vector-ref example 1) z.start)))
+    (time (int-segment-encode!/delta-single-value z.start z.delta bv 0)))
+
+  ;; without delta:
+  ;(time (int-segment-encode!/frame-of-reference/min&width -10 6 bv 0 example 0 100))
+
+  (time (int-segment-decode! bv 0 roundtrip 0 100))
+
+  (write roundtrip)
+  (newline)
+  (write bv)
+  (newline)
+  (write (bytes->list bv))
+  (newline)
+  (pretty-write (equal? example roundtrip)))
+
+(let* ((large     5000000000)
+       (small     -5000000000)
+       (example   (vector large small large small large small large small large small))
+       (roundtrip (make-vector (vector-length example)))
+       (bv        (make-bytes 1000))
+       (pos       (int-segment-encode!/dictionary (vector small large) bv 0 example 0 (vector-length example))))
+  (time (int-segment-decode! bv 0 roundtrip 0 (vector-length example)))
+  (write roundtrip)
+  (newline)
+  (write bv)
+  (newline)
+  (write (bytes->list bv))
+  (newline)
+  (pretty-write (equal? example roundtrip)))
+
+(define (test-roundtrip buffer-size z*)
+  (let ((bv        (make-bytes buffer-size))
+        (roundtrip (make-vector (vector-length z*))))
+    (time (int-segment-encode! bv 0 z*        0 (vector-length z*)))
+    (time (int-segment-decode! bv 0 roundtrip 0 (vector-length z*)))
+    (let ((success? (equal? z* roundtrip)))
+      (unless #f;success?
+        (write roundtrip)
+        (newline)
+        (write bv)
+        (newline)
+        (write (bytes->list bv))
+        (newline))
+      (pretty-write success?))))
+
+(displayln "range-100:")
+(test-roundtrip 1000 (list->vector (range 100)))
+
+(displayln "large-small:")
+(let* ((large     5000000000)
+       (small     -5000000000)
+       (example   (vector large small large small large small large small large small)))
+  (test-roundtrip 1000 example))
+
+(displayln "large-small-repeats:")
+(let* ((large     5000000000)
+       (small     -5000000000)
+       (example   (vector large
+                          small small small small small small small small
+                          small small small small small small small small
+                          small small small small small small small small
+                          small small small small small small small small
+                          large small large small large
+                          small small small small small small small small
+                          small small small small small small small small
+                          small small small small small small small small
+                          small small small small small small small small
+                          small small small small small small small small
+                          large small)))
+  (test-roundtrip 1000 example))
+
+(displayln "delta-repeats:")
+(let* ((large     5000000000)
+       (small     -5000000000)
+       (example   (vector large
+                          small small small small small small small small
+                          small small small small small small small small
+                          small small small small small small small small
+                          small small small small small small small small
+                          large small large small large
+                          100 101 102 103 104 105 106 107 108 109
+                          110 111 112 113 114 115 116 117 118 119
+                          120 121 122 123 124 125 126 127 128 129
+                          130 131 132 133 134 135 136 137 138 139
+                          large small large small large
+                          100 101 102 103 104 105 106 107 108 109
+                          110 111 112 113 114 115 116 117 118 119
+                          120 121 122 123 124 125 126 127 128 129
+                          130 131 132 133 134 135 136 137 138 139
+                          large small large small large
+                          small small small small small small small small
+                          small small small small small small small small
+                          small small small small small small small small
+                          small small small small small small small small
+                          small small small small small small small small
+                          large small)))
+  (test-roundtrip 1000 example))
