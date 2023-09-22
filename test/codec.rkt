@@ -2,7 +2,7 @@
 (provide
   )
 
-(require racket/fixnum racket/set)
+(require racket/fixnum racket/set racket/vector)
 (require
   "../dbk/safe-unsafe.rkt"
   ;racket/unsafe/ops
@@ -104,11 +104,16 @@
     (int-segment-encode! bv pos n* 0 n*.len)))
 
 ;; Returns the pos immediately following segment
-(require racket/vector)
-(define (text-segment-encode! bv pos t* start end)
-  ;; TODO: search for a good text encoding
-  (text-segment-encode!/dictionary (vector-copy t* start end) (unsafe-fx- end start) bv pos t* start end)
-  )
+(define text-segment-encode!
+  (let ((min-count.dictionary 3))
+    (lambda (bv pos t*.source start end)
+      (let ((len (unsafe-fx- end start)))
+        (if (or (unsafe-fx<= len min-count.dictionary) (vector-text-sorted? t*.source start end))
+            (text-segment-encode!/shared-prefix bv pos t*.source start end)
+            (let ((t*.dict (vector-copy t*.source start end)))
+              (vector-text-sort! t*.dict 0 len)
+              (let ((len.dict (vector-text-dedup-adjacent! t*.dict 0 len)))
+                (text-segment-encode!/dictionary t*.dict len.dict bv pos t*.source start end))))))))
 
 ;; Returns the pos immediately following segment
 (define (int-segment-decode! bv pos z* start end)
