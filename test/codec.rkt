@@ -510,6 +510,64 @@
 (define (bit-width->int-min  bit-width)  (unsafe-fx- (unsafe-fxlshift 1 (unsafe-fx- bit-width 1))))
 (define (byte-width->int-min byte-width) (bit-width->int-min (unsafe-fxlshift byte-width 3)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Text comparison, sorting, deduping ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (text<? a b)
+  (let* ((len.a   (unsafe-bytes-length a))
+         (len.b   (unsafe-bytes-length b))
+         (len.min (min len.a len.b)))
+    (let loop ((i 0))
+      (if (unsafe-fx< i len.min)
+          (let ((x.a (unsafe-bytes-ref a i)) (x.b (unsafe-bytes-ref b i)))
+            (or (unsafe-fx< x.a x.b)
+                (and (not (unsafe-fx< x.b x.a))
+                     (loop (unsafe-fx+ i 1)))))
+          (unsafe-fx< len.a len.b)))))
+
+(define (text=? a b)
+  (let ((len (unsafe-bytes-length a)))
+    (and (unsafe-fx= (unsafe-bytes-length b) len)
+         (let loop ((i 0))
+           (or (unsafe-fx= i len)
+               (and (unsafe-fx= (unsafe-bytes-ref a i) (unsafe-bytes-ref b i))
+                    (loop (unsafe-fx+ i 1))))))))
+
+(define (vector-text-sorted? t* start end)
+  (or (unsafe-fx<= end start)
+      (let loop ((i (unsafe-fx+ start 1)) (t.prev (unsafe-vector*-ref t* start)))
+        (or (unsafe-fx= i end)
+            (let ((t.next (unsafe-vector*-ref t* i)))
+              (and (not (text<? t.next t.prev))
+                   (loop (unsafe-fx+ i 1) t.next)))))))
+
+(define (vector-text-sort! t* start end)
+  ;; TODO: adaptive merge sort that recognizes sorted runs as in database.rkt
+  (vector-sort! t* text<? start end))
+
+;; Returns the index immediately following the last remaining value
+(define (vector-text-dedup-adjacent! t* start end)
+  (if (unsafe-fx< start end)
+      (let loop ((t.current (unsafe-vector*-ref t* start))
+                 (i         (unsafe-fx+ start 1)))
+        (if (unsafe-fx= i end)
+            end
+            (let ((t.next (unsafe-vector*-ref t* i)))
+              (if (text=? t.current t.next)
+                  (let loop ((t.current t.current)
+                             (target    i)
+                             (i         (unsafe-fx+ i 1)))
+                    (if (unsafe-fx= i end)
+                        target
+                        (let ((t.next (unsafe-vector*-ref t* i)))
+                          (if (text=? t.current t.next)
+                              (loop t.current target (unsafe-fx+ i 1))
+                              (begin (unsafe-vector*-set! t* target t.next)
+                                     (loop t.next (unsafe-fx+ target 1) (unsafe-fx+ i 1)))))))
+                  (loop t.next (unsafe-fx+ i 1))))))
+      end))
+
 ;;;;;;;;;;;;;;;;
 ;;; Examples ;;;
 ;;;;;;;;;;;;;;;;
