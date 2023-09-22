@@ -34,13 +34,17 @@
            (if (unsafe-fx< j len)
                (let* ((t.length.full   (unsafe-vector*-ref length*.full          j))
                       (t.length.prefix (unsafe-vector*-ref length*.shared-prefix j))
-                      (t.length.suffix (unsafe-fx- t.length.full t.length.prefix))
-                      (t               (make-bytes t.length.full))
-                      (pos.next        (unsafe-fx+ pos t.length.suffix)))
-                 (unsafe-bytes-copy! t 0               t.prev 0   t.length.prefix)
-                 (unsafe-bytes-copy! t t.length.prefix bv     pos pos.next)
-                 (unsafe-vector*-set! t* (unsafe-fx+ start j) t)
-                 (loop (unsafe-fx+ j 1) pos.next t))
+                      (t.length.suffix (unsafe-fx- t.length.full t.length.prefix)))
+                 (if (and (unsafe-fx= t.length.suffix 0)
+                          (unsafe-fx= (unsafe-bytes-length t.prev) t.length.full))
+                     (begin (unsafe-vector*-set! t* (unsafe-fx+ start j) t.prev)
+                            (loop (unsafe-fx+ j 1) pos t.prev))
+                     (let* ((t        (make-bytes t.length.full))
+                            (pos.next (unsafe-fx+ pos t.length.suffix)))
+                       (unsafe-bytes-copy! t 0               t.prev 0   t.length.prefix)
+                       (unsafe-bytes-copy! t t.length.prefix bv     pos pos.next)
+                       (unsafe-vector*-set! t* (unsafe-fx+ start j) t)
+                       (loop (unsafe-fx+ j 1) pos.next t))))
                pos))))
       ((? compression-type.text:dictionary)
        (let* ((len.dict (2-unrolled-unsafe-bytes-nat-ref bv pos))
@@ -721,6 +725,8 @@
 (displayln "ascending text:")
 (let ((example (vector #"ABCD:X0000001"
                        #"ABCD:X0000002"
+                       #"ABCD:X0000002"
+                       #"ABCD:X0000002"
                        #"ABCD:X0000003"
                        #"ABCD:X0000004"
                        #"ABCD:X0000005"
@@ -728,6 +734,10 @@
                        #"ABCD:X0000007"
                        #"ABCD:X0000008"
                        #"ABCD:X0000009"
+                       #"ABCD:X0000010"
+                       #"ABCD:X0000010"
+                       #"ABCD:X0000010"
+                       #"ABCD:X0000010"
                        #"ABCD:X0000010"
                        #"ABCD:X0000011"
                        #"ABCD:X0000012"
