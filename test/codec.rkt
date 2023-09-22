@@ -16,9 +16,9 @@
 (define compression-type.int:multiple           5)
 
 (define compression-type.text:shared-prefix     6)
-(define compression-type.text:dictionary:small  7)
-(define compression-type.text:dictionary:big    8)
+(define compression-type.text:dictionary        7)
 
+;; Returns the pos immediately following segment
 (define (text-segment-decode! bv pos t* start end)
   (let* ((type (unsafe-bytes-ref bv pos))
          (pos  (unsafe-fx+ pos 1)))
@@ -42,16 +42,20 @@
                  (unsafe-vector*-set! t* (unsafe-fx+ start j) t)
                  (loop (unsafe-fx+ j 1) pos.next t))
                pos))))
-      ; - text:dictionary:small
-      ;   - 8-bit count of dictionary values
-      ;   - embedded segment for dictionary values
-      ;   - 8-bit indexes into dictionary
-      ; - text:dictionary:big
-      ;   - 16-bit count of dictionary values
-      ;   - embedded segment for dictionary values
-      ;   - 16-bit indexes into dictionary
+      ((? compression-type.text:dictionary)
+       (let* ((len.dict (2-unrolled-unsafe-bytes-nat-ref bv pos))
+              (pos      (unsafe-fx+ pos 2))
+              (t*.dict  (make-vector len.dict))
+              (pos      (text-segment-decode! bv pos t*.dict 0     len.dict))
+              (pos      (int-segment-decode!  bv pos t*      start end)))
+         (let loop ((i start))
+           (when (unsafe-fx< i end)
+             (unsafe-vector*-set! t* i (unsafe-vector*-ref t*.dict (unsafe-vector*-ref t* i)))
+             (loop (unsafe-fx+ i 1))))
+         pos))
       (else (error "unknown text compression type" type)))))
 
+;; Returns the pos immediately following segment
 (define (text-segment-encode!/shared-prefix bv pos t* start end)
   (let* ((len                   (unsafe-fx- end start))
          (length*.full          (make-vector len))
@@ -79,6 +83,32 @@
               (unsafe-bytes-copy! bv pos t t.length.prefix t.length)
               (loop (unsafe-fx+ j 1) (unsafe-fx+ (unsafe-fx- t.length t.length.prefix) pos)))
             pos)))))
+
+;; Returns the pos immediately following segment
+(define (text-segment-encode!/dictionary t*.dict len.dict bv pos t*.source start end)
+  (unsafe-bytes-set! bv pos compression-type.text:dictionary)
+  (let* ((pos      (unsafe-fx+ pos 1))
+         (pos      (begin (2-unrolled-unsafe-bytes-nat-set! bv pos len.dict) (unsafe-fx+ pos 2)))
+         (pos      (text-segment-encode!/shared-prefix bv pos t*.dict 0 len.dict))
+         (t=>i     (let loop ((i 0) (t=>i (hash)))
+                     (if (unsafe-fx< i len.dict)
+                         (loop (unsafe-fx+ i 1) (hash-set t=>i (unsafe-vector*-ref t*.dict i) i))
+                         t=>i)))
+         (n*.len   (unsafe-fx- end start))
+         (n*       (make-vector n*.len)))
+    (let loop ((j 0) (i start))
+      (when (unsafe-fx< j n*.len)
+        (let ((t (unsafe-vector*-ref t*.source i)))
+          (unsafe-vector*-set! n* j (hash-ref t=>i t))
+          (loop (unsafe-fx+ j 1) (unsafe-fx+ i 1)))))
+    (int-segment-encode! bv pos n* 0 n*.len)))
+
+;; Returns the pos immediately following segment
+(require racket/vector)
+(define (text-segment-encode! bv pos t* start end)
+  ;; TODO: search for a good text encoding
+  (text-segment-encode!/dictionary (vector-copy t* start end) (unsafe-fx- end start) bv pos t* start end)
+  )
 
 ;; Returns the pos immediately following segment
 (define (int-segment-decode! bv pos z* start end)
@@ -358,7 +388,8 @@
                            (cond
                              ((unsafe-fx= z.prev z)     (loop (unsafe-fx+ i 1)))
                              ((unsafe-fx<= i end.abort) (restart (unsafe-fx+ i 1) i z))
-                             (else                      (encode-try-dictionary pos start end))))
+                             (else                      (encode-try-delta-single-value
+                                                          pos start end))))
                          (let ((pos (if (unsafe-fx= start start.same)
                                         pos
                                         (let ((pos (int-segment-encode!/multiple
@@ -382,74 +413,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Codec for text, nat, and nat-array values ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define (unsafe-bytes-text-ref len bv.source start.source)
-  (let ((text (make-bytes len)))
-    (unsafe-bytes-copy! text 0 bv.source start.source (unsafe-fx+ start.source len))
-    text))
-(define (unsafe-bytes-text-set! len bv.target start.target text start.text)
-  (unsafe-bytes-copy! bv.target start.target text start.text (unsafe-fx+ start.text len)))
-
-(define (unsafe-bytes-nat-fxarray-ref width len bs offset)
-  (let ((go (lambda (n-ref)
-              (let ((n* (make-fxvector len 0)))
-                (let loop ((i 0) (pos offset))
-                  (when (unsafe-fx< i len)
-                    (unsafe-fxvector-set! n* i (n-ref bs pos))
-                    (loop (unsafe-fx+ i 1) (unsafe-fx+ pos width))))
-                n*))))
-    (case width
-      ((0) (make-fxvector len 0))
-      ((1) (go 1-unrolled-unsafe-bytes-nat-ref))
-      ((2) (go 2-unrolled-unsafe-bytes-nat-ref))
-      ((3) (go 3-unrolled-unsafe-bytes-nat-ref))
-      ((4) (go 4-unrolled-unsafe-bytes-nat-ref))
-      ((5) (go 5-unrolled-unsafe-bytes-nat-ref))
-      ((6) (go 6-unrolled-unsafe-bytes-nat-ref)))))
-(define (unsafe-bytes-nat-array-ref width len bs offset n* i.start)
-  (let ((go (lambda (n-ref)
-              (let ((end (unsafe-fx+ i.start len)))
-                (let loop ((i i.start) (pos offset))
-                  (when (unsafe-fx< i end)
-                    (unsafe-vector*-set! n* i (n-ref bs pos))
-                    (loop (unsafe-fx+ i 1) (unsafe-fx+ pos width))))))))
-    (case width
-      ((0) (make-vector len 0))
-      ((1) (go 1-unrolled-unsafe-bytes-nat-ref))
-      ((2) (go 2-unrolled-unsafe-bytes-nat-ref))
-      ((3) (go 3-unrolled-unsafe-bytes-nat-ref))
-      ((4) (go 4-unrolled-unsafe-bytes-nat-ref))
-      ((5) (go 5-unrolled-unsafe-bytes-nat-ref))
-      ((6) (go 6-unrolled-unsafe-bytes-nat-ref)))))
-
-(define (unsafe-bytes-nat-fxarray-set! width len bs offset n*)
-  (let ((go (lambda (n-set!)
-              (let loop ((i 0) (pos offset))
-                (when (unsafe-fx< i len)
-                  (n-set! bs pos (unsafe-fxvector-ref n* i))
-                  (loop (unsafe-fx+ i 1) (unsafe-fx+ pos width)))))))
-    (case width
-      ((0) (void))
-      ((1) (go 1-unrolled-unsafe-bytes-nat-set!))
-      ((2) (go 2-unrolled-unsafe-bytes-nat-set!))
-      ((3) (go 3-unrolled-unsafe-bytes-nat-set!))
-      ((4) (go 4-unrolled-unsafe-bytes-nat-set!))
-      ((5) (go 5-unrolled-unsafe-bytes-nat-set!))
-      ((6) (go 6-unrolled-unsafe-bytes-nat-set!)))))
-(define (unsafe-bytes-nat-array-set! width len bs offset n*)
-  (let ((go (lambda (n-set!)
-              (let loop ((i 0) (pos offset))
-                (when (unsafe-fx< i len)
-                  (n-set! bs pos (unsafe-vector*-ref n* i))
-                  (loop (unsafe-fx+ i 1) (unsafe-fx+ pos width)))))))
-    (case width
-      ((0) (void))
-      ((1) (go 1-unrolled-unsafe-bytes-nat-set!))
-      ((2) (go 2-unrolled-unsafe-bytes-nat-set!))
-      ((3) (go 3-unrolled-unsafe-bytes-nat-set!))
-      ((4) (go 4-unrolled-unsafe-bytes-nat-set!))
-      ((5) (go 5-unrolled-unsafe-bytes-nat-set!))
-      ((6) (go 6-unrolled-unsafe-bytes-nat-set!)))))
 
 (define (unsafe-bytes-nat-set! width bs offset n)
   (case width
@@ -680,9 +643,7 @@
 (define (test-text-roundtrip buffer-size t*)
   (let ((bv        (make-bytes buffer-size))
         (roundtrip (make-vector (vector-length t*))))
-    ;; TODO: use text-segment-encode! instead
-    ;(time (text-segment-encode! bv 0 t*        0 (vector-length t*)))
-    (time (text-segment-encode!/shared-prefix bv 0 t* 0 (vector-length t*)))
+    (time (text-segment-encode! bv 0 t*        0 (vector-length t*)))
     (time (text-segment-decode! bv 0 roundtrip 0 (vector-length t*)))
     (let ((success? (equal? t* roundtrip)))
       (unless #f;success?
@@ -694,7 +655,7 @@
         (newline))
       (pretty-write success?))))
 
-(displayln "shared ascending text:")
+(displayln "ascending text:")
 (let ((example (vector #"ABCD:X0000001"
                        #"ABCD:X0000002"
                        #"ABCD:X0000003"
@@ -716,3 +677,40 @@
                        #"ABCD:X0000019"
                        #"ABCD:X0000020")))
   (test-text-roundtrip 100 example))
+
+(displayln "mixed text:")
+(let ((example (vector #"ABCD:X0000019"
+                       #"ABCD:X0000020"
+                       #"ABCD:X0000001"
+                       #"ABCD:X0000002"
+                       #"ABCD:X0000003"
+                       #"ABCD:X0000010"
+                       #"ABCD:X0000013"
+                       #"ABCD:X0000014"
+                       #"ABCD:X0000015"
+                       #"ABCD:X0000007"
+                       #"ABCD:X0000008"
+                       #"ABCD:X0000009"
+                       #"ABCD:X0000016"
+                       #"ABCD:X0000017"
+                       #"ABCD:X0000018"
+                       #"ABCD:X0000011"
+                       #"ABCD:X0000012"
+                       #"ABCD:X0000004"
+                       #"ABCD:X0000005"
+                       #"ABCD:X0000006"
+                       #"ABCD:X0000019"
+                       #"ABCD:X0000020"
+                       #"ABCD:X0000001"
+                       #"ABCD:X0000002"
+                       #"ABCD:X0000003"
+                       #"ABCD:X0000013"
+                       #"ABCD:X0000014"
+                       #"ABCD:X0000015"
+                       #"ABCD:X0000007"
+                       #"ABCD:X0000008"
+                       #"ABCD:X0000009"
+                       #"ABCD:X0000016"
+                       #"ABCD:X0000017"
+                       #"ABCD:X0000018")))
+  (test-text-roundtrip 1000 example))
