@@ -15,19 +15,33 @@
 (define compression-type.int:dictionary         4)
 (define compression-type.int:multiple           5)
 
-(define compression-type.text:share-prefix      6)
+(define compression-type.text:shared-prefix     6)
 (define compression-type.text:dictionary:small  7)
 (define compression-type.text:dictionary:big    8)
 
-(define (text-segment-decode bv pos t* start)
+(define (text-segment-decode! bv pos t* start end)
   (let* ((type (unsafe-bytes-ref bv pos))
          (pos  (unsafe-fx+ pos 1)))
     (define (? x) (eq? type x))
     (cond
-      ; - text:share-prefix
-      ;   - int segment for lengths
-      ;   - int segment for shared-prefix-lengths
-      ;   - blob of bytes for unshared suffixes
+      ((? compression-type.text:shared-prefix)
+       (let* ((len                   (unsafe-fx- end start))
+              (length*.full          (make-vector len))
+              (pos                   (int-segment-decode! bv pos length*.full 0 len))
+              (length*.shared-prefix (make-vector len))
+              (pos                   (int-segment-decode! bv pos length*.shared-prefix 0 len)))
+         (let loop ((j 0) (pos pos) (t.prev #""))
+           (if (unsafe-fx< j len)
+               (let* ((t.length.full   (unsafe-vector*-ref length*.full          j))
+                      (t.length.prefix (unsafe-vector*-ref length*.shared-prefix j))
+                      (t.length.suffix (unsafe-fx- t.length.full t.length.prefix))
+                      (t               (make-bytes t.length.full))
+                      (pos.next        (unsafe-fx+ pos t.length.suffix)))
+                 (unsafe-bytes-copy! t 0               t.prev 0   t.length.prefix)
+                 (unsafe-bytes-copy! t t.length.prefix bv     pos pos.next)
+                 (unsafe-vector*-set! t* (unsafe-fx+ start j) t)
+                 (loop (unsafe-fx+ j 1) pos.next t))
+               pos))))
       ; - text:dictionary:small
       ;   - 8-bit count of dictionary values
       ;   - embedded segment for dictionary values
@@ -37,6 +51,34 @@
       ;   - embedded segment for dictionary values
       ;   - 16-bit indexes into dictionary
       (else (error "unknown text compression type" type)))))
+
+(define (text-segment-encode!/shared-prefix bv pos t* start end)
+  (let* ((len                   (unsafe-fx- end start))
+         (length*.full          (make-vector len))
+         (length*.shared-prefix (make-vector len)))
+    (let loop ((j 0) (t.prev #"") (t.prev.length 0))
+      (when (unsafe-fx< j len)
+        (let* ((t        (unsafe-vector*-ref t* (unsafe-fx+ start j)))
+               (t.length (unsafe-bytes-length t))
+               (t.end    (min t.prev.length t.length)))
+          (unsafe-vector*-set! length*.full j t.length)
+          (let loop ((k 0))
+            (if (and (unsafe-fx< k t.end) (eq? (unsafe-bytes-ref t.prev k) (unsafe-bytes-ref t k)))
+                (loop (unsafe-fx+ k 1))
+                (unsafe-vector*-set! length*.shared-prefix j k)))
+          (loop (unsafe-fx+ j 1) t t.length))))
+    (unsafe-bytes-set! bv pos compression-type.text:shared-prefix)
+    (let* ((pos (unsafe-fx+ pos 1))
+           (pos (int-segment-encode! bv pos length*.full          0 len))
+           (pos (int-segment-encode! bv pos length*.shared-prefix 0 len)))
+      (let loop ((j 0) (pos pos))
+        (if (unsafe-fx< j len)
+            (let* ((t               (unsafe-vector*-ref t* (unsafe-fx+ start j)))
+                   (t.length        (unsafe-bytes-length t))
+                   (t.length.prefix (unsafe-vector*-ref length*.shared-prefix j)))
+              (unsafe-bytes-copy! bv pos t t.length.prefix t.length)
+              (loop (unsafe-fx+ j 1) (unsafe-fx+ (unsafe-fx- t.length t.length.prefix) pos)))
+            pos)))))
 
 ;; Returns the pos immediately following segment
 (define (int-segment-decode! bv pos z* start end)
@@ -241,7 +283,7 @@
 ;; Assumes a non-empty range of integer values
 (define int-segment-encode!
   (let ((min-count.dictionary   1024)
-        (min-count.single-value   32))
+        (min-count.single-value   16))
     (lambda (bv pos z* start end)
       (define (encode-for pos start end)
         (int-segment-encode!/frame-of-reference bv pos z* start end))
@@ -634,3 +676,43 @@
     2000
     ; 8000  ; need more space without dictionaries
     example))
+
+(define (test-text-roundtrip buffer-size t*)
+  (let ((bv        (make-bytes buffer-size))
+        (roundtrip (make-vector (vector-length t*))))
+    ;; TODO: use text-segment-encode! instead
+    ;(time (text-segment-encode! bv 0 t*        0 (vector-length t*)))
+    (time (text-segment-encode!/shared-prefix bv 0 t* 0 (vector-length t*)))
+    (time (text-segment-decode! bv 0 roundtrip 0 (vector-length t*)))
+    (let ((success? (equal? t* roundtrip)))
+      (unless #f;success?
+        (write roundtrip)
+        (newline)
+        (write bv)
+        (newline)
+        (write (bytes->list bv))
+        (newline))
+      (pretty-write success?))))
+
+(displayln "shared ascending text:")
+(let ((example (vector #"ABCD:X0000001"
+                       #"ABCD:X0000002"
+                       #"ABCD:X0000003"
+                       #"ABCD:X0000004"
+                       #"ABCD:X0000005"
+                       #"ABCD:X0000006"
+                       #"ABCD:X0000007"
+                       #"ABCD:X0000008"
+                       #"ABCD:X0000009"
+                       #"ABCD:X0000010"
+                       #"ABCD:X0000011"
+                       #"ABCD:X0000012"
+                       #"ABCD:X0000013"
+                       #"ABCD:X0000014"
+                       #"ABCD:X0000015"
+                       #"ABCD:X0000016"
+                       #"ABCD:X0000017"
+                       #"ABCD:X0000018"
+                       #"ABCD:X0000019"
+                       #"ABCD:X0000020")))
+  (test-text-roundtrip 100 example))
