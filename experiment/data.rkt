@@ -13,6 +13,12 @@
   column-sorted-group/key*
   column:encoding.int
   column:encoding.text
+  column:ref/class-name
+  column:ref.int
+  column:ref.text
+  column:vector/class-name
+  column:vector.int
+  column:vector.text
   group-map
   group-filter
   )
@@ -746,6 +752,19 @@
     (define sorted-group/key* (sorted-group/key*/i<x?&i=x? i<x? i=x?))
     (controller:column (controller:missing-method 'column:encoding.text:multi-prefix)
                        count describe ref group group/key* sorted-group/key*)))
+
+(define ((column:ref/class-name class-name x<x? x=x?) ref count)
+  (define (describe) `(,class-name (count ,count)))
+  (define (i=x? i x) (x=x? (ref i) x))
+  (define (i<x? i x) (x<x? (ref i) x))
+  (controller:column/array ref x=x? i=x? i<x? class-name count describe))
+(define column:ref.int  (column:ref/class-name 'column:ref.int unsafe-fx< unsafe-fx=))
+(define column:ref.text (column:ref/class-name 'column:ref.text unsafe-bytes<? unsafe-bytes=?))
+(define (column:vector/class-name class-name x<x? x=x?)
+  (let ((make-col (column:ref/class-name class-name x<x? x=x?)))
+    (lambda (x*) (make-col (lambda (i) (unsafe-vector*-ref x* i)) (unsafe-vector*-length x*)))))
+(define column:vector.int  (column:vector/class-name 'column:vector.int unsafe-fx< unsafe-fx=))
+(define column:vector.text (column:vector/class-name 'column:vector.text unsafe-bytes<? unsafe-bytes=?))
 
 ;(define (int-segment-encode!.nat/byte-width byte-width bv pos n* start end)
 ;  )
