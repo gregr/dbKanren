@@ -1,8 +1,10 @@
 #lang racket/base
 (provide
+  unsafe-list-ref
   unsafe-car
   unsafe-cdr
   unsafe-fxmin
+  unsafe-fxmax
   unsafe-fx=
   unsafe-fx<=
   unsafe-fx<
@@ -16,6 +18,7 @@
   unsafe-fxlshift
   unsafe-fxrshift
   unsafe-fxquotient
+  unsafe-fxremainder
   unsafe-bytes-length
   unsafe-bytes-ref
   unsafe-bytes-set!
@@ -32,6 +35,7 @@
 (define unsafe-car             car)
 (define unsafe-cdr             cdr)
 (define unsafe-fxmin           fxmin)
+(define unsafe-fxmax           fxmax)
 (define unsafe-fx=             fx=)
 (define unsafe-fx<=            fx<=)
 (define unsafe-fx<             fx<)
@@ -45,6 +49,7 @@
 (define unsafe-fxlshift        fxlshift)
 (define unsafe-fxrshift        fxrshift)
 (define unsafe-fxquotient      fxquotient)
+(define unsafe-fxremainder     fxremainder)
 (define unsafe-bytes-length    bytes-length)
 (define unsafe-bytes-ref       bytes-ref)
 (define unsafe-bytes-set!      bytes-set!)
