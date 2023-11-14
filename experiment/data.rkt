@@ -436,18 +436,13 @@
 
 (define (column:encoding.int:frame-of-reference z.min byte-width bv start.bv count)
   (define (describe)
-    (let* ((end.bv   (unsafe-fx+ (unsafe-fx* count byte-width) start.bv))
-           (size.bv  (- end.bv start.bv))
-           (bv.local (make-bytes size.bv)))
-      (bytes-copy! bv.local 0 bv start.bv end.bv)
+    (let ((size.bv (- (unsafe-fx+ (unsafe-fx* count byte-width) start.bv) start.bv)))
       `(column:encoding.int:frame-of-reference
          (count                     ,count)
          (byte-size                 ,size.bv)
          (average-bytes-per-element ,(exact->inexact (/ size.bv count)))
-         (encoding
-           (encoding.int:frame-of-reference ,encoding.int:frame-of-reference)
-           (bit-width                       ,(* byte-width 8))
-           (z.min                           ,z.min)))))
+         (bit-width                 ,(* byte-width 8))
+         (z.min                     ,z.min))))
   (define ref
     (let ((go (lambda (byte-width n-ref)
                 (lambda (i)
@@ -470,17 +465,12 @@
 (define (column:encoding.text:raw col.pos bv start.bv count)
   (let ((ref.pos (column-ref col.pos)))
     (define (describe)
-      (let* ((end.bv   (ref.pos count))
-             (size.bv  (- end.bv start.bv))
-             (bv.local (make-bytes size.bv)))
-        (bytes-copy! bv.local 0 bv start.bv end.bv)
+      (let ((size.bv (- (ref.pos count) start.bv)))
         `(column:encoding.text:raw
            (count                     ,count)
            (byte-size                 ,size.bv)
            (average-bytes-per-element ,(exact->inexact (/ size.bv count)))
-           (encoding
-             (encoding.text:raw ,encoding.text:raw)
-             (column.position   ,(column-describe col.pos))))))
+           (column.position           ,(column-describe col.pos)))))
     (define (ref i)
       (let* ((start (ref.pos i))
              (end   (ref.pos (unsafe-fx+ i 1)))
@@ -514,12 +504,8 @@
 (define (column:encoding.int:single-value single-value count)
   (define (describe)
     `(column:encoding.int:single-value
-       (count                     ,count)
-       (byte-size                 0)
-       (average-bytes-per-element 0)
-       (encoding
-         (encoding.int:single-value ,encoding.int:single-value)
-         (value                     ,single-value))))
+       (count ,count)
+       (value ,single-value)))
   (define (ref i) single-value)
   (define group             (group/single-value             single-value))
   (define group/key*        (group/key*/single-value        single-value unsafe-fx=))
@@ -530,13 +516,9 @@
 (define (column:encoding.text:single-value single-value count)
   (define (describe)
     `(column:encoding.text:single-value
-       (count                     ,count)
-       (byte-size                 0)
-       (average-bytes-per-element 0)
-       (encoding
-         (encoding.text:single-value ,encoding.text:single-value)
-         (length                     ,(bytes-length single-value))
-         (value                      ,single-value))))
+       (count  ,count)
+       (length ,(bytes-length single-value))
+       (value  ,single-value)))
   (define (ref i) single-value)
   (define group      (group/single-value      single-value))
   (define group/key* (group/key*/single-value single-value unsafe-bytes=?))
@@ -548,13 +530,9 @@
 (define (column:encoding.int:delta-single-value z.start z.delta count)
   (define (describe)
     `(column:encoding.int:delta-single-value
-       (count                     ,count)
-       (byte-size                 0)
-       (average-bytes-per-element 0)
-       (encoding
-         (encoding.int:delta-single-value ,encoding.int:delta-single-value)
-         (start ,z.start)
-         (delta ,z.delta))))
+       (count ,count)
+       (start ,z.start)
+       (delta ,z.delta)))
   (define (ref i) (unsafe-fx+ (unsafe-fx* z.delta i) z.start))
   (define (group start end)
     (if (unsafe-fx< start end)
@@ -598,17 +576,13 @@
   (controller:column (controller:missing-method 'column:encoding.text:delta-single-value)
                      count describe ref group group/key* sorted-group/key*))
 
-(define ((column:encoding.X:dictionary/X x<x? x=x? column-type-id.description encoding-id.description)
+(define ((column:encoding.X:dictionary/X x<x? x=x? column-type-id.description)
          col.dict count.dict col.code count)
   (define (describe)
     `(,column-type-id.description
-       (count                     ,count)
-       (byte-size                 0)
-       (average-bytes-per-element 0)
-       (encoding
-         ,encoding-id.description
-         (column.dictionary ,(column-describe col.dict))
-         (column.code       ,(column-describe col.code)))))
+       (count             ,count)
+       (column.dictionary ,(column-describe col.dict))
+       (column.code       ,(column-describe col.code))))
   (let ((ref.code               (column-ref               col.code))
         (group.code             (column-group             col.code))
         (group/key*.code        (column-group/key*        col.code))
@@ -633,23 +607,17 @@
     (controller:column (controller:missing-method column-type-id.description)
                        count describe ref group group/key* sorted-group/key*)))
 (define column:encoding.int:dictionary
-  (column:encoding.X:dictionary/X unsafe-fx< unsafe-fx= 'column:encoding.int:dictionary
-                                  `(encoding.int:dictionary ,encoding.int:dictionary)))
+  (column:encoding.X:dictionary/X unsafe-fx< unsafe-fx= 'column:encoding.int:dictionary))
 (define column:encoding.text:dictionary
-  (column:encoding.X:dictionary/X unsafe-bytes<? unsafe-bytes=? 'column:encoding.text:dictionary
-                                  `(encoding.text:dictionary ,encoding.text:dictionary)))
+  (column:encoding.X:dictionary/X unsafe-bytes<? unsafe-bytes=? 'column:encoding.text:dictionary))
 
-(define ((column:encoding.X:run-length/X column-type-id.description encoding-id.description)
+(define ((column:encoding.X:run-length/X column-type-id.description)
          col.pos col.run count.run count)
   (define (describe)
     `(,column-type-id.description
-       (count                     ,count)
-       (byte-size                 0)
-       (average-bytes-per-element 0)
-       (encoding
-         ,encoding-id.description
-         (column.position ,(column-describe col.pos))
-         (column.run      ,(column-describe col.run)))))
+       (count           ,count)
+       (column.position ,(column-describe col.pos))
+       (column.run      ,(column-describe col.run))))
   (let ((ref.pos               (column-ref               col.pos))
         (ref.run               (column-ref               col.run))
         (group.run             (column-group             col.run))
@@ -678,22 +646,16 @@
     (controller:column (controller:missing-method column-type-id.description)
                        count describe ref group group/key* sorted-group/key*)))
 (define (column:encoding.int:run-length col.pos col.run count.run count)
-  (column:encoding.X:run-length/X 'column:encoding.int:run-length
-                                  `(encoding.int:run-length ,encoding.int:run-length)))
+  (column:encoding.X:run-length/X 'column:encoding.int:run-length))
 (define (column:encoding.text:run-length col.pos col.run count.run count)
-  (column:encoding.X:run-length/X 'column:encoding.text:run-length
-                                  `(encoding.text:run-length ,encoding.text:run-length)))
+  (column:encoding.X:run-length/X 'column:encoding.text:run-length))
 
 (define (column:encoding.text:single-prefix prefix col.suffix count)
   (define (describe)
     `(column:encoding.text:single-prefix
-       (count                     ,count)
-       (byte-size                 0)
-       (average-bytes-per-element 0)
-       (encoding
-         (encoding.text:single-prefix ,encoding.text:single-prefix)
-         (prefix                      ,prefix)
-         (column.suffix               ,(column-describe col.suffix)))))
+       (count         ,count)
+       (prefix        ,prefix)
+       (column.suffix ,(column-describe col.suffix))))
   (let ((len.prefix               (unsafe-bytes-length prefix))
         (ref.suffix               (column-ref col.suffix))
         (group.suffix             (column-group col.suffix))
@@ -749,13 +711,9 @@
 (define (column:encoding.text:multi-prefix col.prefix count.prefix col.suffix count)
   (define (describe)
     `(column:encoding.text:multi-prefix
-       (count                     ,count)
-       (byte-size                 0)
-       (average-bytes-per-element 0)
-       (encoding
-         (encoding.text:multi-prefix ,encoding.text:multi-prefix)
-         (column.prefix              ,(column-describe col.prefix))
-         (column.suffix              ,(column-describe col.suffix)))))
+       (count         ,count)
+       (column.prefix ,(column-describe col.prefix))
+       (column.suffix ,(column-describe col.suffix))))
   (let ((byte-width.code (nat-min-byte-width count.prefix))
         (ref.prefix      (column-ref   col.prefix))
         (ref.suffix      (column-ref   col.suffix))
