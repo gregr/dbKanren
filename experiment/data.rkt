@@ -305,16 +305,18 @@
 ;; 4 bits to describe a bit width
 (define encoding.int:nat                0)
 ;; - the embedded bit width describes the codes
-(define encoding.int:frame-of-reference 1)
+(define encoding.int:int                1)
+;; - the embedded bit width describes the codes
+(define encoding.int:frame-of-reference 2)
 ;; - the embedded bit width describes the codes, not the base
 ;; - another bit width is needed to describe the base
-(define encoding.int:dictionary         2)
+(define encoding.int:dictionary         3)
 ;; - the embedded bit width describes the dictionary count
-(define encoding.int:run-length         3)
+(define encoding.int:run-length         4)
 ;; - the embedded bit width describes the run count
-(define encoding.int:single-value       4)
+(define encoding.int:single-value       5)
 ;; - the embedded bit width describes the single value
-(define encoding.int:delta-single-value 5)
+(define encoding.int:delta-single-value 6)
 ;; - the embedded bit width describes the starting value, not the delta value
 ;; - another bit width is needed to describe the delta value
 
@@ -347,6 +349,8 @@
     (define (? x) (eq? encoding x))
     (cond
       ((? encoding.int:nat) (values (column:encoding.int:nat byte-width bv pos.bv count)
+                                    (unsafe-fx+ (unsafe-fx* count byte-width) pos.bv)))
+      ((? encoding.int:int) (values (column:encoding.int:int byte-width bv pos.bv count)
                                     (unsafe-fx+ (unsafe-fx* count byte-width) pos.bv)))
       ((? encoding.int:frame-of-reference)
        (let* ((byte-width.min (unsafe-bytes-ref bv pos.bv))
@@ -439,6 +443,10 @@
 
 (define (column:encoding.int:nat byte-width bv start.bv count)
   (column:encoding.int:frame-of-reference 0 byte-width bv start.bv count))
+
+(define (column:encoding.int:int byte-width bv start.bv count)
+  (column:encoding.int:frame-of-reference (byte-width->int-min byte-width) byte-width bv start.bv
+                                          count))
 
 (define (column:encoding.int:frame-of-reference z.min byte-width bv start.bv count)
   (define (describe)
