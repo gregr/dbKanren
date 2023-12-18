@@ -18,6 +18,122 @@
 (define compression-type.text:shared-prefix     6)
 (define compression-type.text:dictionary        7)
 
+;; delta-prefix (shared-prefix) compression is either similar to, or the same as something called front-coding
+;; - based on front coding examples, it's not clear whether intermediate values can form the basis of a new prefix
+;;   - if they cannot, random access becomes fairly efficient
+;;   - ah, there are variants: "difference-to-first" vs. "difference-to-previous"
+;; - consider using fixed-size buckets to support less inefficient random access
+;;   - each bucket resets the prefix by storing a whole text value
+;;   - keep an array of bucket starting positions
+;;   - what bucket sizes make sense? 4? 16?  don't want it to be too large or random access suffers
+;;     - maybe b=8 or b=16 if we use the difference-to-first variant
+;;     - maybe b=8 for difference-to-previous
+;; - Another variant idea: saw-tooth difference-to-previous (because a chart of prefix lengths has a saw-tooth shape)
+;;   - Just like difference-to-previous, but the compressor promises never to increase the prefix length except
+;;     immediately following a value whose prefix=0 (meaning the value is fully inlined).
+;;   - This means that random-access can be performed with at most two copies, rather than having to decompress all
+;;     intermediates between header value and desired value.
+;;     - Scan prefix lengths backwards, looking for the first value with prefix=0.  This is the value that will be
+;;       referenced to form the prefix of the value we're decoding.
+;;   - With this variant, we don't necessarily even need buckets, since any prefix=0 value can serve as a header.
+;;     - Though, still a good idea to force prefix=0 regularly to cap the backwards search time for prefix=0.
+;;       - Maybe once every 16 values, simulating b=16.
+;;     - We can also cap backwards search time by limiting the positions at which we look for prefix=0.
+;;       - e.g., if we're using b=16, we could limit "extra header" appearances to only positions 4, 8, or 12.  Or
+;;         maybe just position 8.  Yeah, let's say just position 8, simulating b=16 with optional b=8 when we have bad luck.
+;;       - This should reduce the damage caused by bad luck or frequently-changing prefixes.
+;;       - Although maybe this isn't signficantly better than just using b=8 with difference-to-first...
+;; !!! - Yet another option: b=256, and store an extra byte with each value that points backwards to the header value that
+;;       will supply this value's prefix.
+;;       - Not necessary to force b=256, just have to make sure we never go more than 256 values without a prefix=0.
+;;       - With bit-packing encoding, if we never look back more than 15, (or 7, or 3, or 1), we can use fewer bits.
+
+;; Forget heterogeneous prefix compression.  Instead, support text:multiple with up to 256 uniform-length partitions.
+;; - Partition element counts should be a power of 16
+;;   - 4096 by default, or 256 after one split, or 16 after two splits
+;; - If a full segment contains 4096 values, 256 partitions would each contain 16 values.
+;; - Recursive: each partition could itself be partitioned
+;;   - But each recursion will slow down random access, so probably limit to 1 recursion at most
+;; - Hold off on supporting this until we can confirm it's useful.  It also complicates things, and may turn out not to help much.
+
+;; More random-access text compression ideas:
+;; - homogeneous prefix/suffix
+;;   - all values in a segment share the same prefix and suffix, so these can be truncated
+;; - heterogeneous, contiguous, prefix/suffix codes
+;;   - 256 or fewer adjacent common prefix-suffix pairs are assigned their own single-byte code
+;;     - smaller cardinalities can use fewer bits, as in small alphabet encodings
+;;       - note: we can't merge this code with the remaining body codes because subsequent encoding transformations may corrupt this code
+;;       - though we could columnarize this code
+;;   - e.g.,
+;;       ABC:012345
+;;       ABC:012346
+;;       http://example.com/12345/index.html
+;;       http://example.com/678/index.html
+;;       http://example.com/90/index.html
+;;       SHARE:012345
+;;       SHARE:012346
+;;     would likely be replaced by:
+;;       0 5
+;;       0 6
+;;       1 12345
+;;       1 678
+;;       1 90
+;;       2 5
+;;       2 6
+;;   - admit a non-empty heterogeneous prefix-suffix if we have seen it at least (max 2 (/ NUM-SEGMENT-ROWS 256)) times in a row
+;;     - and only if its net gain is at least 25%?
+;;   - re-use an old, non-contiguous suffix when beneficial
+;;   - how do we decide what to do when these are adjacent?
+;;     - SHARE:01_...
+;;     - SHARE:02_...
+;;     - just do the normal thing, keeping these distinct if valid
+;;       - rely on recursive encoding of the symbol table to share their commonality
+;; - small alphabet dictionary encodings
+;;   - 4-bit codes for alphabets of size 5-16
+;;   - 2-bit codes for alphabets of size 3-4
+;;   - 1-bit codes for alphabets of size 2
+;;   - length-only for alphabets of size 1
+
+;; We should also apply the small alphabet encoding idea to small-range integer sets
+
+
+;; RLE lookup accelerator for random access ?
+
+
+;; At least for integers, might be good to limit to random-access-compatible compression methods.
+;; - no int:multiple
+;;   - introduce int:run-length-encoded instead
+;;     - use an offset-interval array instead of a length array for faster point lookups
+;;     - alongside a value array
+;; - drop int:single-value and only use int:delta-single-value for full segments
+;;   - extra overhead is not a big deal because we won't have many of these due to dropping int:multiple
+;;   - if necessary for speed, can specialize code for delta=0
+;; - drop int:nat and only use int:frame-of-reference
+;;   - extra overhead is not a big deal because we won't have many of these due to dropping int:multiple
+;;   - if necessary for speed, can specialize code for offset=0
+;; For text, text:shared-prefix can achieve faster failure during point comparison with this procedure:
+;; - compare length
+;; - compare suffix bytes
+;; - walk backwards comparing prefix bytes until none remain
+;; - but step 2 and 3 require an offset-interval array into the suffix byte stream, which would be extremely wasteful
+;;   - at least we can still prune with step 1
+;;   - but if we ever fail to prune an entire block with step 1, we still have to decode everything, right?
+;;     - if we track the last time shared-prefix-length=0, we can avoid decoding anything before that point
+;; - maybe we should include a text:none for when text:shared-prefix does not compress well
+;;   - text:uncompressed
+;; - maybe it's also worth including text:single-value for faster decoding of full segments
+
+;; TODO: text decoding is much slower when materializing individual text values as bytevectors.
+;; Some ideas for mitigating this:
+;; - partition data into smaller segments so that point lookups materialize fewer surrounding values
+;; - have another decoding mode that materializes positions of matching values, rather than the
+;;   values themselves
+;;   - we could also implement this decoding mode for integer segments, but it might be less useful
+;;   - if we want to avoid materializing text values, the matching can't be too complex
+;;     - probably limited to equality testing
+;;     - that means it wouldn't be useful for matching against a set of text values
+;;     - so then this maybe not useful enough to justify a dedicated decoding mode
+
 ;; Returns the pos immediately following segment
 (define (text-segment-decode! bv pos t* start end)
   (let* ((type (unsafe-bytes-ref bv pos))
@@ -338,6 +454,7 @@
                             (restart i seen))))
                     (let loop ((i i))
                       (cond ((unsafe-fx= i end)
+                             ;; TODO: improve this sorting
                              (let* ((z*.dict  (list->vector (sort (set->list seen) <)))
                                     (len.dict (unsafe-vector*-length z*.dict))
                                     (z.max    (unsafe-vector*-ref z*.dict (unsafe-fx- len.dict 1)))
