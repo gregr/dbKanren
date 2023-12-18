@@ -7,6 +7,8 @@
 
 (define (relation-name            R) (cadr R))
 (define (relation-original?       R) (eq? (car R) 'orig))
+;; TODO: should be relation:original
+;; - same with other constructors
 (define (relation-original     name) (list 'orig name))
 
 (define (relation-generated?      R) (eq? (car R) 'new))
@@ -39,6 +41,14 @@
 (define prim.=/=           (relation-negation  prim.==))
 (define prim.<             (relation-primitive '<))
 (define prim.<=            (relation-primitive '<=))
+;; TODO: specific type predicates would allow more precise modes and other analysis
+;; e.g., null? and boolean? could infer the value from the type
+;; - though these also don't need to be builtin, since these types are
+;;   finite domains, and can be expressed directly (using == or ground rule heads)
+;; - so instead, provide pair? number? symbol? string? bytes? vector?
+;;   - but can we avoid needing pair? and vector? ?  maybe others too?
+;;   - note: we don't need 2-place relations (e.g., pair?==) because they can be
+;;     success/fail instead of returning booleans
 (define prim.type==        (relation-primitive 'type==))
 (define prim.cons==        (relation-primitive 'cons==))
 (define prim.+==           (relation-primitive '+==))
@@ -60,12 +70,12 @@
 (define (vector-list   t0 t1)          (atom prim.vector-list   (list t0 t1)))
 
 (define primitive-relations.base
-  (hash '==           ==
-        '=/=          =/=
-        '<            (lambda (t0 t1) (atom prim.<  (list t0 t1)))
-        '<=           (lambda (t0 t1) (atom prim.<= (list t0 t1)))
-        '>            (lambda (t0 t1) (atom prim.<  (list t1 t0)))
-        '>=           (lambda (t0 t1) (atom prim.<= (list t1 t0)))))
+  (hash '==  ==
+        '=/= =/=
+        '<   (lambda (t0 t1) (atom prim.<  (list t0 t1)))
+        '<=  (lambda (t0 t1) (atom prim.<= (list t0 t1)))
+        '>   (lambda (t0 t1) (atom prim.<  (list t1 t0)))
+        '>=  (lambda (t0 t1) (atom prim.<= (list t1 t0)))))
 
 (define current-primitive-relations (make-parameter (hash)))
 
@@ -108,6 +118,7 @@
     ((cons 'quasiquote       _) (error "improper quasiquote"        e))
     ((cons 'unquote          _) (error "misplaced unquote"          e))
     ((cons 'unquote-splicing _) (error "misplaced unquote-splicing" e))
+    ;; TODO: "type" should not be necessary if we provide type constraints
     (`(type ,e)                 (let ((result (fresh-var)))
                                   (implicit-atom! (type== (parse-term e) result))
                                   result))
@@ -169,8 +180,9 @@
     (unless implicit-atoms (error "implicit-atom! called outside of a parsing context"))
     (current-implicit-atoms (cons atom implicit-atoms))))
 
+(define (atom-vars a) (list->set (map var-name (filter var? (atom-args a)))))
+
 (define (rule-connected-components r)
-  (define (atom-vars a) (list->set (map var-name (filter var? (atom-args a)))))
   (define (split-reachable a* vars.initial)
     (let retry ((a* a*) (a*.reached '()) (vars.initial vars.initial))
       (let loop ((a* a*) (a*.reached a*.reached) (a*.missed '()) (vars vars.initial))
@@ -362,3 +374,117 @@
       (if (null? m*)
         (error "relation has no finite mode" (relation-name (atom-relation head)))
         (hash-set R=>mode* (atom-relation head) (list->set m*))))))
+
+;; - demand transform
+;;   - given: predicates designated as "the query", plus database statistics to help decide efficient rule order
+;;   - maybe just provide the list-of-sets coming from mode inference, and refine orders for
+;;     demand-specific rules as demand propagates (because the demand determines new mode requirements)
+;;     - multiple phases:
+;;       - propagate demand with mode re-inference
+;;         - starting from queries and using their binding patterns to determine demand signatures
+;;         - introduce new rule variant for each demand signature, including a demand signature literal
+;;         - re-check mode for each rule variant, producing a new list of sets
+;;         - flatten list-of-sets to a single ordered list using query planning heuristics
+;;         - use order to propagate demand to body literals
+;;       - create new demand signature rules for fully-ordered idb rule body prefixes
+
+(define (atom-bindings a vars.bound)
+  (map (lambda (t) (or (constant? t) (set-member? vars.bound (var-name t)))) (atom-args a)))
+
+;(define (rule-body-bindings r head-bindings)
+;  (let ((vars.bound (list->set
+;                      (filter-not not (map (lambda (bound? t) (and bound? (var? t) (var-name t)))
+;                                           head-bindings (atom-args (rule-head r)))))))
+;
+;
+;  (let loop ((a*
+;               ;; TODO: we need to decide order of body atoms based on initial vars.bound
+;               ;; Do we use something like the GOO heuristic?
+;               (rule-body r)
+;               )
+;             (R=>bindings* (hash))
+;             (vars.bound vars.bound))
+;    (match a*
+;      ('()
+;
+;       )
+;
+;      ((cons a a*)
+;       (loop a*
+;             (hash-update R=>bindings* (atom-relation a)
+;                          (lambda (bindings*) (set-add bindings* (atom-bindings a vars.bound)))
+;                          (set))
+;             (set-union vars.bound (atom-vars a)))
+;
+;       )))))
+
+
+
+;(define (infer-demand R*.query strata stats.db)
+  ;(void)
+  ;)
+;(define (rule-reorder rule stats.db mode.demanded)
+  ;(void)
+  ;)
+
+;; TODO: should database be an implicit parameter?
+;(define (compile R*.query R=>merge strata db)
+  ;(void)
+  ;)
+
+;(define (compile-query R*.query R=>merge e*.rules db)
+  ;(parameterize ((current-fresh-relation 0))
+    ;(let* ((rules    (apply append (map rule-connected-components (map parse-rule e*.rules))))
+           ;(R=>mode* (infer-modes rules (hash)))
+           ;(strata   (stratify rules))
+
+;; TODO: analyze termination safety of any consing relations and any recursive aggregation
+;; R=>merge
+
+           ;(strata   (infer-demand R*.query R=>mode* strata (database-statistics db))))
+      ;(compile R*.query R=>merge strata db))))
+
+
+
+;; We don't need to track merge identifiers.  They don't appear in rule definitions.
+;(define merge-identifiers.base              (hash 'min 'min
+                                                  ;'max 'max
+                                                  ;'+   '+
+                                                  ;'*   '*))
+
+;; TODO: types include integer and noninteger-number
+
+;; query:
+;; - set of queried relation names
+;; - relation definitions
+;;   - map of primitive relation name to mode-sensitive compute function
+;;     - implicit?
+;;   - map of aggregated relation name to merge function
+;;   - list of rules
+;; - database of facts
+;;   - implicit?
+
+
+;; example:
+
+;> (map parse-rule '(((append () y* y*)) ((append (cons x x*) y* (cons x x*y*)) (append x* y* x*y*))))
+;((((orig append) (quote ()) (var y*) (var y*)))
+; (((orig append) (var 0) (var y*) (var 1))
+;  ((orig append) (var x*) (var y*) (var x*y*))
+;  ((prim cons==) (var x) (var x*y*) (var 1))
+;  ((prim cons==) (var x) (var x*) (var 0))))
+
+;> (infer-modes (map parse-rule '(((append () y* y*)) ((append (cons x x*) y* (cons x x*y*)) (append x* y* x*y*))))
+;               R=>mode*.primitive)
+;#hash(((prim +==) . #<set: (#t #t #f) (#t #f #t) (#f #t #t)>)
+;      ((prim symbol-string) . #<set: (#f #t) (#t #f)>)
+;      ((prim <) . #<set: (#t #t)>)
+;      ((prim <=) . #<set: (#t #t)>)
+;      ((orig append) . #<set: (#t #t #f) (#f #f #t)>)
+;      ((prim bytes-list) . #<set: (#f #t) (#t #f)>)
+;      ((prim ==) . #<set: (#f #t) (#t #f)>)
+;      ((prim *==) . #<set: (#t #t #f) (#t #f #t) (#f #t #t)>)
+;      ((prim cons==) . #<set: (#t #t #f) (#f #f #t)>)
+;      ((prim vector-list) . #<set: (#f #t) (#t #f)>)
+;      ((prim type==) . #<set: (#t #f)>)
+;      ((prim string-bytes) . #<set: (#f #t) (#t #f)>))
