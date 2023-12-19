@@ -1181,7 +1181,8 @@
           (values
             (unsafe-fx+ 1 (unsafe-fx* bw.off (unsafe-fx+ len.t* 1)) size)
             (lambda (bv pos)
-              (let* ((pos (advance-unsafe-bytes-encoding&width-set! bv pos encoding.text:raw bw.off))
+              (let* ((pos (advance-unsafe-bytes-encoding&width-set!
+                            bv pos encoding.text:raw bw.off))
                      (pos (advance-unsafe-bytes-nat-set!/width bw.off bv pos 0)))
                 (let loop ((offset     0)
                            (pos.offset pos)
@@ -1197,6 +1198,38 @@
                               (unsafe-fx+ pos len)
                               (unsafe-fx+ i 1)))
                       pos)))))))))
+
+(define (encode-text*-single-value t)
+  (let* ((len    (unsafe-bytes-length t))
+         (bw.len (nat-min-byte-width len)))
+    (values
+      (unsafe-fx+ 1 bw.len len)
+      (lambda (bv pos)
+        (let* ((pos (advance-unsafe-bytes-encoding&width-set!
+                      bv pos encoding.text:single-value bw.len))
+               (pos (advance-unsafe-bytes-nat-set!/width bw.len bv pos len)))
+          (unsafe-bytes-copy! bv pos t 0 len))))))
+
+(define (encode-text*-dictionary code* start end t*)
+  (let* ((count.dict    (unsafe-vector*-length t*))
+         (bw.count.dict (nat-min-byte-width count.dict)))
+    (let-values (((size.dict encode.dict) (encode-text*-ordered-distinct t*)))
+      (values
+        (unsafe-fx+ 1 bw.count.dict size.dict (* (unsafe-fx- end start) bw.count.dict))
+        (lambda (bv pos)
+          (let* ((pos (advance-unsafe-bytes-encoding&width-set!
+                        bv pos encoding.text:dictionary bw.count.dict))
+                 (pos (advance-unsafe-bytes-nat-set!/width bw.count.dict bv pos count.dict))
+                 (pos (encode.dict bv pos)))
+            (let loop ((pos pos) (i start))
+              (if (unsafe-fx< i end)
+                  (loop (advance-unsafe-bytes-nat-set!/width bw.count.dict bv pos
+                                                             (unsafe-fxvector-ref code* i))
+                        (unsafe-fx+ i 1))
+                  pos))))))))
+
+(define (encode-text*-run-length run-count code* start end t*)
+  (error "TODO: encode-text*-run-length"))
 
 (define (encode-text*-baseline t*) (encode-text*-raw t*))
 
@@ -1220,39 +1253,51 @@
           (set! code.final (unsafe-fx+ code.final 1))))
       (let loop ((i 0))
         (when (unsafe-fx< i len.code*)
-          (unsafe-fxvector-set! code* i (unsafe-fxvector-ref code=>code (unsafe-fxvector-ref code* i)))
+          (unsafe-fxvector-set! code* i (unsafe-fxvector-ref code=>code
+                                                             (unsafe-fxvector-ref code* i)))
           (loop (unsafe-fx+ i 1))))
       (encode-text*/code* code* 0 len.code* t*))))
 
+;; Assume t* is sorted and deduplicated, and may also be modified.
 (define (encode-text*/code* code* start end t*)
-  ;- general case for code* consuming encoders
-  ;  - code* is not necessarily sorted, and possibly with duplicates
-  ;  - t* is always sorted and deduplicated
-  ;- try encodings in this order:
-  ;  - single-value
-  ;    - if (vector-length t*) is 1
-  ;  - single-prefix
-  ;    - if length of common prefix of first and last, times (vector-length t*), is 1/4 total byte size of t*
-  ;  - run-length
-  ;    - if run-count is 4 times smaller than count.code*
-  ;  - dictionary
-  ;    - if (vector-length t*) is 2 times smaller than count.code*
-  ;  - multi-prefix
-  ;    - if omitted bytes due to common prefixes is 1/4 total byte size of t*
-  ;    - note: multi-prefix can be used without sorting the final text values
-  ;      - we can use the sorted t* to discover good prefixes, but still use the given text value order
-  ;  - raw
-  (error "TODO")
-  )
+  (let ((len.t*    (unsafe-vector*-length t*))
+        (len.code* (unsafe-fx- end start)))
+    (define (fail-run-length)
+      (if (unsafe-fx<= (unsafe-fxlshift len.t* 1) len.code*)
+          (encode-text*-dictionary code* start end t*)
+          ;; TODO: try encoding.text:multi-prefix before falling back to encoding.text:raw
+          ;; - multi-prefix
+          ;;   - if omitted bytes due to common prefixes is 1/4 total byte size of t*
+          ;;   - note: multi-prefix can be used without sorting the final text values
+          ;;     - we can use the sorted t* to discover good prefixes, but still use the given
+          ;;       text value order
+          (let ((t*.raw (make-vector len.code*)))
+            (let loop ((i start) (j 0))
+              (if (unsafe-fx< i end)
+                  (let ((t (unsafe-vector*-ref t* (unsafe-fxvector-ref code* i))))
+                    (unsafe-vector*-set! t*.raw j t)
+                    (loop (unsafe-fx+ i 1) (unsafe-fx+ j 1)))
+                  (encode-text*-raw t*.raw))))))
+    (cond ((unsafe-fx= len.t* 1) (encode-text*-single-value (unsafe-vector*-ref t* 0)))
+          ;; TODO: check for encoding.text:single-prefix before run-length
+          ;; - single-prefix
+          ;;   - if length of common prefix of first and last, times (vector-length t*), is
+          ;;     1/4 of the total estimated byte size of t*
+          ((unsafe-fx<= (unsafe-fxlshift len.t* 2) len.code*)
+           (let loop ((i         (unsafe-fx+ start 1))
+                      (code.prev (unsafe-fxvector-ref code* start))
+                      (run-count 1))
+             (cond ((unsafe-fx< i end)
+                    (let ((code (unsafe-fxvector-ref code* i)))
+                      (loop (unsafe-fx+ i 1) code
+                            (if (unsafe-fx= code code.prev) run-count (unsafe-fx+ run-count 1)))))
+                   ((unsafe-fx<= (unsafe-fxlshift run-count 2) len.code*)
+                    (encode-text*-run-length run-count code* start end t*))
+                   (else (fail-run-length)))))
+          (else (fail-run-length)))))
 
-#;(define (encode-text*-ordered-distinct t*)
-  ;- i.e., sorted and no duplicates, like a dictionary itself
-  ;  - so dictionary and run-length encodings won't help
-  ;- if (vector-length t*) is 1, we have a single-value
-  ;- otherwise, these encodings can make sense: raw, single-prefix, or multi-prefix
-  ;- try encodings in this order:
-  ;  - single-value
-  ;  - single-prefix
-  ;  - multi-prefix
-  ;  - raw
-  )
+(define (encode-text*-ordered-distinct t*)
+  ;; TODO: try encoding.text:multi-prefix before falling back to encoding.text:raw
+  ;; - multi-prefix
+  ;;   - if omitted bytes due to common prefixes is 1/4 total byte size of t*
+  (encode-text*-raw t*))
