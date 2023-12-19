@@ -22,7 +22,9 @@
   group-map
   group-filter
   )
-(require (for-syntax racket/base) racket/fixnum racket/vector)
+(require (for-syntax racket/base) racket/fixnum racket/list racket/set racket/vector)
+;; NOTE: decoding corrupt or malicious data is currently a memory safety risk when using racket/unsafe/ops.
+;; Data integrity can be validated by performing a full scan while using ops from safe-unsafe.rkt.
 (require
   "../dbk/safe-unsafe.rkt"
   ;racket/unsafe/ops
@@ -76,6 +78,14 @@
                (loop (unsafe-fx- count 1))))))
         x*))))
 
+(define ((group-map    enum f) yield!) (enum (lambda (x start end) (yield! (f x) start end))))
+(define ((group-filter enum ?) yield!) (enum (lambda (x start end)
+                                               (when (? x) (yield! x start end)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Low-level representation ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (define (min-bits n)
   (let loop ((n n))
     (if (< 0 n) (+ 1 (loop (fxrshift n 1))) 0)))
@@ -83,6 +93,10 @@
   (let ((bits (min-bits n)))
     (+ (quotient bits 8) (if (= 0 (remainder bits 8)) 0 1))))
 (define (nat-min-byte-width nat.max) (max (min-bytes nat.max) 1))
+(define (int-min-byte-width z)
+  (nat-min-byte-width (if (unsafe-fx< z 0)
+                          (unsafe-fx- (unsafe-fx+ (unsafe-fx+ z z) 1))
+                          (unsafe-fx+ z z))))
 (define (bit-width->int-min  bit-width)  (unsafe-fx- (unsafe-fxlshift 1 (unsafe-fx- bit-width 1))))
 (define (byte-width->int-min byte-width) (bit-width->int-min (unsafe-fxlshift byte-width 3)))
 
@@ -183,7 +197,29 @@
   (unsafe-fx+ (unsafe-bytes-nat-ref/width width bs i) (byte-width->int-min width)))
 (define (unsafe-bytes-int-set!/width width bs i z)
   (unsafe-bytes-nat-set!/width width bs i (unsafe-fx- z (byte-width->int-min width))))
+(define (advance-unsafe-bytes-int-set!/width width bs i z)
+  (unsafe-bytes-int-set!/width width bs i z)
+  (unsafe-fx+ i width))
+(define (advance-unsafe-bytes-nat-set!/width width bs i z)
+  (unsafe-bytes-nat-set!/width width bs i z)
+  (unsafe-fx+ i width))
+(define (advance-unsafe-bytes-set! bs i x)
+  (unsafe-bytes-set! bs i x)
+  (unsafe-fx+ i 1))
 
+(define (unsafe-bytes-compare a b)
+  (let* ((len.a (unsafe-bytes-length a))
+         (len.b (unsafe-bytes-length b))
+         (end   (unsafe-fxmin len.a len.b)))
+    (let loop ((i 0))
+      (if (unsafe-fx= i end)
+          (cond ((unsafe-fx< len.a len.b) -1)
+                ((unsafe-fx< len.b len.a)  1)
+                (else                      0))
+          (let ((x.a (unsafe-bytes-ref a i)) (x.b (unsafe-bytes-ref b i)))
+            (cond ((unsafe-fx< x.a x.b) -1)
+                  ((unsafe-fx< x.b x.a)  1)
+                  (else                 (loop (unsafe-fx+ i 1)))))))))
 (define (unsafe-bytes=? a b)
   (let ((len (unsafe-bytes-length a)))
     (and (unsafe-fx= (unsafe-bytes-length b) len)
@@ -222,9 +258,130 @@
                       ((and (unsafe-fx< next end) (<? next)) (loop next o))
                       (else                                  (loop i    o))))))))))
 
-(define ((group-map    enum f) yield!) (enum (lambda (x start end) (yield! (f x) start end))))
-(define ((group-filter enum ?) yield!) (enum (lambda (x start end)
-                                               (when (? x) (yield! x start end)))))
+;;;;;;;;;;;;;;;;
+;;; 2-3 tree ;;;
+;;;;;;;;;;;;;;;;
+
+;;; Public
+(define (make-btree) (vector 0 #f))
+(define (btree-count bt) (unsafe-vector*-ref bt 0))
+
+(define (btree-enumerate bt yield)
+  (let loop ((t (btree-root bt)))
+    (when t
+      (cond ((btree-2? t) (loop  (btree-2-left t))
+                          (yield (btree-2-key t) (btree-2-leaf t))
+                          (loop  (btree-2-right t)))
+            (else (loop  (btree-3-left t))
+                  (yield (btree-3-left-key t) (btree-3-left-leaf t))
+                  (loop  (btree-3-middle t))
+                  (yield (btree-3-right-key t) (btree-3-right-leaf t))
+                  (loop  (btree-3-right t)))))))
+
+(define (btree-ref-or-set! bt x)
+  (let loop ((t        (btree-root bt))
+             (replace! (lambda (t)            (btree-root-set! bt t)))
+             (expand!  (lambda (key leaf l r) (btree-root-set! bt (make-btree-2 key leaf l r)))))
+    (cond
+      ((not t) (let ((count (btree-count bt)))
+                 (btree-count-set! bt (unsafe-fx+ count 1))
+                 (expand! x count #f #f)
+                 count))
+      ((btree-2? t) (case (unsafe-bytes-compare x (btree-2-key t))
+                      ((-1) (loop (btree-2-left t)
+                                  (lambda (u) (btree-2-left-set! t u))
+                                  ;; 2(._ key/leaf .R) ==> 3(.l left-key/left-leaf .m key/leaf .R)
+                                  (lambda (left-key left-leaf l m)
+                                    (replace! (make-btree-3 left-key (btree-2-key t)
+                                                            left-leaf (btree-2-leaf t)
+                                                            l m (btree-2-right t))))))
+                      (( 1) (loop (btree-2-right t)
+                                  (lambda (u) (btree-2-right-set! t u))
+                                  ;; 2(.L key/leaf ._) ==> 3(.L key/leaf .m right-key/right-leaf .r)
+                                  (lambda (right-key right-leaf m r)
+                                    (replace! (make-btree-3 (btree-2-key t) right-key
+                                                            (btree-2-leaf t) right-leaf
+                                                            (btree-2-left t) m r)))))
+                      (else (btree-2-leaf t))))
+      (else (case (unsafe-bytes-compare x (btree-3-left-key t))
+              ((-1) (loop (btree-3-left t)
+                          (lambda (u) (btree-3-left-set! t u))
+                          ;; 3(._ left-key/left-leaf .M right-key/right-leaf .R)
+                          ;; ==>
+                          ;;           2(. left-key/left-leaf .)
+                          ;;            /                      \
+                          ;; 2(.l key/leaf .r)        2(.M right-key/right-leaf .R)
+                          (lambda (key leaf l r)
+                            (expand! (btree-3-left-key t)
+                                     (btree-3-left-leaf t)
+                                     (make-btree-2 key leaf l r)
+                                     (make-btree-2 (btree-3-right-key t) (btree-3-right-leaf t)
+                                                   (btree-3-middle t) (btree-3-right t))))))
+              (( 1) (case (unsafe-bytes-compare x (btree-3-right-key t))
+                      ((-1) (loop (btree-3-middle t)
+                                  (lambda (u) (btree-3-middle-set! t u))
+                                  ;; 3(.L left-key/left-leaf ._ right-key/right-leaf .R)
+                                  ;; ==>
+                                  ;;                       2(. key/leaf .)
+                                  ;;                        /            \
+                                  ;; 2(.L left-key/left-leaf .l)      2(.r right-key/right-leaf .R)
+                                  (lambda (key leaf l r)
+                                    (expand!
+                                      key leaf
+                                      (make-btree-2 (btree-3-left-key t) (btree-3-left-leaf t)
+                                                    (btree-3-left t) l)
+                                      (make-btree-2 (btree-3-right-key t) (btree-3-right-leaf t)
+                                                    r (btree-3-right t))))))
+                      (( 1) (loop (btree-3-right t)
+                                  (lambda (u) (btree-3-right-set! t u))
+                                  ;; 3(.L left-key/left-leaf .M right-key/right-leaf ._)
+                                  ;; ==>
+                                  ;;                 2(. right-key/right-leaf .)
+                                  ;;                  /                        \
+                                  ;; 2(.L left-key/left-leaf .M)        2(.l key/leaf .r)
+                                  (lambda (key leaf l r)
+                                    (expand!
+                                      (btree-3-right-key t)
+                                      (btree-3-right-leaf t)
+                                      (make-btree-2 (btree-3-left-key t) (btree-3-left-leaf t)
+                                                    (btree-3-left t) (btree-3-middle t))
+                                      (make-btree-2 key leaf l r)))))
+                      (else (btree-3-right-leaf t))))
+              (else (btree-3-left-leaf t)))))))
+
+;;; Private
+(define (btree-count-set! bt count) (unsafe-vector*-set! bt 0 count))
+(define (btree-root       bt)       (unsafe-vector*-ref  bt 1))
+(define (btree-root-set!  bt t)     (unsafe-vector*-set! bt 1 t))
+
+(define (make-btree-2 key                leaf                 l r)   (vector key                leaf                 l r))
+(define (make-btree-3 left-key right-key left-leaf right-leaf l m r) (vector left-key right-key left-leaf right-leaf l m r))
+
+(define (btree-2?      t) (unsafe-fx= (unsafe-vector*-length t) 4))
+(define (btree-2-key   t) (unsafe-vector*-ref t 0))
+(define (btree-2-leaf  t) (unsafe-vector*-ref t 1))
+(define (btree-2-left  t) (unsafe-vector*-ref t 2))
+(define (btree-2-right t) (unsafe-vector*-ref t 3))
+
+(define (btree-2-left-set!  t u) (unsafe-vector*-set! t 2 u))
+(define (btree-2-right-set! t u) (unsafe-vector*-set! t 3 u))
+
+(define (btree-3-left-key   t) (unsafe-vector*-ref t 0))
+(define (btree-3-right-key  t) (unsafe-vector*-ref t 1))
+(define (btree-3-left-leaf  t) (unsafe-vector*-ref t 2))
+(define (btree-3-right-leaf t) (unsafe-vector*-ref t 3))
+(define (btree-3-left       t) (unsafe-vector*-ref t 4))
+(define (btree-3-middle     t) (unsafe-vector*-ref t 5))
+(define (btree-3-right      t) (unsafe-vector*-ref t 6))
+
+(define (btree-3-left-set!   t u) (unsafe-vector*-set! t 4 u))
+(define (btree-3-middle-set! t u) (unsafe-vector*-set! t 5 u))
+(define (btree-3-right-set!  t u) (unsafe-vector*-set! t 6 u))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Column implementation utilities ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (define ((sorted-group/key*/i<x?&i=x? i<x? i=x?) key*)
   (let ((len (unsafe-vector*-length key*)))
     (lambda (start end)
@@ -301,39 +458,76 @@
   (controller:column (controller:missing-method class-name) count describe ref group group/key*
                      sorted-group/key*))
 
-;; 4 bits for the encoding tag
-;; 4 bits to describe a bit width
-(define encoding.int:nat                0)
-;; - the embedded bit width describes the codes
-(define encoding.int:int                1)
-;; - the embedded bit width describes the codes
-(define encoding.int:frame-of-reference 2)
-;; - the embedded bit width describes the codes, not the base
-;; - another bit width is needed to describe the base
-(define encoding.int:dictionary         3)
-;; - the embedded bit width describes the dictionary count
-(define encoding.int:run-length         4)
-;; - the embedded bit width describes the run count
-(define encoding.int:single-value       5)
-;; - the embedded bit width describes the single value
-(define encoding.int:delta-single-value 6)
-;; - the embedded bit width describes the starting value, not the delta value
-;; - another bit width is needed to describe the delta value
+;;;;;;;;;;;;;;;;;;;;;
+;;; Encoding tags ;;;
+;;;;;;;;;;;;;;;;;;;;;
+
+(define-syntax-rule (define-enum name ...)
+  (define-values (name ...) (apply values (range (length '(name ...))))))
 
 ;; 4 bits for the encoding tag
 ;; 4 bits to describe a bit width
-(define encoding.text:raw           0)
-;; - the embedded bit width is ignored
-(define encoding.text:dictionary    1)
-;; - the embedded bit width describes the dictionary count
-(define encoding.text:run-length    2)
-;; - the embedded bit width describes the run count
-(define encoding.text:single-value  3)
-;; - the embedded bit width describes the length of the single value
-(define encoding.text:single-prefix 4)
-;; - the embedded bit width describes the length of the prefix
-(define encoding.text:multi-prefix  5)
-;; - the embedded bit width describes the prefix count
+(define-enum
+  encoding.int:nat
+  ;; - the embedded bit width describes the values
+  encoding.int:int
+  ;; - the embedded bit width describes the codes
+  encoding.int:frame-of-reference
+  ;; - the embedded bit width describes the codes, not the base
+  ;; - another bit width is needed to describe the base
+  encoding.int:dictionary
+  ;; - the embedded bit width describes the dictionary count
+  ;; - embeds an untagged encoding.int:nat for codes, with code width inferred from dictionary count
+  encoding.int:run-length
+  ;; - the embedded bit width describes the run count
+  ;; - embeds an untagged encoding.int:nat for offsets, with offset width inferred from full count
+  encoding.int:run-single-length
+  ;; - the embedded bit width describes the run count
+  ;; - offsets are a virtual encoding.int:delta-single-value with start=0, implicit in the single
+  ;;   run-length inferred from the full count and run count (i.e., (quotient full-count run-count))
+  ;; - the "delta" is assumed to be positive
+  encoding.int:single-value
+  ;; - the embedded bit width describes the single value
+  encoding.int:delta-single-value
+  ;; - the embedded bit width describes the starting value, not the delta value
+  ;; - another bit width is needed to describe the delta value
+  )
+
+;; 4 bits for the encoding tag
+;; 4 bits to describe a bit width
+(define-enum
+  encoding.text:raw
+  ;; - embeds an untagged encoding.int:nat for offsets
+  ;; - the embedded bit width describes the text value offsets
+  encoding.text:raw-single-length
+  ;; - embeds an untagged encoding.int:delta-single-value with start=0, for offsets
+  ;; - the embedded bit width describes the delta value
+  ;; - the "delta" is assumed to be positive
+  encoding.text:dictionary
+  ;; - the embedded bit width describes the dictionary count
+  ;; - embeds an untagged encoding.int:nat for codes, with code width inferred from dictionary count
+  encoding.text:run-length
+  ;; - the embedded bit width describes the run count
+  ;; - embeds an untagged encoding.int:nat for offsets, with offset width inferred from full count
+  encoding.text:run-single-length
+  ;; - the embedded bit width describes the run count
+  ;; - offsets are a virtual encoding.int:delta-single-value with start=0, implicit in the single
+  ;;   run-length inferred from the full count and run count (i.e., (quotient full-count run-count))
+  ;; - the "delta" is assumed to be positive
+  encoding.text:single-value
+  ;; - the embedded bit width describes the length of the single value
+  encoding.text:single-prefix
+  ;; - the embedded bit width describes the length of the prefix
+  encoding.text:multi-prefix
+  ;; - the embedded bit width is ignored
+  ;; TODO: redefine as a concatenation of element pairs from two columns
+  ;; - note: the prefixes will always be either dictionary or run-length (or run-single-length) encoded,
+  ;;   because if these encodings were not effective, multi-prefix would not have been chosen originally
+  )
+
+;;;;;;;;;;;;;;
+;;; Column ;;;
+;;;;;;;;;;;;;;
 
 (define (column:encoding.int bv start.bv count)
   (let-values (((col end) (column:encoding.int&end bv start.bv count))) col))
@@ -445,8 +639,7 @@
   (column:encoding.int:frame-of-reference 0 byte-width bv start.bv count))
 
 (define (column:encoding.int:int byte-width bv start.bv count)
-  (column:encoding.int:frame-of-reference (byte-width->int-min byte-width) byte-width bv start.bv
-                                          count))
+  (column:encoding.int:frame-of-reference (byte-width->int-min byte-width) byte-width bv start.bv count))
 
 (define (column:encoding.int:frame-of-reference z.min byte-width bv start.bv count)
   (define (describe)
@@ -774,7 +967,269 @@
 (define column:vector.int  (column:vector/class-name 'column:vector.int unsafe-fx< unsafe-fx=))
 (define column:vector.text (column:vector/class-name 'column:vector.text unsafe-bytes<? unsafe-bytes=?))
 
-;(define (int-segment-encode!.nat/byte-width byte-width bv pos n* start end)
-;  )
-;(define (int-segment-encode!.nat/max n.max bv pos n* start end)
-;  )
+;;;;;;;;;;;;;;
+;;; Encode ;;;
+;;;;;;;;;;;;;;
+
+;; NOTE: encoders always assume (< start end).  Don't try to encode an empty sequence.
+
+(define (advance-unsafe-bytes-encoding&width-set! bv pos encoding width)
+  (unsafe-bytes-set! bv pos (unsafe-fxior (unsafe-fxlshift encoding 4) width))
+  (unsafe-fx+ pos 1))
+
+(define (encode-int*/frame-of-reference z.min z.max z* start end)
+  (encode-int*/frame-of-reference/byte-width (nat-min-byte-width (unsafe-fx- z.max z.min))
+                                             z.min z.max z* start end))
+
+(define (encode-int*/frame-of-reference/byte-width bw.n.max z.min z.max z* start end)
+  (define (use-frame-of-reference)
+    (let ((bw.z.min (int-min-byte-width z.min)))
+      (values
+        (unsafe-fx+ 2 bw.z.min (* (unsafe-fx- end start) bw.n.max))
+        (lambda (bv pos)
+          (let* ((pos (advance-unsafe-bytes-encoding&width-set!
+                        bv pos encoding.int:frame-of-reference bw.n.max))
+                 (pos (advance-unsafe-bytes-set! bv pos bw.z.min))
+                 (pos (advance-unsafe-bytes-int-set!/width bw.z.min bv pos z.min)))
+            (let loop ((i start) (pos pos))
+              (when (unsafe-fx< i end)
+                (let ((n (unsafe-fx- (unsafe-vector*-ref z* i) z.min)))
+                  (loop (unsafe-fx+ i 1)
+                        (advance-unsafe-bytes-int-set!/width bw.n.max bv pos n))))))))))
+  (define (use-nat)
+    (values
+      (unsafe-fx+ 1 (* (unsafe-fx- end start) bw.n.max))
+      (lambda (bv pos)
+        (let ((pos (advance-unsafe-bytes-encoding&width-set! bv pos encoding.int:nat bw.n.max)))
+          (let loop ((i start) (pos pos))
+            (when (unsafe-fx< i end)
+              (let ((n (unsafe-vector*-ref z* i)))
+                (loop (unsafe-fx+ i 1)
+                      (advance-unsafe-bytes-nat-set!/width bw.n.max bv pos n)))))))))
+  (define (use-int)
+    (values
+      (unsafe-fx+ 1 (* (unsafe-fx- end start) bw.n.max))
+      (lambda (bv pos)
+        (let ((pos (advance-unsafe-bytes-encoding&width-set! bv pos encoding.int:int bw.n.max)))
+          (let loop ((i start) (pos pos))
+            (when (unsafe-fx< i end)
+              (let ((z (unsafe-vector*-ref z* i)))
+                (loop (unsafe-fx+ i 1)
+                      (advance-unsafe-bytes-int-set!/width bw.n.max bv pos z)))))))))
+  (cond ((unsafe-fx= 0 z.min) (use-nat))
+        ((unsafe-fx< 0 z.min) (if (unsafe-fx= (nat-min-byte-width z.max) bw.n.max)
+                                  (use-nat)
+                                  (use-frame-of-reference)))
+        (else (let ((bw.z (unsafe-fxmax (int-min-byte-width z.min) (int-min-byte-width z.max))))
+                (if (unsafe-fx= bw.z bw.n.max)
+                    (use-int)
+                    (use-frame-of-reference))))))
+
+(define (encode-int*/single-value z)
+  (let ((bw (int-min-byte-width z)))
+    (values
+      (unsafe-fx+ 1 bw)
+      (lambda (bv pos)
+        (let ((pos (advance-unsafe-bytes-encoding&width-set! bv pos encoding.int:single-value bw)))
+          (unsafe-bytes-int-set!/width bw bv pos z))))))
+
+(define (encode-int*/try-delta-single-value fail z* start end)
+  (let* ((z0    (unsafe-vector*-ref z* start))
+         (z1    (unsafe-vector*-ref z* (unsafe-fx+ start 1)))
+         (delta (unsafe-fx- z1 z0)))
+    (let loop ((i (unsafe-fx+ start 2)) (z.prev z1))
+      (let ((z (unsafe-vector*-ref z* i)))
+        (if (unsafe-fx= (unsafe-fx- z z.prev) delta)
+            (let ((i (unsafe-fx+ i 1)))
+              (if (unsafe-fx< i end)
+                  (loop i z)
+                  (let ((bw.start (int-min-byte-width z0))
+                        (bw.delta (int-min-byte-width delta)))
+                    (values
+                      (unsafe-fx+ 2 bw.start bw.delta)
+                      (lambda (bv pos)
+                        (let* ((pos (advance-unsafe-bytes-encoding&width-set!
+                                      bv pos encoding.int:delta-single-value bw.start))
+                               (pos (advance-unsafe-bytes-int-set!/width bw.start bv pos z0))
+                               (pos (advance-unsafe-bytes-set! bv pos bw.delta)))
+                          (unsafe-bytes-int-set!/width bw.delta bv pos delta)))))))
+            (fail))))))
+
+(define (encode-int*/strictly-increasing z.min z.max z* start end)
+  (define (fail-dsv) (encode-int*/frame-of-reference z.min z.max z* start end))
+  (if (unsafe-fx= (unsafe-fx- end start) 1)
+      (encode-int*/single-value z.min)
+      (encode-int*/try-delta-single-value fail-dsv z* start end)))
+
+(define (encode-int*/stats z.min z.max run-count z* start end)
+  (define (try-dictionary)
+    (let ((bw.n.max (nat-min-byte-width (unsafe-fx- z.max z.min))))
+      (define (fail-dictionary)
+        (encode-int*/frame-of-reference/byte-width bw.n.max z.min z.max z* start end))
+
+      ;; TODO: only collect distinct elements up to minimum byte-width improvement, and if count is large enough
+      ;; - which is only applicable if bw.n.max > 1
+      (if (unsafe-fx< 1 bw.n.max)
+
+          (let ((count.dict.max (unsafe-fxmin (unsafe-fxrshift (unsafe-fx- end start) 2) 255)))  ; guarantees that bw.code is 1
+
+            (let loop ((i start) (z*.dict (set)))
+              (if (unsafe-fx< i end)
+                  (let* ((z       (unsafe-vector*-ref z* i))
+                         (z*.dict (set-add z*.dict z)))
+                    (if (unsafe-fx<= (set-count z*.dict) count.dict.max)
+                        (loop (unsafe-fx+ i 1) z*.dict)
+                        ;; TODO: otherwise, fail
+                        (fail-dictionary)  ; do we really need these args?
+                        ))
+                  ;; TODO: otherwise, success
+                  ;; - sort z*.dict, map z=>code, transform z* into code*, and encode both sorted z*.dict and code*
+                  ;; - encode-int*/frame-of-reference for code*
+                  ;; - encode-int*/strictly-increasing for z*.dict
+                  (error "TODO")
+                  )))
+          (fail-dictionary))
+
+      ;; TODO: dict column itself should never be worth encoding with:
+      ;;   run-length, dictionary, single-value
+      ;; but it could be nat, int, frame-of-reference, or delta-single-value
+      ;; so can we use a faster analysis method? encode-int-dictionary*! ?
+
+      ;; TODO: a dict codes column should always be encoded with nat
+      ;; - otherwise a different encoding would have been chosen for the original column
+      ;; - note, this is not necessarily true for multi-prefix codes, which could also
+      ;;   benefit from run-length encoding
+      ;;   - or we could not look at the prefixes as codes, and treat them as text values that
+      ;;     are subject to encoding in the usual way, in which case the run-length encoding
+      ;;     is really happening at the text value level, not the code level
+
+      ;; TODO: multi-prefix encoding is really a concatenation of two text columns
+
+      ))
+
+  (define (fail-delta-single-value)
+    (if (unsafe-fx<= (unsafe-fxlshift run-count 2) (unsafe-fx- end start))
+        (let ((n*.pos (make-vector run-count)) (z*.run (make-vector run-count)))
+          ;; TODO: position column should never be worth encoding with:
+          ;;   run-length, dictionary, single-value, int, frame-of-reference
+          ;; but it could be either nat or delta-single-value
+          ;; so can we use a faster analysis method? encode-nat-increasing-sequence*! ?
+
+          ;; TODO: run column should be encoded with:
+          ;; (encode-int*/stats z.min z.max run-count z*.run start end)
+          ;; where run-count is equal to (- end start), and z.min z.max are the same
+          (error "TODO"))
+        (try-dictionary)))
+  (cond ((unsafe-fx= z.min z.max) (encode-int*/single-value z.min))
+        ((and (unsafe-fx= (unsafe-fx- end start) run-count)
+              (unsafe-fx= (unsafe-vector*-ref z* start)              z.min)
+              (unsafe-fx= (unsafe-vector*-ref z* (unsafe-fx- end 1)) z.max)
+              (unsafe-fx< 2 run-count))
+         (encode-int*/try-delta-single-value fail-delta-single-value z* start end))
+        (else (fail-delta-single-value))))
+
+(define (encode-int* z* start end)
+  (let ((z0 (unsafe-vector*-ref z* start)))
+    (let loop ((i (unsafe-fx+ start 1)) (z.min z0) (z.max z0) (z.prev z0) (run-count 1))
+      (if (unsafe-fx< i end)
+          (let ((z (unsafe-vector*-ref z* i)))
+            (loop (unsafe-fx+ i 1)
+                  (unsafe-fxmin z z.min)
+                  (unsafe-fxmax z z.min)
+                  z
+                  (if (unsafe-fx= z z.prev) run-count (unsafe-fx+ run-count 1))))
+          (encode-int*/stats z.min z.max run-count z* start end)))))
+
+(define (encode-int*-baseline z* start end)
+  (let ((z0 (unsafe-vector*-ref z* start)))
+    (let loop ((i (unsafe-fx+ start 1)) (z.min z0) (z.max z0))
+      (if (unsafe-fx< i end)
+          (let ((z (unsafe-vector*-ref z* i)))
+            (loop (unsafe-fx+ i 1) (unsafe-fxmin z z.min) (unsafe-fxmax z z.min)))
+          (encode-int*/frame-of-reference z.min z.max z* start end)))))
+
+(define (encode-text*-baseline t*) (encode-text*-raw t*))
+
+#;(define (encode-text* t*)
+  ;- won't be commonly used since we'll likely build a btree / dictionary as input is processed
+  ;- still could be useful for testing
+  ;- dispatch to encode-text/code* by building a btree, and producing code* and ordered-distinct t*
+  )
+
+#;(define (encode-text*/code* code* start end t*)
+  ;- general case for code* consuming encoders
+  ;  - code* is not necessarily sorted, and possibly with duplicates
+  ;  - t* is always sorted and deduplicated
+  ;- try encodings in this order:
+  ;  - single-value
+  ;    - if (- end start) is 1
+  ;  - single-prefix
+  ;    - if length of common prefix of first and last, times (- end start), is 1/4 total byte size of t*
+  ;  - run-length
+  ;    - if run-count is 4 times smaller than count.code*
+  ;  - dictionary
+  ;    - if (- end start) is 2 times smaller than count.code*
+  ;  - multi-prefix
+  ;    - if omitted bytes due to common prefixes is 1/4 total byte size of t*
+  ;    - note: multi-prefix can be used without sorting the final text values
+  ;      - we can use the sorted t* to discover good prefixes, but still use the given text value order
+  ;  - raw
+  )
+
+#;(define (encode-text*-ordered-distinct t*)
+  ;- i.e., sorted and no duplicates, like a dictionary itself
+  ;  - so dictionary and run-length encodings won't help
+  ;- if (- end start) is 1, we have a single-value
+  ;- otherwise, these encodings can make sense: raw, single-prefix, or multi-prefix
+  ;- try encodings in this order:
+  ;  - single-value
+  ;  - single-prefix
+  ;  - multi-prefix
+  ;  - raw
+  )
+
+(define (encode-text*-raw t*)
+  (let ((len.t* (unsafe-vector*-length t*))
+        (len.0  (unsafe-bytes-length (unsafe-vector*-ref t* 0))))
+    (if (let loop ((i 1))
+          (or (unsafe-fx= i len.t*)
+              (and (unsafe-fx= (unsafe-bytes-length (unsafe-vector*-ref t* i)) len.0)
+                   (loop (unsafe-fx+ i 1)))))
+        (let ((bw.delta (nat-min-byte-width len.0)))
+          (values
+            (unsafe-fx+ 1 bw.delta (unsafe-fx* len.0 len.t*))
+            (lambda (bv pos)
+              (let* ((pos (advance-unsafe-bytes-encoding&width-set!
+                            bv pos encoding.text:raw-single-length bw.delta))
+                     (pos (advance-unsafe-bytes-nat-set!/width bw.delta bv pos len.0)))
+                (let loop ((pos pos) (i 0))
+                  (if (unsafe-fx< i len.t*)
+                      (let ((t (unsafe-vector*-ref t* i)))
+                        (unsafe-bytes-copy! bv pos t 0 (unsafe-bytes-length t))
+                        (loop (unsafe-fx+ (unsafe-bytes-length t) pos) (unsafe-fx+ i 1)))
+                      pos))))))
+        (let* ((size (let loop ((size len.0) (i 1))
+                       (if (unsafe-fx= i len.t*)
+                           size
+                           (loop (unsafe-fx+ (unsafe-bytes-length (unsafe-vector*-ref t* i)) size)
+                                 (unsafe-fx+ i 1)))))
+               (bw.off (nat-min-byte-width size)))
+          (values
+            (unsafe-fx+ 1 (unsafe-fx* bw.off (unsafe-fx+ len.t* 1)) size)
+            (lambda (bv pos)
+              (let* ((pos (advance-unsafe-bytes-encoding&width-set! bv pos encoding.text:raw bw.off))
+                     (pos (advance-unsafe-bytes-nat-set!/width bw.off bv pos 0)))
+                (let loop ((offset     0)
+                           (pos.offset pos)
+                           (pos        (unsafe-fx+ (unsafe-fx* bw.off len.t*) pos))
+                           (i          0))
+                  (if (unsafe-fx< i len.t*)
+                      (let* ((t      (unsafe-vector*-ref t* i))
+                             (len    (unsafe-bytes-length t))
+                             (offset (unsafe-fx+ len offset)))
+                        (unsafe-bytes-copy! bv pos t 0 len)
+                        (loop offset
+                              (advance-unsafe-bytes-nat-set!/width bw.off bv pos.offset offset)
+                              (unsafe-fx+ pos len)
+                              (unsafe-fx+ i 1)))
+                      pos)))))))))
