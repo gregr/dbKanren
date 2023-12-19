@@ -21,6 +21,10 @@
   column:vector.text
   group-map
   group-filter
+  encode-int*
+  encode-int*-baseline
+  encode-text*
+  encode-text*-baseline
   )
 (require (for-syntax racket/base) racket/fixnum racket/list racket/set racket/vector)
 ;; NOTE: decoding corrupt or malicious data is currently a memory safety risk when using racket/unsafe/ops.
@@ -1148,46 +1152,6 @@
             (loop (unsafe-fx+ i 1) (unsafe-fxmin z z.min) (unsafe-fxmax z z.min)))
           (encode-int*/frame-of-reference z.min z.max z* start end)))))
 
-(define (encode-text*-baseline t*) (encode-text*-raw t*))
-
-#;(define (encode-text* t*)
-  ;- won't be commonly used since we'll likely build a btree / dictionary as input is processed
-  ;- still could be useful for testing
-  ;- dispatch to encode-text/code* by building a btree, and producing code* and ordered-distinct t*
-  )
-
-#;(define (encode-text*/code* code* start end t*)
-  ;- general case for code* consuming encoders
-  ;  - code* is not necessarily sorted, and possibly with duplicates
-  ;  - t* is always sorted and deduplicated
-  ;- try encodings in this order:
-  ;  - single-value
-  ;    - if (- end start) is 1
-  ;  - single-prefix
-  ;    - if length of common prefix of first and last, times (- end start), is 1/4 total byte size of t*
-  ;  - run-length
-  ;    - if run-count is 4 times smaller than count.code*
-  ;  - dictionary
-  ;    - if (- end start) is 2 times smaller than count.code*
-  ;  - multi-prefix
-  ;    - if omitted bytes due to common prefixes is 1/4 total byte size of t*
-  ;    - note: multi-prefix can be used without sorting the final text values
-  ;      - we can use the sorted t* to discover good prefixes, but still use the given text value order
-  ;  - raw
-  )
-
-#;(define (encode-text*-ordered-distinct t*)
-  ;- i.e., sorted and no duplicates, like a dictionary itself
-  ;  - so dictionary and run-length encodings won't help
-  ;- if (- end start) is 1, we have a single-value
-  ;- otherwise, these encodings can make sense: raw, single-prefix, or multi-prefix
-  ;- try encodings in this order:
-  ;  - single-value
-  ;  - single-prefix
-  ;  - multi-prefix
-  ;  - raw
-  )
-
 (define (encode-text*-raw t*)
   (let ((len.t* (unsafe-vector*-length t*))
         (len.0  (unsafe-bytes-length (unsafe-vector*-ref t* 0))))
@@ -1233,3 +1197,62 @@
                               (unsafe-fx+ pos len)
                               (unsafe-fx+ i 1)))
                       pos)))))))))
+
+(define (encode-text*-baseline t*) (encode-text*-raw t*))
+
+(define (encode-text* t*)
+  (let* ((len.code* (unsafe-vector*-length t*))
+         (code*     (make-fxvector len.code*))
+         (bt        (make-btree)))
+    (let loop ((i 0))
+      (when (unsafe-fx< i len.code*)
+        (unsafe-fxvector-set! code* i (btree-ref-or-set! bt (unsafe-vector*-ref t* i)))
+        (loop (unsafe-fx+ i 1))))
+    (let* ((count.bt   (btree-count bt))
+           (t*         (make-vector count.bt))
+           (code=>code (make-fxvector count.bt))
+           (code.final 0))
+      (btree-enumerate
+        bt
+        (lambda (t code.initial)
+          (unsafe-vector*-set! t* code.final t)
+          (unsafe-fxvector-set! code=>code code.initial code.final)
+          (set! code.final (unsafe-fx+ code.final 1))))
+      (let loop ((i 0))
+        (when (unsafe-fx< i len.code*)
+          (unsafe-fxvector-set! code* i (unsafe-fxvector-ref code=>code (unsafe-fxvector-ref code* i)))
+          (loop (unsafe-fx+ i 1))))
+      (encode-text*/code* code* 0 len.code* t*))))
+
+(define (encode-text*/code* code* start end t*)
+  ;- general case for code* consuming encoders
+  ;  - code* is not necessarily sorted, and possibly with duplicates
+  ;  - t* is always sorted and deduplicated
+  ;- try encodings in this order:
+  ;  - single-value
+  ;    - if (vector-length t*) is 1
+  ;  - single-prefix
+  ;    - if length of common prefix of first and last, times (vector-length t*), is 1/4 total byte size of t*
+  ;  - run-length
+  ;    - if run-count is 4 times smaller than count.code*
+  ;  - dictionary
+  ;    - if (vector-length t*) is 2 times smaller than count.code*
+  ;  - multi-prefix
+  ;    - if omitted bytes due to common prefixes is 1/4 total byte size of t*
+  ;    - note: multi-prefix can be used without sorting the final text values
+  ;      - we can use the sorted t* to discover good prefixes, but still use the given text value order
+  ;  - raw
+  (error "TODO")
+  )
+
+#;(define (encode-text*-ordered-distinct t*)
+  ;- i.e., sorted and no duplicates, like a dictionary itself
+  ;  - so dictionary and run-length encodings won't help
+  ;- if (vector-length t*) is 1, we have a single-value
+  ;- otherwise, these encodings can make sense: raw, single-prefix, or multi-prefix
+  ;- try encodings in this order:
+  ;  - single-value
+  ;  - single-prefix
+  ;  - multi-prefix
+  ;  - raw
+  )
