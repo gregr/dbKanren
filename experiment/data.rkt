@@ -558,6 +558,7 @@
          (values (column:encoding.int:frame-of-reference z.min byte-width bv pos.bv count)
                  (unsafe-fx+ (unsafe-fx* count byte-width) pos.bv))))
       ((? encoding.int:dictionary)
+       ;; Since count.dict can never be 0, we encode it with -1.  Undo it with +1.
        (let* ((count.dict (unsafe-fx+ (unsafe-bytes-nat-ref/width byte-width bv pos.bv) 1))
               (pos.bv     (unsafe-fx+ pos.bv byte-width)))
          (let*-values (((col.dict pos.bv) (column:encoding.int&end bv pos.bv count.dict))
@@ -565,7 +566,8 @@
            (values (column:encoding.int:dictionary col.dict count.dict col.code count)
                    pos.bv))))
       ((? encoding.int:run-length)
-       (let* ((count.run (unsafe-bytes-nat-ref/width byte-width bv pos.bv))
+       ;; Since count.run can never be 0, we encode it with -1.  Undo it with +1.
+       (let* ((count.run (unsafe-fx+ (unsafe-bytes-nat-ref/width byte-width bv pos.bv) 1))
               (pos.bv    (unsafe-fx+ pos.bv byte-width)))
          (let*-values (((col.pos pos.bv) (column:encoding.int&end bv pos.bv (unsafe-fx+ count.run 1)))
                        ((col.run pos.bv) (column:encoding.int&end bv pos.bv count.run)))
@@ -597,6 +599,7 @@
          (values (column:encoding.text:raw col.pos bv pos.bv count)
                  ((column-ref col.pos) count))))
       ((? encoding.text:dictionary)
+       ;; Since count.dict can never be 0, we encode it with -1.  Undo it with +1.
        (let* ((count.dict (unsafe-fx+ (unsafe-bytes-nat-ref/width byte-width bv pos.bv) 1))
               (pos.bv     (unsafe-fx+ pos.bv byte-width)))
          (let*-values (((col.dict pos.bv) (column:encoding.text&end bv pos.bv count.dict))
@@ -604,7 +607,8 @@
            (values (column:encoding.text:dictionary col.dict count.dict col.code count)
                    pos.bv))))
       ((? encoding.text:run-length)
-       (let* ((count.run (unsafe-bytes-nat-ref/width byte-width bv pos.bv))
+       ;; Since count.run can never be 0, we encode it with -1.  Undo it with +1.
+       (let* ((count.run (unsafe-fx+ (unsafe-bytes-nat-ref/width byte-width bv pos.bv) 1))
               (pos.bv    (unsafe-fx+ pos.bv byte-width)))
          (let*-values (((col.pos pos.bv) (column:encoding.int&end bv pos.bv (unsafe-fx+ count.run 1)))
                        ((col.run pos.bv) (column:encoding.text&end bv pos.bv count.run)))
@@ -620,7 +624,8 @@
          (values (column:encoding.text:single-value single-value count)
                  (unsafe-fx+ pos.bv len.single-value))))
       ((? encoding.text:single-prefix)
-       (let* ((len.single-prefix (unsafe-bytes-nat-ref/width byte-width bv pos.bv))
+       ;; Since len.single-prefix can never be 0, we encode it with -1.  Undo it with +1.
+       (let* ((len.single-prefix (unsafe-fx+ (unsafe-bytes-nat-ref/width byte-width bv pos.bv) 1))
               (pos.bv            (unsafe-fx+ pos.bv byte-width))
               (single-prefix     (let ((t (make-bytes len.single-prefix)))
                                    (unsafe-bytes-copy! t 0 bv pos.bv
@@ -630,6 +635,7 @@
          (let-values (((col.suffix pos.bv) (column:encoding.text&end bv pos.bv count)))
            (values (column:encoding.text:single-prefix single-prefix col.suffix count)
                    pos.bv))))
+      ;; TODO: redo this
       ((? encoding.text:multi-prefix)
        (let* ((count.prefix (unsafe-bytes-nat-ref/width byte-width bv pos.bv))
               (pos.bv       (unsafe-fx+ pos.bv byte-width)))
@@ -1248,6 +1254,7 @@
 
 (define (encode-text*-dictionary code* start end t*)
   (let* ((count.dict    (unsafe-vector*-length t*))
+         ;; Since count.dict can never be 0, we encode it with -1.
          (bw.count.dict (nat-min-byte-width (unsafe-fx- count.dict 1))))
     (let-values (((size.dict encode.dict) (encode-text*-ordered-distinct t*)))
       (values
@@ -1283,7 +1290,8 @@
           (let ((end (unsafe-fx+ j 1)))
             (unsafe-fxvector-set! len*.run j len.run)
             (let-values (((size.run encode.run) (encode-text*/code* #f code* 0 end t*)))
-              (let ((bw.count.run (nat-min-byte-width count.run))
+              ;; Since count.run can never be 0, we encode it with -1.
+              (let ((bw.count.run (nat-min-byte-width (unsafe-fx- count.run 1)))
                     (len.run      (unsafe-fxvector-ref len*.run 0)))
                 (if (let loop ((i 1))
                       (or (unsafe-fx= i count.run)
@@ -1294,15 +1302,18 @@
                       (lambda (bv pos)
                         (let* ((pos (advance-unsafe-bytes-encoding&width-set!
                                       bv pos encoding.text:run-single-length bw.count.run))
-                               (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos count.run)))
+                               (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos
+                                                                         (unsafe-fx- count.run 1))))
                           (encode.run bv pos))))
                     (let ((bw.offset (nat-min-byte-width count.full)))
                       (values
-                        (unsafe-fx+ 1 bw.count.run (unsafe-fx* bw.offset (unsafe-fx+ count.run 1)) size.run)
+                        (unsafe-fx+ 1 bw.count.run (unsafe-fx* bw.offset (unsafe-fx+ count.run 1))
+                                    size.run)
                         (lambda (bv pos)
                           (let* ((pos (advance-unsafe-bytes-encoding&width-set!
                                         bv pos encoding.text:run-length bw.count.run))
-                                 (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos count.run))
+                                 (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos
+                                                                           (unsafe-fx- count.run 1)))
                                  (pos (advance-unsafe-bytes-nat-set!/width bw.offset bv pos 0))
                                  (pos (let loop ((offset 0) (pos pos) (i 0))
                                         (if (unsafe-fx< i count.run)
