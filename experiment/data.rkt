@@ -987,6 +987,61 @@
   (unsafe-bytes-set! bv pos (unsafe-fxior (unsafe-fxlshift encoding 4) width))
   (unsafe-fx+ pos 1))
 
+(define (encode-X*-run-length
+          count.run code* start end encoding.X:run-single-length encoding.X:run-length encode-X*)
+  (let ((count.full (unsafe-fx- end start))
+        (len*.run   (make-fxvector count.run)))
+    (let loop ((i         (unsafe-fx+ start 1))
+               (j         0)
+               (code.prev (unsafe-fxvector-ref code* start))
+               (len.run   1))
+      (if (unsafe-fx< i end)
+          (let ((code (unsafe-fxvector-ref code* i)))
+            (if (unsafe-fx= code code.prev)
+                (loop (unsafe-fx+ i 1) j code.prev (unsafe-fx+ len.run 1))
+                (let ((j.next (unsafe-fx+ j 1)))
+                  (unsafe-fxvector-set! len*.run j                         len.run)
+                  (unsafe-fxvector-set! code*    (unsafe-fx+ start j.next) code)
+                  (loop (unsafe-fx+ i 1) j.next code 1))))
+          (let ((end (unsafe-fx+ start j 1)))
+            (unsafe-fxvector-set! len*.run j len.run)
+            (let-values (((size.run encode.run) (encode-X* code* start end)))
+              ;; Since count.run can never be 0, we encode it with -1.
+              (let ((bw.count.run (nat-min-byte-width (unsafe-fx- count.run 1)))
+                    (len.run      (unsafe-fxvector-ref len*.run 0)))
+                (if (let loop ((i 1))
+                      (or (unsafe-fx= i count.run)
+                          (and (unsafe-fx= (unsafe-fxvector-ref len*.run i) len.run)
+                               (loop (unsafe-fx+ i 1)))))
+                    (values
+                      (unsafe-fx+ 1 bw.count.run size.run)
+                      (lambda (bv pos)
+                        (let* ((pos (advance-unsafe-bytes-encoding&width-set!
+                                      bv pos encoding.X:run-single-length bw.count.run))
+                               (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos
+                                                                         (unsafe-fx- count.run 1))))
+                          (encode.run bv pos))))
+                    (let ((bw.offset (nat-min-byte-width count.full)))
+                      (values
+                        (unsafe-fx+ 1 bw.count.run (unsafe-fx* bw.offset (unsafe-fx+ count.run 1))
+                                    size.run)
+                        (lambda (bv pos)
+                          (let* ((pos (advance-unsafe-bytes-encoding&width-set!
+                                        bv pos encoding.X:run-length bw.count.run))
+                                 (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos
+                                                                           (unsafe-fx- count.run 1)))
+                                 (pos (advance-unsafe-bytes-nat-set!/width bw.offset bv pos 0))
+                                 (pos (let loop ((offset 0) (pos pos) (i 0))
+                                        (if (unsafe-fx< i count.run)
+                                            (let* ((len.run (unsafe-fxvector-ref len*.run i))
+                                                   (offset  (unsafe-fx+ len.run offset)))
+                                              (loop offset
+                                                    (advance-unsafe-bytes-nat-set!/width
+                                                      bw.offset bv pos offset)
+                                                    (unsafe-fx+ i 1)))
+                                            pos))))
+                            (encode.run bv pos)))))))))))))
+
 (define (encode-int*/frame-of-reference z.min z.max z* start end)
   (encode-int*/frame-of-reference/byte-width (nat-min-byte-width (unsafe-fx- z.max z.min))
                                              z.min z.max z* start end))
@@ -1077,7 +1132,7 @@
 (define (unsafe-fxvector-sort! z* start end)
   (error "TODO: unsafe-fxvector-sort!"))
 
-(define (encode-int*/stats z.min z.max run-count z* start end)
+(define (encode-int*/stats z.min z.max count.run z* start end)
   (define (try-dictionary)
     (let ((bw.n.max (nat-min-byte-width (unsafe-fx- z.max z.min))))
       (define (fail-dictionary)
@@ -1127,38 +1182,34 @@
                                   pos))))))))))
           (fail-dictionary))))
   (define (fail-delta-single-value)
-    (if (unsafe-fx<= (unsafe-fxlshift run-count 2) (unsafe-fx- end start))
-        (let ((n*.pos (make-fxvector run-count)) (z*.run (make-fxvector run-count)))
-          ;; TODO: position column should never be worth encoding with:
-          ;;   run-length, dictionary, single-value, int, frame-of-reference
-          ;; but it could be either nat or delta-single-value
-          ;; so can we use a faster analysis method? encode-nat-increasing-sequence*! ?
-
-          ;; TODO: run column should be encoded with:
-          ;; (encode-int*/stats z.min z.max run-count z*.run start end)
-          ;; where run-count is equal to (- end start), and z.min z.max are the same
-          (error "TODO"))
+    (if (unsafe-fx<= (unsafe-fxlshift count.run 2) (unsafe-fx- end start))
+        (let ((n*.pos (make-fxvector count.run)) (z*.run (make-fxvector count.run)))
+          (encode-X*-run-length count.run z* start end
+                                encoding.int:run-single-length
+                                encoding.int:run-length
+                                (lambda (z* start end)
+                                  (encode-int*/stats z.min z.max count.run z* start end))))
         (try-dictionary)))
   (cond ((unsafe-fx= z.min z.max) (encode-int*/single-value z.min))
-        ((and (unsafe-fx= (unsafe-fx- end start) run-count)
+        ((and (unsafe-fx= (unsafe-fx- end start) count.run)
               (unsafe-fx= (unsafe-fxvector-ref z* start)              z.min)
               (unsafe-fx= (unsafe-fxvector-ref z* (unsafe-fx- end 1)) z.max)
-              (unsafe-fx< 2 run-count))
+              (unsafe-fx< 2 count.run))
          (encode-int*/try-delta-single-value fail-delta-single-value z* start end))
         (else (fail-delta-single-value))))
 
 ;; Assume z* may be modified.
 (define (encode-int* z* start end)
   (let ((z0 (unsafe-fxvector-ref z* start)))
-    (let loop ((i (unsafe-fx+ start 1)) (z.min z0) (z.max z0) (z.prev z0) (run-count 1))
+    (let loop ((i (unsafe-fx+ start 1)) (z.min z0) (z.max z0) (z.prev z0) (count.run 1))
       (if (unsafe-fx< i end)
           (let ((z (unsafe-fxvector-ref z* i)))
             (loop (unsafe-fx+ i 1)
                   (unsafe-fxmin z z.min)
                   (unsafe-fxmax z z.min)
                   z
-                  (if (unsafe-fx= z z.prev) run-count (unsafe-fx+ run-count 1))))
-          (encode-int*/stats z.min z.max run-count z* start end)))))
+                  (if (unsafe-fx= z z.prev) count.run (unsafe-fx+ count.run 1))))
+          (encode-int*/stats z.min z.max count.run z* start end)))))
 
 ;; Assume z* may be modified.
 (define (encode-int*-baseline z* start end)
@@ -1256,60 +1307,6 @@
                         (unsafe-fx+ i 1))
                   pos))))))))
 
-(define (encode-text*-run-length count.run code* start end t*)
-  (let ((count.full (unsafe-fx- end start))
-        (len*.run   (make-fxvector count.run)))
-    (let loop ((i         (unsafe-fx+ start 1))
-               (j         0)
-               (code.prev (unsafe-fxvector-ref code* start))
-               (len.run   1))
-      (if (unsafe-fx< i end)
-          (let ((code (unsafe-fxvector-ref code* i)))
-            (if (unsafe-fx= code code.prev)
-                (loop (unsafe-fx+ i 1) j code.prev (unsafe-fx+ len.run 1))
-                (let ((j.next (unsafe-fx+ j 1)))
-                  (unsafe-fxvector-set! len*.run j                         len.run)
-                  (unsafe-fxvector-set! code*    (unsafe-fx+ start j.next) code)
-                  (loop (unsafe-fx+ i 1) j.next code 1))))
-          (let ((end (unsafe-fx+ start j 1)))
-            (unsafe-fxvector-set! len*.run j len.run)
-            (let-values (((size.run encode.run) (encode-text*/code* #f code* start end t*)))
-              ;; Since count.run can never be 0, we encode it with -1.
-              (let ((bw.count.run (nat-min-byte-width (unsafe-fx- count.run 1)))
-                    (len.run      (unsafe-fxvector-ref len*.run 0)))
-                (if (let loop ((i 1))
-                      (or (unsafe-fx= i count.run)
-                          (and (unsafe-fx= (unsafe-fxvector-ref len*.run i) len.run)
-                               (loop (unsafe-fx+ i 1)))))
-                    (values
-                      (unsafe-fx+ 1 bw.count.run size.run)
-                      (lambda (bv pos)
-                        (let* ((pos (advance-unsafe-bytes-encoding&width-set!
-                                      bv pos encoding.text:run-single-length bw.count.run))
-                               (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos
-                                                                         (unsafe-fx- count.run 1))))
-                          (encode.run bv pos))))
-                    (let ((bw.offset (nat-min-byte-width count.full)))
-                      (values
-                        (unsafe-fx+ 1 bw.count.run (unsafe-fx* bw.offset (unsafe-fx+ count.run 1))
-                                    size.run)
-                        (lambda (bv pos)
-                          (let* ((pos (advance-unsafe-bytes-encoding&width-set!
-                                        bv pos encoding.text:run-length bw.count.run))
-                                 (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos
-                                                                           (unsafe-fx- count.run 1)))
-                                 (pos (advance-unsafe-bytes-nat-set!/width bw.offset bv pos 0))
-                                 (pos (let loop ((offset 0) (pos pos) (i 0))
-                                        (if (unsafe-fx< i count.run)
-                                            (let* ((len.run (unsafe-fxvector-ref len*.run i))
-                                                   (offset  (unsafe-fx+ len.run offset)))
-                                              (loop offset
-                                                    (advance-unsafe-bytes-nat-set!/width
-                                                      bw.offset bv pos offset)
-                                                    (unsafe-fx+ i 1)))
-                                            pos))))
-                            (encode.run bv pos)))))))))))))
-
 ;; Assume t* may be modified.
 (define (encode-text*-baseline t*) (encode-text*-raw t*))
 
@@ -1375,7 +1372,11 @@
                       (loop (unsafe-fx+ i 1) code
                             (if (unsafe-fx= code code.prev) count.run (unsafe-fx+ count.run 1)))))
                    ((unsafe-fx<= (unsafe-fxlshift count.run 2) len.code*)
-                    (encode-text*-run-length count.run code* start end t*))
+                    (encode-X*-run-length count.run code* start end
+                                          encoding.text:run-single-length
+                                          encoding.text:run-length
+                                          (lambda (code* start end)
+                                            (encode-text*/code* #f code* start end t*))))
                    (else (fail-run-length)))))
           (else (fail-run-length)))))
 
