@@ -27,7 +27,7 @@
   encode-text*-baseline
   )
 (require (for-syntax racket/base) racket/fixnum racket/list racket/set racket/vector)
-;; NOTE: decoding corrupt or malicious data is currently a memory safety risk when using racket/unsafe/ops.
+;; WARNING: decoding corrupt or malicious data is currently a memory safety risk when using racket/unsafe/ops.
 ;; Data integrity can be validated by performing a full scan while using ops from safe-unsafe.rkt.
 (require
   "../dbk/safe-unsafe.rkt"
@@ -971,9 +971,9 @@
 (define column:vector.int  (column:vector/class-name 'column:vector.int unsafe-fx< unsafe-fx=))
 (define column:vector.text (column:vector/class-name 'column:vector.text unsafe-bytes<? unsafe-bytes=?))
 
-;;;;;;;;;;;;;;
-;;; Encode ;;;
-;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;
+;;; Encode integers ;;;
+;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; NOTE: encoders always assume (< start end).  Don't try to encode an empty sequence.
 
@@ -1152,6 +1152,16 @@
             (loop (unsafe-fx+ i 1) (unsafe-fxmin z z.min) (unsafe-fxmax z z.min)))
           (encode-int*/frame-of-reference z.min z.max z* start end)))))
 
+;;;;;;;;;;;;;;;;;;;
+;;; Encode text ;;;
+;;;;;;;;;;;;;;;;;;;
+
+;; NOTE: encoders always assume (< start end).  Don't try to encode an empty sequence.
+
+(define (advance-unsafe-bytes-copy!/len bv pos t len)
+  (unsafe-bytes-copy! bv pos t 0 len)
+  (unsafe-fx+ pos len))
+
 (define (encode-text*-raw t*)
   (let ((len.t* (unsafe-vector*-length t*))
         (len.0  (unsafe-bytes-length (unsafe-vector*-ref t* 0))))
@@ -1169,8 +1179,8 @@
                 (let loop ((pos pos) (i 0))
                   (if (unsafe-fx< i len.t*)
                       (let ((t (unsafe-vector*-ref t* i)))
-                        (unsafe-bytes-copy! bv pos t 0 (unsafe-bytes-length t))
-                        (loop (unsafe-fx+ (unsafe-bytes-length t) pos) (unsafe-fx+ i 1)))
+                        (loop (advance-unsafe-bytes-copy!/len bv pos t (unsafe-bytes-length t))
+                              (unsafe-fx+ i 1)))
                       pos))))))
         (let* ((size (let loop ((size len.0) (i 1))
                        (if (unsafe-fx= i len.t*)
@@ -1192,10 +1202,9 @@
                       (let* ((t      (unsafe-vector*-ref t* i))
                              (len    (unsafe-bytes-length t))
                              (offset (unsafe-fx+ len offset)))
-                        (unsafe-bytes-copy! bv pos t 0 len)
                         (loop offset
                               (advance-unsafe-bytes-nat-set!/width bw.off bv pos.offset offset)
-                              (unsafe-fx+ pos len)
+                              (advance-unsafe-bytes-copy!/len bv pos t len)
                               (unsafe-fx+ i 1)))
                       pos)))))))))
 
@@ -1208,8 +1217,7 @@
         (let* ((pos (advance-unsafe-bytes-encoding&width-set!
                       bv pos encoding.text:single-value bw.len))
                (pos (advance-unsafe-bytes-nat-set!/width bw.len bv pos len)))
-          (unsafe-bytes-copy! bv pos t 0 len)
-          (unsafe-fx+ pos len))))))
+          (advance-unsafe-bytes-copy!/len bv pos t len))))))
 
 (define (encode-text*-dictionary code* start end t*)
   (let* ((count.dict    (unsafe-vector*-length t*))
@@ -1349,3 +1357,38 @@
   ;; - multi-prefix
   ;;   - if omitted bytes due to common prefixes is 1/4 total byte size of t*
   (encode-text*-raw t*))
+
+;; TODO:
+;; Input table processing should be able use a single btree, plus a large fxvector buffer that will be used for
+;; multiple purposes:
+;; - read file data in large chunks and scan for text values
+;; - each text value is inserted into the single btree, which provides a corresponding integer code (or id)
+;; - write a sequence of initial codes for each element, row by row
+;; - build an id=>id remapping of initial codes to order-preserving codes
+;;   - then we map id=>id over the full sequence of initial codes
+;; - store a sequence of row ids, and some sorting buffer space, then sorting these row ids lexicographically
+;;   - each row id, multiplied by the number of columns, points back into the fxvector buffer, plus
+;;     column id to offset to access a particular row element
+;; - divide our rows into a predetermined number of groups, so for each rows-per-group chunk of rows:
+;;   - tranpsose row ids to contiguous columns of codes
+;;   - then for each column
+;;     - create a separate deduped (already sorted) sequence of the codes
+;;     - this will then be used to form a column-specific id=>id remapping of global order-preserving codes to
+;;       column-local order-preserving codes
+;;     - we then remap the column codes using the new global-to-local id=>id
+;;     - we also build an ordered vector t* of just the local text values
+;;     - finally, encode the column
+;;       - each column in the row group should be written contiguously so that a single read can access the
+;;         data for the entire group
+;;       - we will also need to store the sequence of positions of each column in the group
+;; From this plan, we should be able to calculate the necessary fxvector buffer size:
+;; - assume at most 65535 tuples per row group
+;; - element-count = (* 65535 group-count column-count) elements
+;;   - only (* row-count 2) to reserve space for a sorting buffer since it works on row ids
+;;   - but (* element-count 2) worst case to reserve space for id=>id
+;;     - this could be pretty large ... maybe we should reduce the number of row groups when the worst case tuple
+;;       count applies
+;;     - maybe it would be better to specify a worst-case row-count or even element-count directly
+;;       - how about (* 65535 100) elements?
+;; - only need (* 65535 column-count) for the tranposed contiguous column buffers, plus another 65535 for
+;;   local id=>id
