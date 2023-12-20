@@ -1125,23 +1125,7 @@
                                   (loop (advance-unsafe-bytes-set! bv pos (unsafe-fxvector-ref z* i))
                                         (unsafe-fx+ i 1))
                                   pos))))))))))
-          (fail-dictionary))
-
-      ;; TODO: dict column itself should never be worth encoding with:
-      ;;   run-length, dictionary, single-value
-      ;; but it could be nat, int, frame-of-reference, or delta-single-value
-      ;; so can we use a faster analysis method? encode-int-dictionary*! ?
-
-      ;; TODO: a dict codes column should always be encoded with nat
-      ;; - otherwise a different encoding would have been chosen for the original column
-      ;; - note, this is not necessarily true for multi-prefix codes, which could also
-      ;;   benefit from run-length encoding
-      ;;   - or we could not look at the prefixes as codes, and treat them as text values that
-      ;;     are subject to encoding in the usual way, in which case the run-length encoding
-      ;;     is really happening at the text value level, not the code level
-
-      ))
-
+          (fail-dictionary))))
   (define (fail-delta-single-value)
     (if (unsafe-fx<= (unsafe-fxlshift run-count 2) (unsafe-fx- end start))
         (let ((n*.pos (make-fxvector run-count)) (z*.run (make-fxvector run-count)))
@@ -1275,21 +1259,21 @@
 (define (encode-text*-run-length count.run code* start end t*)
   (let ((count.full (unsafe-fx- end start))
         (len*.run   (make-fxvector count.run)))
-    (let loop ((i (unsafe-fx+ start 1))
-               (j 0)
+    (let loop ((i         (unsafe-fx+ start 1))
+               (j         0)
                (code.prev (unsafe-fxvector-ref code* start))
-               (len.run 1))
+               (len.run   1))
       (if (unsafe-fx< i end)
           (let ((code (unsafe-fxvector-ref code* i)))
             (if (unsafe-fx= code code.prev)
                 (loop (unsafe-fx+ i 1) j code.prev (unsafe-fx+ len.run 1))
                 (let ((j.next (unsafe-fx+ j 1)))
-                  (unsafe-fxvector-set! len*.run j      len.run)
-                  (unsafe-fxvector-set! code*    j.next code)
+                  (unsafe-fxvector-set! len*.run j                         len.run)
+                  (unsafe-fxvector-set! code*    (unsafe-fx+ start j.next) code)
                   (loop (unsafe-fx+ i 1) j.next code 1))))
-          (let ((end (unsafe-fx+ j 1)))
+          (let ((end (unsafe-fx+ start j 1)))
             (unsafe-fxvector-set! len*.run j len.run)
-            (let-values (((size.run encode.run) (encode-text*/code* #f code* 0 end t*)))
+            (let-values (((size.run encode.run) (encode-text*/code* #f code* start end t*)))
               ;; Since count.run can never be 0, we encode it with -1.
               (let ((bw.count.run (nat-min-byte-width (unsafe-fx- count.run 1)))
                     (len.run      (unsafe-fxvector-ref len*.run 0)))
