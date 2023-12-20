@@ -1208,7 +1208,8 @@
         (let* ((pos (advance-unsafe-bytes-encoding&width-set!
                       bv pos encoding.text:single-value bw.len))
                (pos (advance-unsafe-bytes-nat-set!/width bw.len bv pos len)))
-          (unsafe-bytes-copy! bv pos t 0 len))))))
+          (unsafe-bytes-copy! bv pos t 0 len)
+          (unsafe-fx+ pos len))))))
 
 (define (encode-text*-dictionary code* start end t*)
   (let* ((count.dict    (unsafe-vector*-length t*))
@@ -1259,24 +1260,24 @@
                                       bv pos encoding.text:run-single-length bw.count.run))
                                (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos count.run)))
                           (encode.run bv pos))))
-                    (values
-                      (unsafe-fx+ 1 (unsafe-fx* bw.count.run (unsafe-fx+ count.run 1)) size.run)
-                      (lambda (bv pos)
-                        (let* ((pos (advance-unsafe-bytes-encoding&width-set!
-                                      bv pos encoding.text:run-length bw.count.run))
-                               (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos count.run))
-                               (bw.offset (nat-min-byte-width count.full))
-                               (pos (advance-unsafe-bytes-nat-set!/width bw.offset bv pos 0))
-                               (pos (let loop ((offset 0) (pos pos) (i 0))
-                                      (if (unsafe-fx< i count.run)
-                                          (let* ((len.run (unsafe-fxvector-ref len*.run i))
-                                                 (offset  (unsafe-fx+ len.run offset)))
-                                            (loop offset
-                                                  (advance-unsafe-bytes-nat-set!/width
-                                                    bw.offset bv pos offset)
-                                                  (unsafe-fx+ i 1)))
-                                          pos))))
-                          (encode.run bv pos))))))))))))
+                    (let ((bw.offset (nat-min-byte-width count.full)))
+                      (values
+                        (unsafe-fx+ 1 bw.count.run (unsafe-fx* bw.offset (unsafe-fx+ count.run 1)) size.run)
+                        (lambda (bv pos)
+                          (let* ((pos (advance-unsafe-bytes-encoding&width-set!
+                                        bv pos encoding.text:run-length bw.count.run))
+                                 (pos (advance-unsafe-bytes-nat-set!/width bw.count.run bv pos count.run))
+                                 (pos (advance-unsafe-bytes-nat-set!/width bw.offset bv pos 0))
+                                 (pos (let loop ((offset 0) (pos pos) (i 0))
+                                        (if (unsafe-fx< i count.run)
+                                            (let* ((len.run (unsafe-fxvector-ref len*.run i))
+                                                   (offset  (unsafe-fx+ len.run offset)))
+                                              (loop offset
+                                                    (advance-unsafe-bytes-nat-set!/width
+                                                      bw.offset bv pos offset)
+                                                    (unsafe-fx+ i 1)))
+                                            pos))))
+                            (encode.run bv pos)))))))))))))
 
 (define (encode-text*-baseline t*) (encode-text*-raw t*))
 
