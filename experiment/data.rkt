@@ -997,7 +997,7 @@
                  (pos (advance-unsafe-bytes-int-set!/width bw.z.min bv pos z.min)))
             (let loop ((i start) (pos pos))
               (if (unsafe-fx< i end)
-                  (let ((n (unsafe-fx- (unsafe-vector*-ref z* i) z.min)))
+                  (let ((n (unsafe-fx- (unsafe-fxvector-ref z* i) z.min)))
                     (loop (unsafe-fx+ i 1)
                           (advance-unsafe-bytes-int-set!/width bw.n.max bv pos n)))
                   pos)))))))
@@ -1008,7 +1008,7 @@
         (let ((pos (advance-unsafe-bytes-encoding&width-set! bv pos encoding.int:nat bw.n.max)))
           (let loop ((i start) (pos pos))
             (if (unsafe-fx< i end)
-                (let ((n (unsafe-vector*-ref z* i)))
+                (let ((n (unsafe-fxvector-ref z* i)))
                   (loop (unsafe-fx+ i 1)
                         (advance-unsafe-bytes-nat-set!/width bw.n.max bv pos n)))
                 pos))))))
@@ -1019,7 +1019,7 @@
         (let ((pos (advance-unsafe-bytes-encoding&width-set! bv pos encoding.int:int bw.n.max)))
           (let loop ((i start) (pos pos))
             (if (unsafe-fx< i end)
-                (let ((z (unsafe-vector*-ref z* i)))
+                (let ((z (unsafe-fxvector-ref z* i)))
                   (loop (unsafe-fx+ i 1)
                         (advance-unsafe-bytes-int-set!/width bw.n.max bv pos z)))
                 pos))))))
@@ -1041,11 +1041,11 @@
           (advance-unsafe-bytes-int-set!/width bw bv pos z))))))
 
 (define (encode-int*/try-delta-single-value fail z* start end)
-  (let* ((z0    (unsafe-vector*-ref z* start))
-         (z1    (unsafe-vector*-ref z* (unsafe-fx+ start 1)))
+  (let* ((z0    (unsafe-fxvector-ref z* start))
+         (z1    (unsafe-fxvector-ref z* (unsafe-fx+ start 1)))
          (delta (unsafe-fx- z1 z0)))
     (let loop ((i (unsafe-fx+ start 2)) (z.prev z1))
-      (let ((z (unsafe-vector*-ref z* i)))
+      (let ((z (unsafe-fxvector-ref z* i)))
         (if (unsafe-fx= (unsafe-fx- z z.prev) delta)
             (let ((i (unsafe-fx+ i 1)))
               (if (unsafe-fx< i end)
@@ -1082,7 +1082,7 @@
 
             (let loop ((i start) (z*.dict (set)))
               (if (unsafe-fx< i end)
-                  (let* ((z       (unsafe-vector*-ref z* i))
+                  (let* ((z       (unsafe-fxvector-ref z* i))
                          (z*.dict (set-add z*.dict z)))
                     (if (unsafe-fx<= (set-count z*.dict) count.dict.max)
                         (loop (unsafe-fx+ i 1) z*.dict)
@@ -1110,13 +1110,11 @@
       ;;     are subject to encoding in the usual way, in which case the run-length encoding
       ;;     is really happening at the text value level, not the code level
 
-      ;; TODO: multi-prefix encoding is really a concatenation of two text columns
-
       ))
 
   (define (fail-delta-single-value)
     (if (unsafe-fx<= (unsafe-fxlshift run-count 2) (unsafe-fx- end start))
-        (let ((n*.pos (make-vector run-count)) (z*.run (make-vector run-count)))
+        (let ((n*.pos (make-fxvector run-count)) (z*.run (make-fxvector run-count)))
           ;; TODO: position column should never be worth encoding with:
           ;;   run-length, dictionary, single-value, int, frame-of-reference
           ;; but it could be either nat or delta-single-value
@@ -1129,17 +1127,17 @@
         (try-dictionary)))
   (cond ((unsafe-fx= z.min z.max) (encode-int*/single-value z.min))
         ((and (unsafe-fx= (unsafe-fx- end start) run-count)
-              (unsafe-fx= (unsafe-vector*-ref z* start)              z.min)
-              (unsafe-fx= (unsafe-vector*-ref z* (unsafe-fx- end 1)) z.max)
+              (unsafe-fx= (unsafe-fxvector-ref z* start)              z.min)
+              (unsafe-fx= (unsafe-fxvector-ref z* (unsafe-fx- end 1)) z.max)
               (unsafe-fx< 2 run-count))
          (encode-int*/try-delta-single-value fail-delta-single-value z* start end))
         (else (fail-delta-single-value))))
 
 (define (encode-int* z* start end)
-  (let ((z0 (unsafe-vector*-ref z* start)))
+  (let ((z0 (unsafe-fxvector-ref z* start)))
     (let loop ((i (unsafe-fx+ start 1)) (z.min z0) (z.max z0) (z.prev z0) (run-count 1))
       (if (unsafe-fx< i end)
-          (let ((z (unsafe-vector*-ref z* i)))
+          (let ((z (unsafe-fxvector-ref z* i)))
             (loop (unsafe-fx+ i 1)
                   (unsafe-fxmin z z.min)
                   (unsafe-fxmax z z.min)
@@ -1148,10 +1146,10 @@
           (encode-int*/stats z.min z.max run-count z* start end)))))
 
 (define (encode-int*-baseline z* start end)
-  (let ((z0 (unsafe-vector*-ref z* start)))
+  (let ((z0 (unsafe-fxvector-ref z* start)))
     (let loop ((i (unsafe-fx+ start 1)) (z.min z0) (z.max z0))
       (if (unsafe-fx< i end)
-          (let ((z (unsafe-vector*-ref z* i)))
+          (let ((z (unsafe-fxvector-ref z* i)))
             (loop (unsafe-fx+ i 1) (unsafe-fxmin z z.min) (unsafe-fxmax z z.min)))
           (encode-int*/frame-of-reference z.min z.max z* start end)))))
 
