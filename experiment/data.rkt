@@ -558,7 +558,7 @@
          (values (column:encoding.int:frame-of-reference z.min byte-width bv pos.bv count)
                  (unsafe-fx+ (unsafe-fx* count byte-width) pos.bv))))
       ((? encoding.int:dictionary)
-       (let* ((count.dict (unsafe-bytes-nat-ref/width byte-width bv pos.bv))
+       (let* ((count.dict (unsafe-fx+ (unsafe-bytes-nat-ref/width byte-width bv pos.bv) 1))
               (pos.bv     (unsafe-fx+ pos.bv byte-width)))
          (let*-values (((col.dict pos.bv) (column:encoding.int&end bv pos.bv count.dict))
                        ((col.code pos.bv) (column:encoding.int&end bv pos.bv count)))
@@ -597,7 +597,7 @@
          (values (column:encoding.text:raw col.pos bv pos.bv count)
                  ((column-ref col.pos) count))))
       ((? encoding.text:dictionary)
-       (let* ((count.dict (unsafe-bytes-nat-ref/width byte-width bv pos.bv))
+       (let* ((count.dict (unsafe-fx+ (unsafe-bytes-nat-ref/width byte-width bv pos.bv) 1))
               (pos.bv     (unsafe-fx+ pos.bv byte-width)))
          (let*-values (((col.dict pos.bv) (column:encoding.text&end bv pos.bv count.dict))
                        ((col.code pos.bv) (column:encoding.int&end  bv pos.bv count)))
@@ -1062,39 +1062,63 @@
                           (advance-unsafe-bytes-int-set!/width bw.delta bv pos delta)))))))
             (fail))))))
 
-(define (encode-int*/strictly-increasing z.min z.max z* start end)
+;; Assume (< 1 (- end start))
+(define (encode-int*-ordered-distinct z.min z.max z* start end)
   (define (fail-dsv) (encode-int*/frame-of-reference z.min z.max z* start end))
-  (if (unsafe-fx= (unsafe-fx- end start) 1)
-      (encode-int*/single-value z.min)
-      (encode-int*/try-delta-single-value fail-dsv z* start end)))
+  (encode-int*/try-delta-single-value fail-dsv z* start end))
+
+;; TODO:
+(define (unsafe-fxvector-sort! z* start end)
+  (error "TODO: unsafe-fxvector-sort!"))
 
 (define (encode-int*/stats z.min z.max run-count z* start end)
   (define (try-dictionary)
     (let ((bw.n.max (nat-min-byte-width (unsafe-fx- z.max z.min))))
       (define (fail-dictionary)
         (encode-int*/frame-of-reference/byte-width bw.n.max z.min z.max z* start end))
-
-      ;; TODO: only collect distinct elements up to minimum byte-width improvement, and if count is large enough
-      ;; - which is only applicable if bw.n.max > 1
       (if (unsafe-fx< 1 bw.n.max)
-
-          (let ((count.dict.max (unsafe-fxmin (unsafe-fxrshift (unsafe-fx- end start) 2) 255)))  ; guarantees that bw.code is 1
-
-            (let loop ((i start) (z*.dict (set)))
+          ;; We aggressively limit count.dict.max to guarantee that code width will be 1, and that
+          ;; the space savings will be worth the indirect access cost.
+          (let ((count.dict.max (unsafe-fxmin (unsafe-fxrshift (unsafe-fx- end start) 2) 256)))
+            (let loop ((i start) (z*.unique (set)))
               (if (unsafe-fx< i end)
-                  (let* ((z       (unsafe-fxvector-ref z* i))
-                         (z*.dict (set-add z*.dict z)))
-                    (if (unsafe-fx<= (set-count z*.dict) count.dict.max)
-                        (loop (unsafe-fx+ i 1) z*.dict)
-                        ;; TODO: otherwise, fail
-                        (fail-dictionary)  ; do we really need these args?
-                        ))
-                  ;; TODO: otherwise, success
-                  ;; - sort z*.dict, map z=>code, transform z* into code*, and encode both sorted z*.dict and code*
-                  ;; - encode-int*/frame-of-reference for code*
-                  ;; - encode-int*/strictly-increasing for z*.dict
-                  (error "TODO")
-                  )))
+                  (let* ((z         (unsafe-fxvector-ref z* i))
+                         (z*.unique (set-add z*.unique z)))
+                    (if (unsafe-fx<= (set-count z*.unique) count.dict.max)
+                        (loop (unsafe-fx+ i 1) z*.unique)
+                        (fail-dictionary)))
+                  (let* ((count.dict (set-count z*.unique))
+                         (z*.dict    (make-fxvector count.dict))
+                         (i          0))
+                    (set-for-each z*.unique (lambda (z)
+                                              (unsafe-fxvector-set! z*.dict i z)
+                                              (set! i (unsafe-fx+ i 1))))
+                    (unsafe-fxvector-sort! z*.dict 0 count.dict)
+                    (let ((z=>code (let loop ((z=>code (hash)) (i 0))
+                                     (if (unsafe-fx< i count.dict)
+                                         (loop (hash-set z=>code (unsafe-fxvector-ref z*.dict i) i)
+                                               (unsafe-fx+ i 1))
+                                         z=>code))))
+                      (let loop ((i start))
+                        (when (unsafe-fx< i end)
+                          (unsafe-fxvector-set! z* i (hash-ref z=>code (unsafe-fxvector-ref z* i)))
+                          (loop (unsafe-fx+ i 1)))))
+                    (let-values (((size.dict encode.dict) (encode-int*-ordered-distinct
+                                                            z.min z.max z*.dict 0 count.dict)))
+                      (values
+                        ;; NOTE: revise byte widths and calculation if we ever allow count.dict.max
+                        ;; to be larger than 256.
+                        (unsafe-fx+ 2 size.dict (unsafe-fx- end start))
+                        (lambda (bv pos)
+                          (let* ((pos (advance-unsafe-bytes-encoding&width-set!
+                                        bv pos encoding.int:dictionary 1))
+                                 (pos (advance-unsafe-bytes-set! bv pos (unsafe-fx- count.dict 1)))
+                                 (pos (encode.dict bv pos)))
+                            (let loop ((pos pos) (i start))
+                              (if (unsafe-fx< i end)
+                                  (loop (advance-unsafe-bytes-set! bv pos (unsafe-fxvector-ref z* i))
+                                        (unsafe-fx+ i 1))
+                                  pos))))))))))
           (fail-dictionary))
 
       ;; TODO: dict column itself should never be worth encoding with:
@@ -1133,6 +1157,7 @@
          (encode-int*/try-delta-single-value fail-delta-single-value z* start end))
         (else (fail-delta-single-value))))
 
+;; Assume z* may be modified.
 (define (encode-int* z* start end)
   (let ((z0 (unsafe-fxvector-ref z* start)))
     (let loop ((i (unsafe-fx+ start 1)) (z.min z0) (z.max z0) (z.prev z0) (run-count 1))
@@ -1145,6 +1170,7 @@
                   (if (unsafe-fx= z z.prev) run-count (unsafe-fx+ run-count 1))))
           (encode-int*/stats z.min z.max run-count z* start end)))))
 
+;; Assume z* may be modified.
 (define (encode-int*-baseline z* start end)
   (let ((z0 (unsafe-fxvector-ref z* start)))
     (let loop ((i (unsafe-fx+ start 1)) (z.min z0) (z.max z0))
@@ -1222,14 +1248,15 @@
 
 (define (encode-text*-dictionary code* start end t*)
   (let* ((count.dict    (unsafe-vector*-length t*))
-         (bw.count.dict (nat-min-byte-width count.dict)))
+         (bw.count.dict (nat-min-byte-width (unsafe-fx- count.dict 1))))
     (let-values (((size.dict encode.dict) (encode-text*-ordered-distinct t*)))
       (values
         (unsafe-fx+ 1 bw.count.dict size.dict (* (unsafe-fx- end start) bw.count.dict))
         (lambda (bv pos)
           (let* ((pos (advance-unsafe-bytes-encoding&width-set!
                         bv pos encoding.text:dictionary bw.count.dict))
-                 (pos (advance-unsafe-bytes-nat-set!/width bw.count.dict bv pos count.dict))
+                 (pos (advance-unsafe-bytes-nat-set!/width bw.count.dict bv pos
+                                                           (unsafe-fx- count.dict 1)))
                  (pos (encode.dict bv pos)))
             (let loop ((pos pos) (i start))
               (if (unsafe-fx< i end)
@@ -1288,8 +1315,10 @@
                                             pos))))
                             (encode.run bv pos)))))))))))))
 
+;; Assume t* may be modified.
 (define (encode-text*-baseline t*) (encode-text*-raw t*))
 
+;; Assume t* may be modified.
 (define (encode-text* t*)
   (let* ((len.code* (unsafe-vector*-length t*))
          (code*     (make-fxvector len.code*))
@@ -1320,6 +1349,8 @@
   (let ((len.t*    (unsafe-vector*-length t*))
         (len.code* (unsafe-fx- end start)))
     (define (fail-run-length)
+      ;; We aggressively limit len.t* to ensure the space savings are worth the indirect access
+      ;; cost of a dictionary encoding.
       (if (unsafe-fx<= (unsafe-fxlshift len.t* 1) len.code*)
           (encode-text*-dictionary code* start end t*)
           ;; TODO: try encoding.text:multi-prefix before falling back to encoding.text:raw
