@@ -4,6 +4,11 @@
   column-count
   column-ref
   column-ref*
+  column-find/key*
+  ;; TODO:
+  ;column-find/key?
+  ;column-intersect-find/key*
+  column-intersect-find/key?
   column-slice
   column-group
   column-group/key?
@@ -57,10 +62,13 @@
     (lambda (key) (sorted-group/key* (vector key)))))
 ;; key? -> start end -> (yield! key span.start span.end)
 (define (column-group/key? col)
+  ;; TODO: consider specializing this, because dictionaries can benefit from running key? over the
+  ;; dict beforehand to determine valid codes.
   (let ((group (column-group col)))
     (lambda (key?) (lambda (start end) (group-filter (group start end) key?)))))
 ;; i* count -> x*
 (define (column-ref* col)
+  ;; TODO: consider specializing this for each type of column to eliminate indirect ref calls.
   (let ((ref (column-ref col)))
     (lambda (i* count)
       (let ((x* (make-vector count)))
@@ -71,6 +79,10 @@
         x*))))
 ;; start end -> x*
 (define (column-slice col)
+  ;; TODO: specialize this for each type of column for faster point-access when values are not
+  ;; already grouped.
+  ;; - i.e., for every column type except run-[single-]length and single-value.
+  ;; - run-[single-]length and single-value will continue to use this looping implementation.
   (let ((group (column-group col)))
     (lambda (start end)
       (let ((x* (make-vector (unsafe-fx- end start))) (i 0))
@@ -82,6 +94,39 @@
                (set! i (unsafe-fx+ i 1))
                (loop (unsafe-fx- count 1))))))
         x*))))
+;; key* -> i* start end -> count
+(define (column-find/key* col)
+  ;; TODO: consider specializing this for each type of column for faster scanning.
+  (let ((group/key* (column-group/key* col)))
+    (lambda (key*)
+      (let ((group (group/key* key*)))
+        (lambda (i* start end)
+          (let ((j 0))
+            ((group start end)
+             (lambda (_ start end)
+               (let loop ((i start))
+                 (when (unsafe-fx< i end)
+                   (unsafe-fxvector-set! i* j i)
+                   (set! j (unsafe-fx+ j 1))))))
+            j))))))
+;; key? -> i* count -> count
+(define (column-intersect-find/key? col)
+  ;; TODO: consider specializing this for each type of column for faster scanning.
+  (let ((ref (column-ref col)))
+    (lambda (key?)
+      (lambda (i* count)
+        (let loop ((j 0) (out 0))
+          (if (unsafe-fx< j count)
+              (let ((i (unsafe-fxvector-ref i* j)))
+                (if (key? (ref i))
+                    (begin (unsafe-fxvector-set! i* out i)
+                           (loop (unsafe-fx+ j 1) (unsafe-fx+ out 1)))
+                    (loop (unsafe-fx+ j 1) out)))
+              out))))))
+
+;; TODO:
+;column-find/key?
+;column-intersect-find/key*
 
 (define ((group-map    enum f) yield!) (enum (lambda (x start end) (yield! (f x) start end))))
 (define ((group-filter enum ?) yield!) (enum (lambda (x start end)
@@ -94,10 +139,11 @@
 (define (min-bits n)
   (let loop ((n n))
     (if (< 0 n) (+ 1 (loop (fxrshift n 1))) 0)))
+;; TODO: speed up min-bytes search by not using min-bits
 (define (min-bytes n)
   (let ((bits (min-bits n)))
     (+ (quotient bits 8) (if (= 0 (remainder bits 8)) 0 1))))
-(define (nat-min-byte-width nat.max) (max (min-bytes nat.max) 1))
+(define (nat-min-byte-width nat.max) (unsafe-fxmax (min-bytes nat.max) 1))
 (define (int-min-byte-width z)
   (nat-min-byte-width (if (unsafe-fx< z 0)
                           (unsafe-fx- (unsafe-fx+ (unsafe-fx+ z z) 1))
@@ -954,6 +1000,9 @@
         (group.run             (column-group             col.run))
         (group/key*.run        (column-group/key*        col.run))
         (sorted-group/key*.run (column-sorted-group/key* col.run)))
+    ;; TODO: cache most recent run-index to speed up search for the next offset:
+    ;; - invalidate if the cached index points beyond our target offset
+    ;; - otherwise, start the next bisect from this index
     (define (ref i) (ref.run (unsafe-bisect-skip 0 (unsafe-fx+ count.run 1)
                                                  (lambda (j) (unsafe-fx< (ref.offset j) i)))))
     (define ((group/group.run group.run) start end)
@@ -986,6 +1035,7 @@
 
 (define (column:encoding.X:run-single-length/X column-type-id.description col.run count.run count)
   ;; TODO: specialize position lookup for fixed length offsets
+  ;; - we can replace uses of unsafe-bisect-skip with a simple offset->run-index calculation
   (let* ((len.run    (unsafe-fxquotient count count.run))
          (col.offset (column:encoding.int:delta-single-value 0 len.run (unsafe-fx+ count.run 1))))
     (column:encoding.X:run-length/X column-type-id.description col.offset col.run count.run count)))
