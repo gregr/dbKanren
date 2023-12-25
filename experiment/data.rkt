@@ -1,21 +1,43 @@
 #lang racket/base
+;; TODO: provide these operations:
+;; - core:
+;;   - enumerate, group, partition, ref
+;; - derived:
+;;   - find/key, find/key*, find/key?,
+;;     intersect-find/key, intersect-find/key*, intersect-find/key?,
+;;     get,
+;;     ref*, slice,
+;;     enumerate/key, enumerate/key*, enumerate/key?,
+;;     group/key, group/key*, group/key?
+;;   - we can migrate some of these into the core on a case-by-case basis when
+;;     performance measurements indicate that we should
+;; Later, after more example uses, we may define a selection language as the sole interface, with
+;; specialized implementations for each type of column.
 (provide
   column-describe
   column-count
+  column-slice
+  column-enumerate
+  column-group
+  ;; TODO: partition : key* inclusive?* -> start end -> i*
+  ;; - where inclusive?* is the same length as key*
+  ;; - where key* is sorted
+  ;; - where the same key may appear twice in a row, with #f then #t inclusivity
+  ;; TODO: redefine these to assume ordering (see the renaming below).
+  ;column-group/key?
+  ;column-group/key
+  ;column-group/key*
+  ;; TODO: rename these to drop the sorted- prefix, and ignore missing keys.
+  ;column-sorted-group/key
+  ;column-sorted-group/key*
+  ;column-sorted-group/key?
   column-ref
   column-ref*
-  column-find/key*
   ;; TODO:
+  ;column-find/key*
   ;column-find/key?
   ;column-intersect-find/key*
-  column-intersect-find/key?
-  column-slice
-  column-group
-  column-group/key?
-  column-group/key
-  column-sorted-group/key
-  column-group/key*
-  column-sorted-group/key*
+  ;column-intersect-find/key?
   column:encoding.int
   column:encoding.text
   column:ref/class-name
@@ -77,22 +99,27 @@
             (unsafe-vector*-set! x* i (ref (unsafe-fxvector-ref i* i)))
             (loop (unsafe-fx+ i 1))))
         x*))))
-;; start end -> x*
-(define (column-slice col)
+;; start end -> (yield! x i)
+(define (column-enumerate col)
   ;; TODO: specialize this for each type of column for faster point-access when values are not
   ;; already grouped.
   ;; - i.e., for every column type except run-[single-]length and single-value.
   ;; - run-[single-]length and single-value will continue to use this looping implementation.
   (let ((group (column-group col)))
     (lambda (start end)
-      (let ((x* (make-vector (unsafe-fx- end start))) (i 0))
+      (lambda (yield!)
         ((group start end)
          (lambda (x start.span end.span)
-           (let loop ((count (unsafe-fx- end.span start.span)))
-             (when (unsafe-fx< 0 count)
-               (unsafe-vector*-set! x* i x)
-               (set! i (unsafe-fx+ i 1))
-               (loop (unsafe-fx- count 1))))))
+           (let loop ((i start.span))
+             (yield! x i)
+             (let ((i+1 (unsafe-fx+ i 1)))
+               (when (unsafe-fx< i+1 end.span) (loop i+1))))))))))
+;; start end -> x*
+(define (column-slice col)
+  (let ((enumerate (column-enumerate col)))
+    (lambda (start end)
+      (let ((x* (make-vector (unsafe-fx- end start))))
+        ((enumerate start end) (lambda (x i) (unsafe-vector*-set! x* (unsafe-fx- i start) x)))
         x*))))
 ;; key* -> i* start end -> count
 (define (column-find/key* col)
