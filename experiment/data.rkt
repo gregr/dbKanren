@@ -1597,6 +1597,7 @@
 ;; - each text value is inserted into the single btree, which provides a corresponding integer code (or id)
 ;; - write a sequence of initial codes for each element, row by row
 ;; - build an id=>id remapping of initial codes to order-preserving codes
+;;   - also build an ordered vector t* of all text values at the same time
 ;;   - then we map id=>id over the full sequence of initial codes
 ;; - store a sequence of row ids, and some sorting buffer space, then sorting these row ids lexicographically
 ;;   - each row id, multiplied by the number of columns, points back into the fxvector buffer, plus
@@ -1609,6 +1610,7 @@
 ;;       column-local order-preserving codes
 ;;     - we then remap the column codes using the new global-to-local id=>id
 ;;     - we also build an ordered vector t* of just the local text values
+;;       - using each locally-deduped, global id to map into global t*
 ;;     - finally, encode the column
 ;;       - each column in the row group should be written contiguously so that a single read can access the
 ;;         data for the entire group
@@ -1624,3 +1626,72 @@
 ;;       - how about (* 65535 100) elements?
 ;; - only need (* 65535 column-count) for the tranposed contiguous column buffers, plus another 65535 for
 ;;   local id=>id
+
+;; TODO: add a TSV file sanity checker
+;; - print out first few lines
+;; - compare delimiters across lines
+;; - check for consistent column counts
+;; - print warnings
+
+;; TODO: implement a baseline parser using read-line-bytes for comparison.
+
+(define ((parser:tsv/delimiter delimiter) in count.columns batch-size code*)
+  ;; TODO: choose parsing logic based on delimiter
+  (file-stream-buffer-mode in 'none)
+  (let* ((len.code*.max (fxvector-length code*))
+         (row.max       (max (quotient len.code*.max count.columns)))
+         (buffer.tsv    (make-bytes batch-size))
+         (pos.free      0))
+    (lambda (bt)
+      (define (parse pos.end)
+        (let loop.row ((pos.start.row 0) (row 0) (i 0))
+          (define (suspend)
+            (unsafe-bytes-copy! buffer.tsv 0 buffer.tsv pos.start.row pos.end)
+            (set! pos.free (unsafe-fx- pos.end pos.start.row))
+            row)
+          (if (unsafe-fx< row row.max)
+              (let loop.col ((pos.start.col pos.start.row)
+                             (pos           pos.start.row)
+                             (remaining-col count.columns)
+                             (i             i))
+                (cond
+                  ((unsafe-fx< pos pos.end)
+                   (let ((b (unsafe-bytes-ref buffer.tsv pos)))
+                     (cond ((unsafe-fx= b 9)
+                            (let ((x (subbytes buffer.tsv pos.start.col pos)))
+                              (when (unsafe-fx= remaining-col 1)
+                                (error "tab after too many columns"
+                                       (+ (- (file-position in) pos.end) pos)
+                                       (- count.columns remaining-col)
+                                       x))
+                              (unsafe-fxvector-set! code* i (btree-ref-or-set! bt x))
+                              (let ((pos (unsafe-fx+ pos 1)))
+                                (loop.col pos pos (unsafe-fx- remaining-col 1) (unsafe-fx+ i 1)))))
+                           ((unsafe-fx= b 10)
+                            (let ((x (subbytes buffer.tsv pos.start.col pos)))
+                              (unless (unsafe-fx= remaining-col 1)
+                                (error "end-of-line after too few columns"
+                                       (+ (- (file-position in) pos.end) pos)
+                                       (- count.columns remaining-col)
+                                       x))
+                              (unsafe-fxvector-set! code* i (btree-ref-or-set! bt x))
+                              (let ((pos (unsafe-fx+ pos 1)))
+                                (loop.row pos (unsafe-fx+ row 1) (unsafe-fx+ i 1)))))
+                           (else (loop.col pos.start.col (unsafe-fx+ pos 1) remaining-col i)))))
+                  ((< pos.end (bytes-length buffer.tsv))  ; This must be the final batch.
+                   (let ((x (subbytes buffer.tsv pos.start.col pos)))
+                     (unless (unsafe-fx= remaining-col 1)
+                       (error "end-of-file after too few columns"
+                              (+ (- (file-position in) pos.end) pos)
+                              (- count.columns remaining-col)
+                              x))
+                     (unsafe-fxvector-set! code* i (btree-ref-or-set! bt x))
+                     (unsafe-fx+ row 1)))
+                  ((unsafe-fx= row 0) (error "no rows parsed before end-of-file"
+                                             (- (file-position in) pos.end)))
+                  (else (suspend))))
+              (suspend))))
+      (let ((count.read (read-bytes! buffer.tsv in pos.free (bytes-length buffer.tsv))))
+        (if (eof-object? count.read)
+            (if (= pos.free 0) eof (parse pos.free))
+            (parse (+ count.read pos.free)))))))
