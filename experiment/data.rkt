@@ -1658,6 +1658,47 @@
 ;; - only need (* 65535 column-count) for the tranposed contiguous column buffers, plus another 65535 for
 ;;   local id=>id
 
+;; Layout of an example table with 3 columns (A B C) in order of ascending byte offsets:
+;; - NOTE: a table is identified by an offset pointing to a tagged footer, intended to be read
+;;   backwards.  This footer contains enough information to calculate the offsets of the table's
+;;   metadata and data.
+;;
+;; |====================| <-- start of table, its row-group 0, and its segment 0
+;; |aaaaaaaaaaaaaaaaaaaa|  ; values of column A for each row in this row-group
+;; |aaaaaaaaaaaaaaaaaaaa|
+;; |--------------------| <-- start of segment 1
+;; |bbbbbbbbbbbbbbbbbbbb|  ; values of column B for each row in this row-group
+;; |bbbbbbbbbbbbbbbbbbbb|
+;; |--------------------| <-- start of segment 2
+;; |cccccccccccccccccccc|  ; values of column C for each row in this row-group
+;; |cccccccccccccccccccc|
+;; |--------------------| <-- start of row-group 1, etc.
+;; |aaaaaaaaaaaaaaaaaaaa|
+;; |aaaaaaaaaaaaaaaaaaaa|
+;; |--------------------|
+;; |bbbbbbbbbbbbbbbbbbbb|
+;; |bbbbbbbbbbbbbbbbbbbb|
+;; |--------------------|
+;; |cccccccccccccccccccc|
+;; |cccccccccccccccccccc|
+;; |--------------------|
+;; |...                 |
+;; |--------------------| <-- start of table metadata
+;; |bw.column-count     |
+;; |column-count        |  ; bw.column-count bytes
+;; |[column-types]      |  ; Each type is either 0 for int, 1 for text.
+;; |bw.row-group-count  |
+;; |row-group-count     |  ; bw.row-group-count bytes
+;; |[row-group counts]  |  ; NOTE: we don't need segment offsets.  We learn them
+;; |[row-group offsets] |  ; during decoding, knowing the row-group offset and count.
+;; |--------------------| <-- "end" of table footer (because we read it backwards)
+;; |data-size           |  ; bw.data-size bytes, allowing start of table to be computed
+;; |metadata-size       |  ; bw.metadata-size bytes
+;; |bw.data-size        |
+;; |bw.metadata-size    |
+;; |table-tag           |  ; 1 byte, also indicates whether this table is sorted/deduped
+;; |====================| <-- external references to this table will point at this offset
+
 ;; TODO: add a TSV file sanity checker
 ;; - print out first few lines
 ;; - compare delimiters across lines
