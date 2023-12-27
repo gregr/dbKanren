@@ -54,7 +54,7 @@
   encode-text*
   encode-text*-baseline
   )
-(require (for-syntax racket/base) racket/fixnum racket/list racket/set racket/vector)
+(require (for-syntax racket/base) racket/fixnum racket/list racket/pretty racket/set racket/vector)
 ;; WARNING: decoding corrupt or malicious data is currently a memory safety risk when using racket/unsafe/ops.
 ;; Data integrity can be validated by performing a full scan while using ops from safe-unsafe.rkt.
 (require
@@ -158,6 +158,37 @@
 (define ((group-map    enum f) yield!) (enum (lambda (x start end) (yield! (f x) start end))))
 (define ((group-filter enum ?) yield!) (enum (lambda (x start end)
                                                (when (? x) (yield! x start end)))))
+
+;;;;;;;;;;;;;;;
+;;; Logging ;;;
+;;;;;;;;;;;;;;;
+
+(define (pretty-timestamp)
+  (define seconds (current-seconds))
+  (define d       (seconds->date seconds #f))
+  (list seconds 'UTC
+        (date-year d) (date-month  d) (date-day    d)
+        (date-hour d) (date-minute d) (date-second d)))
+
+(define (pretty-log/port  out         . args) (pretty-write    (cons (pretty-timestamp) args) out))
+(define (pretty-logf/port out message . args) (pretty-log/port out (apply format message args)))
+
+(define current-log-port (make-parameter (current-error-port)))
+
+(define (pretty-log  . args) (apply pretty-log/port  (current-log-port) args))
+(define (pretty-logf . args) (apply pretty-logf/port (current-log-port) args))
+
+(define-syntax-rule (time/pretty-log body ...)
+  (let-values (((results time.cpu time.real time.gc) (time-apply (lambda () body ...) '())))
+    (pretty-log `(time cpu ,time.cpu real ,time.real gc ,time.gc))
+    (apply values results)))
+
+;(define-syntax-rule (verbose-log     description)          (void))
+;(define-syntax-rule (performance-log description body ...) (let () body ...))
+(define-syntax-rule (verbose-log     description)          (pretty-log description))
+(define-syntax-rule (performance-log description body ...) (let ()
+                                                             (pretty-log description)
+                                                             (time/pretty-log body ...)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Low-level representation ;;;
