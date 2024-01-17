@@ -403,6 +403,7 @@
         (unsafe-fxvector-sort!/buffer/<?/start.unsorted
           <? z*.buffer start.buffer z* start start.unsorted end)))))
 
+;; TODO: use start.unsorted as the split point when it is is larger than midpoint.
 (define (unsafe-fxvector-sort!/buffer/<?/start.unsorted
           <? z*.buffer start.buffer z* start start.unsorted end)
   (define (i<i.buffer? i i.buffer) (<? (unsafe-fxvector-ref z*        i)
@@ -446,6 +447,10 @@
                           (when (unsafe-fx< i+1.buffer end.buffer)
                             (merge! i+1.buffer i (unsafe-fx+ out 1)))))))))))))))
 
+;; TODO: return end.new
+(define (unsafe-fxvector-dedup-adjacent! z* start end)
+  (error "TODO: unsafe-fxvector-dedup-adjacent!"))
+
 ;;;;;;;;;;;;;;;;
 ;;; 2-3 tree ;;;
 ;;;;;;;;;;;;;;;;
@@ -453,6 +458,16 @@
 ;;; Public
 (define (make-btree) (vector 0 #f))
 (define (btree-count bt) (unsafe-vector*-ref bt 0))
+
+;; btree-normalize renumbers all ids in a btree to follow the sort order of its keys.
+;; This achieves an in-place code=>code mapping, allowing us to lower the memory requirement of
+;; converting input text to order-preserving codes when we are willing to perform two input passes:
+;; - The first pass populates the btree.
+;; - Then we btree-normalize.
+;; - The second pass is then able to retrieve order-preserving ids from the btree without needing
+;;   additional memory.
+(define (btree-normalize bt)
+  (error "TODO: btree-normalize"))
 
 (define (btree-enumerate bt yield)
   (let loop ((t (btree-root bt)))
@@ -1545,6 +1560,7 @@
 (define (encode-text*-baseline t*) (encode-text*-raw t*))
 
 ;; Assume t* may be modified.
+;; TODO: add start.t* end.t* parameters
 (define (encode-text* t*)
   (let* ((len.code* (unsafe-vector*-length t*))
          (code*     (make-fxvector len.code*))
@@ -1568,10 +1584,14 @@
           (unsafe-fxvector-set! code* i (unsafe-fxvector-ref code=>code
                                                              (unsafe-fxvector-ref code* i)))
           (loop (unsafe-fx+ i 1))))
-      (encode-text*/code* code* 0 len.code* t*))))
+      (encode-text*/code* code* 0 len.code* t*
+                          'TODO:start.t*
+                          'TODO:end.t*
+                          ))))
 
 ;; Assume t* is sorted and deduplicated, and may also be modified.
-(define (encode-text*/code* code* start end t*)
+;; TODO: add start.t* end.t* parameters
+(define (encode-text*/code* code* start end t* TODO:start.t* TODO:end.t*)
   (let restart ((try-run-length? #t) (code* code*) (start start) (end end) (t* t*))
     (let ((len.t*    (unsafe-vector*-length t*))
           (len.code* (unsafe-fx- end start)))
@@ -1683,21 +1703,19 @@
 ;; |cccccccccccccccccccc|
 ;; |--------------------|
 ;; |...                 |
-;; |--------------------| <-- start of table metadata
-;; |bw.column-count     |
-;; |column-count        |  ; bw.column-count bytes
+;; |--------------------| <-- start of metadata
 ;; |[column-types]      |  ; Each type is either 0 for int, 1 for text.
-;; |bw.row-group-count  |
-;; |row-group-count     |  ; bw.row-group-count bytes
 ;; |[row-group counts]  |  ; NOTE: we don't need segment offsets.  We learn them
 ;; |[row-group offsets] |  ; during decoding, knowing the row-group offset and count.
-;; |--------------------| <-- "end" of table footer (because we read it backwards)
-;; |data-size           |  ; bw.data-size bytes, allowing start of table to be computed
-;; |metadata-size       |  ; bw.metadata-size bytes
-;; |bw.data-size        |
-;; |bw.metadata-size    |
-;; |table-tag           |  ; 1 byte, also indicates whether this table is sorted/deduped
-;; |====================| <-- external references to this table will point at this offset
+;; |--------------------| <-- end of metadata and footer (we read it backwards)
+;; |row-group-count     |  ; (& bws.column&row-group 255) bytes
+;; |column-count        |  ; (>> bws.column&row-group 4) bytes
+;; |data-size           |  ; (>> bws.data&metadata 4) bytes, to compute start of table
+;; |metadata-size       |  ; (& bws.data&metadata 255) bytes, to compute start of metadata
+;; |bws.column&row-group|  ; 1 byte
+;; |bws.data&metadata   |  ; 1 byte
+;; |table-tag           |  ; 1 byte, may also indicate whether this table is sorted/deduped
+;; |====================| <-- start of footer (we read it backwards), table references point here
 
 ;; TODO: add a TSV file sanity checker
 ;; - print out first few lines
@@ -1707,6 +1725,8 @@
 
 ;; TODO: implement a baseline parser using read-line-bytes for comparison.
 
+;; TODO: parser:tsv:crlf parser:tsv:lf-or-crlf
+;; - Maybe lf-or-crlf should be the default, and we would simply call it parser:tsv.
 (define (parser:tsv:lf in count.columns batch-size code*)
   (file-stream-buffer-mode in 'none)
   (let* ((len.code*.max  (fxvector-length code*))
