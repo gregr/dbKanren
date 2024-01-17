@@ -183,9 +183,9 @@
     (pretty-log `(time cpu ,time.cpu real ,time.real gc ,time.gc))
     (apply values results)))
 
-;(define-syntax-rule (verbose-log     description)          (void))
+;(define-syntax-rule (verbose-log     description ...)      (void))
 ;(define-syntax-rule (performance-log description body ...) (let () body ...))
-(define-syntax-rule (verbose-log     description)          (pretty-log description))
+(define-syntax-rule (verbose-log     description ...)      (pretty-log description ...))
 (define-syntax-rule (performance-log description body ...) (let ()
                                                              (pretty-log description)
                                                              (time/pretty-log body ...)))
