@@ -447,9 +447,23 @@
                           (when (unsafe-fx< i+1.buffer end.buffer)
                             (merge! i+1.buffer i (unsafe-fx+ out 1)))))))))))))))
 
-;; TODO: return end.new
 (define (unsafe-fxvector-dedup-adjacent! z* start end)
-  (error "TODO: unsafe-fxvector-dedup-adjacent!"))
+  (if (unsafe-fx<= end start)
+      end
+      (let loop ((i (unsafe-fx+ start 1)) (z.prev (unsafe-fxvector-ref z* start)))
+        (if (unsafe-fx< i end)
+            (let ((z (unsafe-fxvector-ref z* i)))
+              (if (unsafe-fx= z z.prev)
+                  (let loop ((i (unsafe-fx+ i 1)) (target i) (z.prev z.prev))
+                    (if (unsafe-fx< i end)
+                        (let ((z (unsafe-fxvector-ref z* i)))
+                          (if (unsafe-fx= z z.prev)
+                              (loop (unsafe-fx+ i 1) target z.prev)
+                              (begin (unsafe-fxvector-set! z* target z)
+                                     (loop (unsafe-fx+ i 1) (unsafe-fx+ target 1) z))))
+                        target))
+                  (loop (unsafe-fx+ i 1) z)))
+            end))))
 
 ;;;;;;;;;;;;;;;;
 ;;; 2-3 tree ;;;
