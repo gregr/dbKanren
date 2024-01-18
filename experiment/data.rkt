@@ -1574,7 +1574,6 @@
 (define (encode-text*-baseline t*) (encode-text*-raw t*))
 
 ;; Assume t* may be modified.
-;; TODO: add start.t* end.t* parameters
 (define (encode-text* t*)
   (let* ((len.code* (unsafe-vector*-length t*))
          (code*     (make-fxvector len.code*))
@@ -1598,14 +1597,10 @@
           (unsafe-fxvector-set! code* i (unsafe-fxvector-ref code=>code
                                                              (unsafe-fxvector-ref code* i)))
           (loop (unsafe-fx+ i 1))))
-      (encode-text*/code* code* 0 len.code* t*
-                          'TODO:start.t*
-                          'TODO:end.t*
-                          ))))
+      (encode-text*/code* code* 0 len.code* t*))))
 
 ;; Assume t* is sorted and deduplicated, and may also be modified.
-;; TODO: add start.t* end.t* parameters
-(define (encode-text*/code* code* start end t* TODO:start.t* TODO:end.t*)
+(define (encode-text*/code* code* start end t*)
   (let restart ((try-run-length? #t) (code* code*) (start start) (end end) (t* t*))
     (let ((len.t*    (unsafe-vector*-length t*))
           (len.code* (unsafe-fx- end start)))
@@ -1934,8 +1929,7 @@
                                                         (codes from ,start.col to ,end.col)
                                                         (,len.dedup unique text values))
                                                       (encode-text*/code*
-                                                        code*.group start.col end.col
-                                                        t*.local 0 len.dedup))))
+                                                        code*.group start.col end.col t*.local))))
                           (when (unsafe-fx< (unsafe-bytes-length buffer.out) size)
                             (set! buffer.out (make-bytes size)))
                           (let ((size.encoded (performance-log `(encoding ,size bytes)
