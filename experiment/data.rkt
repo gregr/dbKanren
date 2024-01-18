@@ -194,14 +194,15 @@
 ;;; Low-level representation ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (min-bits n)
-  (let loop ((n n))
-    (if (< 0 n) (+ 1 (loop (fxrshift n 1))) 0)))
-;; TODO: speed up min-bytes search by not using min-bits
-(define (min-bytes n)
-  (let ((bits (min-bits n)))
-    (+ (quotient bits 8) (if (= 0 (remainder bits 8)) 0 1))))
-(define (nat-min-byte-width nat.max) (unsafe-fxmax (min-bytes nat.max) 1))
+(define (nat-min-byte-width nat.max)
+  (cond
+    ((unsafe-fx< nat.max 256)             1)
+    ((unsafe-fx< nat.max 65536)           2)
+    ((unsafe-fx< nat.max 16777216)        3)
+    ((unsafe-fx< nat.max 4294967296)      4)
+    ((unsafe-fx< nat.max 1099511627776)   5)
+    ((unsafe-fx< nat.max 281474976710656) 6)
+    (else                                 7)))
 (define (int-min-byte-width z)
   (nat-min-byte-width (if (unsafe-fx< z 0)
                           (unsafe-fx- (unsafe-fx+ (unsafe-fx+ z z) 1))
