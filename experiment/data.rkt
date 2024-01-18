@@ -487,16 +487,6 @@
 (define (make-btree) (vector 0 #f))
 (define (btree-count bt) (unsafe-vector*-ref bt 0))
 
-;; btree-normalize renumbers all ids in a btree to follow the sort order of its keys.
-;; This achieves an in-place code=>code mapping, allowing us to lower the memory requirement of
-;; converting input text to order-preserving codes when we are willing to perform two input passes:
-;; - The first pass populates the btree.
-;; - Then we btree-normalize.
-;; - The second pass is then able to retrieve order-preserving ids from the btree without needing
-;;   additional memory.
-(define (btree-normalize bt)
-  (error "TODO: btree-normalize"))
-
 (define (btree-enumerate bt yield)
   (let loop ((t (btree-root bt)))
     (when t
@@ -508,6 +498,25 @@
                   (loop  (btree-3-middle t))
                   (yield (btree-3-right-key t) (btree-3-right-leaf t))
                   (loop  (btree-3-right t)))))))
+
+;; btree-normalize renumbers all ids in a btree to follow the sort order of its keys.
+;; This achieves an in-place code=>code mapping, allowing us to lower the memory requirement of
+;; converting input text to order-preserving codes when we are willing to perform two input passes:
+;; - The first pass populates the btree.
+;; - Then we btree-normalize.
+;; - The second pass is then able to retrieve order-preserving ids from the btree without needing
+;;   additional memory.
+(define (btree-normalize bt)
+  (let loop ((t (btree-root bt)) (index 0))
+    (cond ((not      t) index)
+          ((btree-2? t) (let ((index (loop (btree-2-left t) index)))
+                          (btree-2-leaf-set! t index)
+                          (loop (btree-2-right t) (unsafe-fx+ index 1))))
+          (else (let ((index (loop (btree-3-left t) index)))
+                  (btree-3-left-leaf-set! t index)
+                  (let ((index (loop (btree-3-middle t) (unsafe-fx+ index 1))))
+                    (btree-3-right-leaf-set! t index)
+                    (loop (btree-3-right t) (unsafe-fx+ index 1))))))))
 
 (define (btree-ref-or-set! bt x)
   (let loop ((t        (btree-root bt))
@@ -594,6 +603,7 @@
 (define (btree-2-left  t) (unsafe-vector*-ref t 2))
 (define (btree-2-right t) (unsafe-vector*-ref t 3))
 
+(define (btree-2-leaf-set!  t x) (unsafe-vector*-set! t 1 x))
 (define (btree-2-left-set!  t u) (unsafe-vector*-set! t 2 u))
 (define (btree-2-right-set! t u) (unsafe-vector*-set! t 3 u))
 
@@ -605,9 +615,11 @@
 (define (btree-3-middle     t) (unsafe-vector*-ref t 5))
 (define (btree-3-right      t) (unsafe-vector*-ref t 6))
 
-(define (btree-3-left-set!   t u) (unsafe-vector*-set! t 4 u))
-(define (btree-3-middle-set! t u) (unsafe-vector*-set! t 5 u))
-(define (btree-3-right-set!  t u) (unsafe-vector*-set! t 6 u))
+(define (btree-3-left-leaf-set!  t x) (unsafe-vector*-set! t 2 x))
+(define (btree-3-right-leaf-set! t x) (unsafe-vector*-set! t 3 x))
+(define (btree-3-left-set!       t u) (unsafe-vector*-set! t 4 u))
+(define (btree-3-middle-set!     t u) (unsafe-vector*-set! t 5 u))
+(define (btree-3-right-set!      t u) (unsafe-vector*-set! t 6 u))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Column implementation utilities ;;;
