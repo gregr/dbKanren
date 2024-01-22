@@ -462,16 +462,19 @@
                           (merge! i+1.buffer i (unsafe-fx+ out 1))))))))))))))
 
 (define (unsafe-fxvector-dedup-adjacent! z* start end)
+  (unsafe-fxvector-dedup-adjacent!/=? unsafe-fx= z* start end))
+
+(define (unsafe-fxvector-dedup-adjacent!/=? =? z* start end)
   (if (unsafe-fx<= end start)
       end
       (let loop ((i (unsafe-fx+ start 1)) (z.prev (unsafe-fxvector-ref z* start)))
         (if (unsafe-fx< i end)
             (let ((z (unsafe-fxvector-ref z* i)))
-              (if (unsafe-fx= z z.prev)
+              (if (=? z z.prev)
                   (let loop ((i (unsafe-fx+ i 1)) (target i) (z.prev z.prev))
                     (if (unsafe-fx< i end)
                         (let ((z (unsafe-fxvector-ref z* i)))
-                          (if (unsafe-fx= z z.prev)
+                          (if (=? z z.prev)
                               (loop (unsafe-fx+ i 1) target z.prev)
                               (begin (unsafe-fxvector-set! z* target z)
                                      (loop (unsafe-fx+ i 1) (unsafe-fx+ target 1) z))))
