@@ -1679,43 +1679,6 @@
   ;;   - if omitted bytes due to common prefixes is 1/4 total byte size of t*
   (encode-text*-raw t*))
 
-;; TODO:
-;; Input table processing should be able use a single btree, plus a large fxvector buffer that will be used for
-;; multiple purposes:
-;; - read file data in large chunks and scan for text values
-;; - each text value is inserted into the single btree, which provides a corresponding integer code (or id)
-;; - write a sequence of initial codes for each element, row by row
-;; - build an id=>id remapping of initial codes to order-preserving codes
-;;   - also build an ordered vector t* of all text values at the same time
-;;   - then we map id=>id over the full sequence of initial codes
-;; - store a sequence of row ids, and some sorting buffer space, then sorting these row ids lexicographically
-;;   - each row id, multiplied by the number of columns, points back into the fxvector buffer, plus
-;;     column id to offset to access a particular row element
-;; - divide our rows into a predetermined number of groups, so for each rows-per-group chunk of rows:
-;;   - tranpsose row ids to contiguous columns of codes
-;;   - then for each column
-;;     - create a separate deduped (already sorted) sequence of the codes
-;;     - this will then be used to form a column-specific id=>id remapping of global order-preserving codes to
-;;       column-local order-preserving codes
-;;     - we then remap the column codes using the new global-to-local id=>id
-;;     - we also build an ordered vector t* of just the local text values
-;;       - using each locally-deduped, global id to map into global t*
-;;     - finally, encode the column
-;;       - each column in the row group should be written contiguously so that a single read can access the
-;;         data for the entire group
-;;       - we will also need to store the sequence of positions of each column in the group
-;; From this plan, we should be able to calculate the necessary fxvector buffer size:
-;; - assume at most 65535 tuples per row group
-;; - element-count = (* 65535 group-count column-count) elements
-;;   - only (* row-count 2) to reserve space for a sorting buffer since it works on row ids
-;;   - but (* element-count 2) worst case to reserve space for id=>id
-;;     - this could be pretty large ... maybe we should reduce the number of row groups when the worst case tuple
-;;       count applies
-;;     - maybe it would be better to specify a worst-case row-count or even element-count directly
-;;       - how about (* 65535 100) elements?
-;; - only need (* 65535 column-count) for the tranposed contiguous column buffers, plus another 65535 for
-;;   local id=>id
-
 ;; Layout of an example table with 3 columns (A B C) in order of ascending byte offsets:
 ;; - NOTE: a table is identified by an offset pointing to a tagged footer, intended to be read
 ;;   backwards.  This footer contains enough information to calculate the offsets of the table's
@@ -1835,11 +1798,13 @@
 (define type-code.text 0)
 (define type-code.int  1)
 
-(define (table-tag/sorted?/deduped? sorted? deduped?)
-  (unsafe-fxior (if deduped? #b00000001 0)
-                (if sorted?  #b00000010 0)))
+(define (table-tag/compound?/sorted?/deduped? compound? sorted? deduped?)
+  (unsafe-fxior (if compound? #b10000000 0)
+                (if sorted?   #b00000010 0)
+                (if deduped?  #b00000001 0)))
 
-(define ((build-tables/parser parser) in out column-permutation (input-batch-size (expt 2 28))
+(define ((build-table*/parser parser) in out column-permutation sort? dedup?
+                                      (input-batch-size (expt 2 28))
                                       (row-group-size (expt 2 19)))
   (let* ((column-permutation
            (cond ((fxvector? column-permutation) column-permutation)
@@ -1871,6 +1836,14 @@
             (or (unsafe-fx< code.a code.b)
                 (and (unsafe-fx= code.a code.b) (unsafe-fx< i count.columns)
                      (loop (unsafe-fx+ i 1))))))))
+    (define (row=? a b)
+      (let ((a (unsafe-fx* count.columns a)) (b (unsafe-fx* count.columns b)))
+        (let loop ((i 0))
+          (let* ((col    (unsafe-fxvector-ref column-permutation i))
+                 (code.a (unsafe-fxvector-ref code* (unsafe-fx+ a col)))
+                 (code.b (unsafe-fxvector-ref code* (unsafe-fx+ b col))))
+            (and (unsafe-fx= code.a code.b) (or (unsafe-fx= i count.columns)
+                                                (loop (unsafe-fx+ i 1))))))))
     (when (fx< count.columns 1) (error "too few columns" count.columns))
     (let loop ((i 0) (ord* (set)))
       (if (< i count.columns)
@@ -1913,9 +1886,10 @@
                 (when (unsafe-fx< row len.row*)
                   (unsafe-fxvector-set! row* row row)
                   (loop (unsafe-fx+ row 1))))
-              (performance-log
-                `(sorting ,len.row* rows)
-                (unsafe-fxvector-sort!/buffer/<? row<? row*.buffer 0 row* 0 len.row*))
+              (when sort?
+                (performance-log
+                  `(sorting ,len.row* rows)
+                  (unsafe-fxvector-sort!/buffer/<? row<? row*.buffer 0 row* 0 len.row*)))
               ;; NOTE: we do NOT want to use len.row* to scale the number of row-groups.  If we
               ;; get fewer rows, but still a large amount of input data, it means the average row
               ;; data size is atypically large.  In such a case we still want the same number of
@@ -1925,9 +1899,27 @@
               ;; So what we do is scale the number of row-groups based on the amount of input data
               ;; captured by the current batch of rows.  This should allow the average row-group
               ;; to capture an amount of input data that is close to the requested size.
-              (let* ((count.row-groups (max 1 (quotient (* count.row-groups.max parsed-size)
-                                                        input-batch-size)))
-                     (len.row-group    (max 1 (quotient (+ len.row* 1) count.row-groups)))
+              (let* ((len.row*         (if dedup?
+                                           (performance-log
+                                             `(deduping ,len.row* rows)
+                                             (unsafe-fxvector-dedup-adjacent!/=?
+                                               row=? row* 0 len.row*))
+                                           len.row*))
+                     (count.row-groups (unsafe-fxmax
+                                         (unsafe-fxmin
+                                           (unsafe-fxquotient
+                                             (unsafe-fx* count.row-groups.max parsed-size)
+                                             input-batch-size)
+                                           len.row*)
+                                         1))
+                     (len.row-group    (unsafe-fxquotient len.row* count.row-groups))
+                     (count.row-groups (unsafe-fx+ 1 count.row-groups
+                                                   (unsafe-fxquotient
+                                                     (unsafe-fx-
+                                                       len.row*
+                                                       (unsafe-fx* len.row-group count.row-groups)
+                                                       1)
+                                                     len.row-group)))
                      (fp.table-start   (file-position out)))
                 (verbose-log `(preparing to encode ,count.row-groups row-groups)
                              `(all but the last will contain ,len.row-group rows)
@@ -2019,7 +2011,8 @@
                            (bw.metadata-size      (nat-min-byte-width metadata-size))
                            (bws.data&metadata     (unsafe-fxior (unsafe-fxlshift bw.data-size 4)
                                                                 bw.metadata-size))
-                           (tag.table             (table-tag/sorted?/deduped? #t #t))
+                           (tag.table             (table-tag/compound?/sorted?/deduped?
+                                                    #f sort? dedup?))
                            (size.footer           (unsafe-fx+ 3
                                                               bw.count.columns
                                                               bw.count.row-groups
@@ -2067,4 +2060,4 @@
                 (verbose-log `(completed table with footer at ,address))
                 (loop.table (cons address table-address*)))))))))
 
-(define build-tsv:lf-tables (build-tables/parser parser:tsv:lf))
+(define build-tsv:lf-table* (build-table*/parser parser:tsv:lf))
