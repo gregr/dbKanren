@@ -1718,6 +1718,37 @@
 ;; |table-tag           |  ; 1 byte, may also indicate whether this table is sorted/deduped
 ;; |====================| <-- start of footer (we read it backwards), table references point here
 
+;;; Case study: ingesting ~128GB (2^37) on an underpowered laptop:
+;; - assume we build a relation with 8 text attributes where the size of each
+;;   text value averages 16 bytes
+;;   - so each tuple is ~128B (2^7)
+;; - target db file reads of ~256KB (2^18)
+;;   - one row-group
+;;   - assume compression ratio of about 2
+;;     - so this will fit ~512KB (2^19) of input data
+;;     - which is ~4096 (2^12) tuples
+;; - try to fit ingestion process into ~512MB RAM (2^29) ?
+;;   - process ~256MB (2^28) of input data at a time
+;;     - so there will be about 512 (2^9) of these sections
+;;     - and each section will contain about 512 (2^9) row-groups
+;;     - therefore ~256k (2^18) row-groups in total
+;;   - merging sections will need RAM to buffer one row-group per section, plus
+;;     reserve space for incrementally building a new section
+;;     - original section buffers: ~128MB (2^27)
+;;     - new section:
+;;       - data in the next row-group
+;;         - ~512KB (2^19)
+;;       - metadata and zone maps for all row-groups in the new section
+;;         - ~64KB (2^16) + metadata
+;
+;; - try to fit headers and zone maps into ~512MB RAM (2^29) ?
+;;   - entire table contains a zone map with an entry for each section
+;;   - each section contains a zone map with an entry for each row-group
+;;   - each zone map entry is two tuples worth of data (two values per column)
+;;     - ~256B (2^8)
+;;   - so all zone map entries will consume ~64MB (2^26)
+;;   - if we also include start/end tuples in each zone map entry, that doubles the size
+
 ;; TODO: add a TSV file sanity checker
 ;; - print out first few lines
 ;; - compare delimiters across lines
@@ -2061,3 +2092,78 @@
                 (loop.table (cons address table-address*)))))))))
 
 (define build-tsv:lf-table* (build-table*/parser parser:tsv:lf))
+
+;table-enumerator
+;
+;table->tsv
+
+;; TODO: test table building !!!!!
+;; - How should we do this?
+;; - Start with small data and visually spot check
+;; - Then ingest a large TSV file, and stream the result back out
+;;   - Validate the result using the baseline encoders?
+;; - NOTE: we can use an output-string-port
+
+;; TODO: separate construction of individual tables vs. a compound table
+
+;; TODO: representation for compound tables (tables that are the (ordered) union of other tables)
+
+;; TODO: heap-based merge sorting (and dedup) for combining sorted tables into one sorted table
+
+;; TODO: also define a single-table sorter (and optional deduper)
+;; - we would need this if we build an unsorted table that we later want to sort
+
+;; TODO: zone map indexes
+;; - min/max per each column, and a min/max tuple, for the entire segment or row group
+;; - two levels: a single segment and an entire row group's worth of segments
+;;   - were row groups called sections before? look in high-low-level.rkt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
